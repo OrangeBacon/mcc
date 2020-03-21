@@ -11,6 +11,9 @@ set(CFLAGS
 
 add_executable(mcc
     src/main.c
+    src/scanner.c
+    src/file.c
+    src/token.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
