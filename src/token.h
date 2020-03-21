@@ -4,7 +4,7 @@
 #define FOREACH_TOKEN(x) \
     x(IDENTIFIER) x(LEFT_PAREN) x(RIGHT_PAREN) \
     x(LEFT_BRACE) x(RIGHT_BRACE) x(RETURN) \
-    x(NUMBER) x(SEMICOLON) x(INT) \
+    x(INTEGER) x(SEMICOLON) x(INT) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,
