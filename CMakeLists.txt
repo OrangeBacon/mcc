@@ -14,6 +14,7 @@ add_executable(mcc
     src/scanner.c
     src/file.c
     src/token.c
+    src/ast.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
