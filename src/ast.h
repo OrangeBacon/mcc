@@ -2,6 +2,7 @@
 #define AST_H
 
 #include "token.h"
+#include "memory.h"
 
 typedef enum ASTExpressionType {
     AST_EXPRESSION_INTEGER
@@ -23,9 +24,26 @@ typedef struct ASTStatement {
     ASTStatementType type;
 
     union {
-        ASTExpression* ret;
+        ASTExpression* return_;
     } as;
 } ASTStatement;
+
+typedef enum ASTBlockItemType {
+    AST_BLOCK_ITEM_DECLARATION,
+    AST_BLOCK_ITEM_STATEMENT,
+} ASTBlockItemType;
+
+typedef struct ASTBlockItem {
+    ASTBlockItemType type;
+
+    union {
+        ASTStatement statement;
+    } as;
+} ASTBlockItem;
+
+typedef struct ASTCompoundStatement {
+    ARRAY_DEFINE(ASTBlockItem*, item);
+} ASTCompoundStatement;
 
 typedef struct ASTFunctionDefinition {
     Token name;
@@ -36,7 +54,7 @@ typedef struct ASTFunctionDefinition {
 
 typedef enum ASTExternalDeclarationType {
     AST_EXTERNAL_DECLARATION_FUNCTION_DEFINITION,
-    AST_EXTERNAL_DECLARATION_DECLARATION
+    AST_EXTERNAL_DECLARATION_DECLARATION,
 } ASTExternalDeclarationType;
 
 typedef struct ASTExternalDeclaration {
@@ -48,9 +66,7 @@ typedef struct ASTExternalDeclaration {
 } ASTExternalDeclaration;
 
 typedef struct ASTTranslationUnit {
-    unsigned int declarationCount;
-    unsigned int declarationCapacity;
-    ASTExternalDeclaration** declarations;
+    ARRAY_DEFINE(ASTExternalDeclaration*, declaration);
 } ASTTranslationUnit;
 
 void ASTPrint(ASTTranslationUnit* ast);

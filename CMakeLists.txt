@@ -15,6 +15,7 @@ add_executable(mcc
     src/file.c
     src/token.c
     src/ast.c
+    src/memory.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
