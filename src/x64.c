@@ -1,11 +1,16 @@
 #include "x64.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     switch(ast->type) {
-        case AST_EXPRESSION_INTEGER:
-            fprintf(f, "\tpush $%i\n", ast->as.integer.numberValue);
+        case AST_EXPRESSION_CONSTANT:
+            fprintf(f, "\tpush $%i\n", ast->as.constant.integer.numberValue);
+            break;
+        default:
+            printf("Output unspecified");
+            exit(0);
     }
 }
 

@@ -29,6 +29,10 @@ static void errorAt(Parser* parser, Token* loc, const char* message) {
 
 }
 
+static void error(Parser* parser, const char* message) {
+    errorAt(parser, &parser->previous, message);
+}
+
 static void errorAtCurrent(Parser* parser, const char* message) {
     errorAt(parser, &parser->current, message);
 }
@@ -64,18 +68,115 @@ static bool match(Parser* parser, TokenType type) {
     return true;
 }
 
+typedef enum Precidence {
+    PREC_PRIMARY,
+    PREC_POSTFIX,
+    PREC_UNARY,
+    PREC_CAST,
+    PREC_MULTIPLICITIVE,
+    PREC_ADDITIVE,
+    PREC_SHIFT,
+    PREC_RELATION,
+    PREC_EQUALITY,
+    PREC_BITAND,
+    PREC_BITXOR,
+    PREC_BITOR,
+    PREC_LOGICAND,
+    PREC_LOGICOR,
+    PREC_CONDITIONAL,
+    PREC_ASSIGN,
+    PREC_COMMA,
+    PREC_NONE,
+} Precidence;
+
+typedef ASTExpression* (*PrefixFn)(Parser*);
+typedef ASTExpression* (*InfixFn)(Parser*, ASTExpression*);
+
+typedef struct ParseRule {
+    PrefixFn prefix;
+    InfixFn infix;
+    Precidence precidence;
+} ParseRule;
+
+
+static ParseRule* getRule(TokenType type);
+
+static ASTExpression* parsePrecidence(Parser* parser, Precidence precidence) {
+    advance(parser);
+    PrefixFn prefixRule = getRule(parser->previous.type)->prefix;
+    if(prefixRule == NULL) {
+        error(parser, "Expected expression");
+        return NULL;
+    }
+
+    ASTExpression* exp = prefixRule(parser);
+
+    while(precidence <= getRule(parser->current.type)->precidence) {
+        advance(parser);
+        InfixFn infixRule = getRule(parser->previous.type)->infix;
+        exp = infixRule(parser, exp);
+    }
+
+    return exp;
+}
+
+static ASTExpression* ConstantExpression(Parser* parser) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_CONSTANT;
+    ast->as.constant.integer = parser->previous;
+    ast->as.constant.integer.numberValue = strtod(parser->previous.start, NULL);
+    return ast;
+}
+
+static ASTExpression* UnaryExpression(Parser* parser) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_UANRY;
+    ast->as.unary.operator = parser->previous;
+    ast->as.unary.operand = parsePrecidence(parser, PREC_UNARY);
+    return ast;
+}
+
+static ASTExpression* BinaryExpression(Parser* parser, ASTExpression* prev) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_BINARY;
+    ast->as.binary.operator = parser->previous;
+    ast->as.binary.left = prev;
+
+    ParseRule* rule = getRule(ast->as.binary.operator.type);
+    ast->as.binary.right = parsePrecidence(parser, (Precidence)(rule->precidence + 1));
+
+    return ast;
+}
+
+ParseRule rules[] = {
+    [TOKEN_IDENTIFIER] =    {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_LEFT_PAREN] =    {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_RIGHT_PAREN] =   {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_LEFT_BRACE] =    {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_RIGHT_BRACE] =   {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_RETURN] =        {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_INTEGER] =       {ConstantExpression,    NULL,   PREC_NONE},
+    [TOKEN_SEMICOLON] =     {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_INT] =           {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_ERROR] =         {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_EOF] =           {NULL,                  NULL,   PREC_NONE},
+};
+
+static ParseRule* getRule(TokenType type) {
+    (void)BinaryExpression;
+    (void)UnaryExpression;
+    return &rules[type];
+}
+
+static ASTExpression* Expression(Parser* parser) {
+    return parsePrecidence(parser, PREC_COMMA);
+}
+
 #define ASTFN(type) \
     static AST##type* type(Parser* parser) { \
     AST##type* ast = ArenaAlloc(sizeof(*ast));
 #define ASTFN_END() \
     return ast; }
-
-ASTFN(Expression)
-    consume(parser, TOKEN_INTEGER, "Expected integer");
-    ast->type = AST_EXPRESSION_INTEGER;
-    ast->as.integer = parser->previous;
-    ast->as.integer.numberValue = strtod(parser->previous.start, NULL);
-ASTFN_END()
 
 ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {

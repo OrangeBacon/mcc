@@ -11,8 +11,40 @@
 
 #define ASTENUM(ns, name) ns##_##name,
 
+struct ASTExpression;
+
+typedef struct ASTBinaryExpression {
+    Token operator;
+    struct ASTExpression* left;
+    struct ASTExpression* right;
+} ASTBinaryExpression;
+
+typedef struct ASTTernaryExpression {
+    Token operator;
+    Token secondOperator;
+    struct ASTExpression* operand1;
+    struct ASTExpression* operand2;
+    struct ASTExpression* operand3;
+} ASTTernaryExpression;
+
+typedef struct ASTUnaryExpression {
+    Token operator;
+    struct ASTExpression* operand;
+} ASTUnaryExpression;
+
+typedef struct ASTPostfixExpression {
+    Token operator;
+    struct ASTExpression* operand;
+} ASTPostfixExpression;
+
+typedef struct ASTConstantExpression {
+    Token integer;
+} ASTConstantExpression;
+
+
 #define FOREACH_EXPRESSION(x, ns) \
-    x(ns, INTEGER)
+    x(ns, BINARY) x(ns, TERNARY) x(ns, UANRY) \
+    x(ns, POSTFIX) x(ns, CONSTANT)
 typedef enum ASTExpressionType {
     FOREACH_EXPRESSION(ASTENUM, AST_EXPRESSION)
 } ASTExpressionType;
@@ -21,7 +53,11 @@ typedef struct ASTExpression {
     ASTExpressionType type;
 
     union {
-        Token integer;
+        ASTBinaryExpression binary;
+        ASTTernaryExpression ternary;
+        ASTUnaryExpression unary;
+        ASTPostfixExpression postfix;
+        ASTConstantExpression constant;
     } as;
 } ASTExpression;
 

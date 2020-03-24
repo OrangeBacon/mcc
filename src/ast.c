@@ -26,9 +26,40 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
     printf("ASTExpression %s:\n", ASTExpressionTypeNames[ast->type]);
 
     switch(ast->type) {
-        case AST_EXPRESSION_INTEGER:
+        case AST_EXPRESSION_CONSTANT:
             PrintTabs(depth + 1);
-            TokenPrint(&ast->as.integer);
+            TokenPrint(&ast->as.constant.integer);
+            break;
+        case AST_EXPRESSION_TERNARY:
+            PrintTabs(depth + 1);
+            printf("Operator1: ");
+            TokenPrint(&ast->as.ternary.operator);
+            PrintTabs(depth + 1);
+            printf("Operator2: ");
+            TokenPrint(&ast->as.ternary.secondOperator);
+            ASTExpressionPrint(ast->as.ternary.operand1, depth + 1);
+            ASTExpressionPrint(ast->as.ternary.operand2, depth + 1);
+            ASTExpressionPrint(ast->as.ternary.operand3, depth + 1);
+            break;
+        case AST_EXPRESSION_BINARY:
+            PrintTabs(depth + 1);
+            printf("Operator: ");
+            TokenPrint(&ast->as.binary.operator);
+            ASTExpressionPrint(ast->as.binary.left, depth + 1);
+            ASTExpressionPrint(ast->as.binary.right, depth + 1);
+            break;
+        case AST_EXPRESSION_POSTFIX:
+            PrintTabs(depth + 1);
+            printf("Operator: ");
+            TokenPrint(&ast->as.postfix.operator);
+            ASTExpressionPrint(ast->as.postfix.operand, depth + 1);
+            break;
+        case AST_EXPRESSION_UANRY:
+            PrintTabs(depth + 1);
+            printf("Operator: ");
+            TokenPrint(&ast->as.postfix.operator);
+            ASTExpressionPrint(ast->as.postfix.operand, depth + 1);
+            break;
     }
 }
 
@@ -88,4 +119,5 @@ ASTARRAY_PRINT(TranslationUnit, ExternalDeclaration, declaration)
 
 void ASTPrint(ASTTranslationUnit* ast) {
     ASTTranslationUnitPrint(ast, 0);
+    printf("\n");
 }
