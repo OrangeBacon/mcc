@@ -17,6 +17,7 @@ add_executable(mcc
     src/ast.c
     src/memory.c
     src/parser.c
+    src/x64.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})

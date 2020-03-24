@@ -5,6 +5,7 @@
 #include "token.h"
 #include "parser.h"
 #include "memory.h"
+#include "x64.h"
 
 int main(int argc, char** argv) {
     if(argc != 2) {
@@ -25,4 +26,5 @@ int main(int argc, char** argv) {
     ParserRun(&parser);
 
     ASTPrint(parser.ast);
+    x64ASTGen(parser.ast);
 }

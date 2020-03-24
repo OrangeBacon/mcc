@@ -1,3 +1,5 @@
+#define __USE_MINGW_ANSI_STDIO 1
+
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -66,7 +68,7 @@ void* ArenaAllocAlign(size_t size, size_t align) {
         arena.arenaCount++;
         arena.areas = realloc(arena.areas, sizeof(Arena)*arena.arenaCount);
         if(arena.areas == NULL) {
-            printf("Could not expand arena area list from %u to %u",
+            printf("Could not expand arena area list from %zu to %zu",
                 arena.arenaCount-1, arena.arenaCount);
             exit(1);
         }

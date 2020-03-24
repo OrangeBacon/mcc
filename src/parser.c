@@ -1,5 +1,6 @@
 #include "parser.h"
 
+#define __USE_MINGW_ANSI_STDIO 1
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -97,7 +98,7 @@ ASTFN(CompoundStatement)
         //ARRAY_PUSH(*ast, item, BlockItem(parser));
         do {
             if(sizeof(BlockItem(parser)) != (*ast).itemElementSize) {
-                printf("Push to array with incorrect item size (%u), array item " "size is %u at %s:%d\n", sizeof(BlockItem(parser)), (*ast).itemElementSize, "C:\\Users\\Will\\Documents\\repos\\mcc\\src\\parser.c", 97);
+                printf("Push to array with incorrect item size (%zu), array item " "size is %u at %s:%d\n", sizeof(BlockItem(parser)), (*ast).itemElementSize, "C:\\Users\\Will\\Documents\\repos\\mcc\\src\\parser.c", 97);
             }
             if((*ast).itemCount == (*ast).itemCapacity) {
                 (*ast).items = ArenaReAlloc((*ast).items, (*ast).itemElementSize * (*ast).itemCapacity, (*ast).itemElementSize * (*ast).itemCapacity * 2);
