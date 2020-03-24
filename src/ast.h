@@ -37,7 +37,7 @@ typedef struct ASTBlockItem {
     ASTBlockItemType type;
 
     union {
-        ASTStatement statement;
+        ASTStatement* statement;
     } as;
 } ASTBlockItem;
 
@@ -47,9 +47,7 @@ typedef struct ASTCompoundStatement {
 
 typedef struct ASTFunctionDefinition {
     Token name;
-    unsigned int statementCount;
-    unsigned int statementCapacity;
-    ASTStatement** statements;
+    ASTCompoundStatement* statement;
 } ASTFunctionDefinition;
 
 typedef enum ASTExternalDeclarationType {

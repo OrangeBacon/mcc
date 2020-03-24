@@ -63,8 +63,8 @@ void* ArenaReAlloc(void* old_ptr, size_t old_size, size_t new_size);
     do { \
         if(sizeof(value) != (container).name##ElementSize) { \
             printf("Push to array with incorrect item size (%u), array item " \
-                "size is %u", sizeof(value), \
-            (container).name##ElementSize); \
+                "size is %u at %s:%d\n", sizeof(value), \
+            (container).name##ElementSize, __FILE__, __LINE__); \
         } \
         if((container).name##Count == (container).name##Capacity) { \
             (container).name##s = ArenaReAlloc((container).name##s, \
