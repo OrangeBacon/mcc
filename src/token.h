@@ -21,6 +21,9 @@ typedef struct Token {
     int length;
     int line;
     int column;
+    int numberValue;
 } Token;
+
+void TokenPrint(Token* token);
 
 #endif

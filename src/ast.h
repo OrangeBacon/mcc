@@ -4,20 +4,31 @@
 #include "token.h"
 #include "memory.h"
 
+#define ASTARRAY(name, type, arr) \
+    typedef struct AST##name { \
+        ARRAY_DEFINE(AST##type*, arr);\
+    } AST##name
+
+#define ASTENUM(ns, name) ns##_##name,
+
+#define FOREACH_EXPRESSION(x, ns) \
+    x(ns, INTEGER)
 typedef enum ASTExpressionType {
-    AST_EXPRESSION_INTEGER
+    FOREACH_EXPRESSION(ASTENUM, AST_EXPRESSION)
 } ASTExpressionType;
 
 typedef struct ASTExpression {
     ASTExpressionType type;
 
     union {
-        unsigned int integer;
+        Token integer;
     } as;
 } ASTExpression;
 
+#define FOREACH_STATEMENT(x, ns) \
+    x(ns, RETURN)
 typedef enum ASTStatementType {
-    AST_STATEMENT_RETURN
+    FOREACH_STATEMENT(ASTENUM, AST_STATEMENT)
 } ASTStatementType;
 
 typedef struct ASTStatement {
@@ -28,9 +39,10 @@ typedef struct ASTStatement {
     } as;
 } ASTStatement;
 
+#define FOREACH_BLOCKITEM(x, ns) \
+    x(ns, STATEMENT)
 typedef enum ASTBlockItemType {
-    AST_BLOCK_ITEM_DECLARATION,
-    AST_BLOCK_ITEM_STATEMENT,
+    FOREACH_BLOCKITEM(ASTENUM, AST_BLOCK_ITEM)
 } ASTBlockItemType;
 
 typedef struct ASTBlockItem {
@@ -41,18 +53,17 @@ typedef struct ASTBlockItem {
     } as;
 } ASTBlockItem;
 
-typedef struct ASTCompoundStatement {
-    ARRAY_DEFINE(ASTBlockItem*, item);
-} ASTCompoundStatement;
+ASTARRAY(CompoundStatement, BlockItem, item);
 
 typedef struct ASTFunctionDefinition {
     Token name;
     ASTCompoundStatement* statement;
 } ASTFunctionDefinition;
 
+#define FOREACH_EXTERNALDECLARATION(x, ns) \
+    x(ns, FUNCTION_DEFINITION)
 typedef enum ASTExternalDeclarationType {
-    AST_EXTERNAL_DECLARATION_FUNCTION_DEFINITION,
-    AST_EXTERNAL_DECLARATION_DECLARATION,
+    FOREACH_EXTERNALDECLARATION(ASTENUM, AST_EXTERNAL_DECLARATION)
 } ASTExternalDeclarationType;
 
 typedef struct ASTExternalDeclaration {
@@ -63,9 +74,7 @@ typedef struct ASTExternalDeclaration {
     } as;
 } ASTExternalDeclaration;
 
-typedef struct ASTTranslationUnit {
-    ARRAY_DEFINE(ASTExternalDeclaration*, declaration);
-} ASTTranslationUnit;
+ASTARRAY(TranslationUnit, ExternalDeclaration, declaration);
 
 void ASTPrint(ASTTranslationUnit* ast);
 

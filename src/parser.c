@@ -65,21 +65,22 @@ static bool match(Parser* parser, TokenType type) {
 
 #define ASTFN(type) \
     static AST##type* type(Parser* parser) { \
-    AST##type* ast = ArenaAlloc(sizeof(ast));
+    AST##type* ast = ArenaAlloc(sizeof(*ast));
 #define ASTFN_END() \
     return ast; }
 
 ASTFN(Expression)
     consume(parser, TOKEN_INTEGER, "Expected integer");
     ast->type = AST_EXPRESSION_INTEGER;
-    ast->as.integer = strtod(parser->previous.start, NULL);
-    consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    ast->as.integer = parser->previous;
+    ast->as.integer.numberValue = strtod(parser->previous.start, NULL);
 ASTFN_END()
 
 ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {
         ast->type = AST_STATEMENT_RETURN;
         ast->as.return_ = Expression(parser);
+        consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     }
 ASTFN_END()
 
@@ -93,7 +94,19 @@ ASTFN(CompoundStatement)
 
     ARRAY_ALLOC(ASTBlockItem*, *ast, item);
     while(!match(parser, TOKEN_EOF)) {
-        ARRAY_PUSH(*ast, item, BlockItem(parser));
+        //ARRAY_PUSH(*ast, item, BlockItem(parser));
+        do {
+            if(sizeof(BlockItem(parser)) != (*ast).itemElementSize) {
+                printf("Push to array with incorrect item size (%u), array item " "size is %u at %s:%d\n", sizeof(BlockItem(parser)), (*ast).itemElementSize, "C:\\Users\\Will\\Documents\\repos\\mcc\\src\\parser.c", 97);
+            }
+            if((*ast).itemCount == (*ast).itemCapacity) {
+                (*ast).items = ArenaReAlloc((*ast).items, (*ast).itemElementSize * (*ast).itemCapacity, (*ast).itemElementSize * (*ast).itemCapacity * 2);
+                (*ast).itemCapacity *= 2;
+            }
+            ASTBlockItem* b = BlockItem(parser);
+            ast->items[0] = b;
+            (*ast).itemCount++;
+        } while(0);
 
         if(parser->current.type == TOKEN_RIGHT_BRACE) break;
     }
