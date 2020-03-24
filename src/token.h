@@ -5,6 +5,7 @@
     x(IDENTIFIER) x(LEFT_PAREN) x(RIGHT_PAREN) \
     x(LEFT_BRACE) x(RIGHT_BRACE) x(RETURN) \
     x(INTEGER) x(SEMICOLON) x(INT) \
+    x(NEGATE) x(COMPLIMENT) x(NOT) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,

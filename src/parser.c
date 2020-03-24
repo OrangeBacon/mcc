@@ -69,6 +69,7 @@ static bool match(Parser* parser, TokenType type) {
 }
 
 typedef enum Precidence {
+    PREC_NONE,
     PREC_PRIMARY,
     PREC_POSTFIX,
     PREC_UNARY,
@@ -86,7 +87,6 @@ typedef enum Precidence {
     PREC_CONDITIONAL,
     PREC_ASSIGN,
     PREC_COMMA,
-    PREC_NONE,
 } Precidence;
 
 typedef ASTExpression* (*PrefixFn)(Parser*);
@@ -110,7 +110,6 @@ static ASTExpression* parsePrecidence(Parser* parser, Precidence precidence) {
     }
 
     ASTExpression* exp = prefixRule(parser);
-
     while(precidence <= getRule(parser->current.type)->precidence) {
         advance(parser);
         InfixFn infixRule = getRule(parser->previous.type)->infix;
@@ -130,7 +129,7 @@ static ASTExpression* ConstantExpression(Parser* parser) {
 
 static ASTExpression* UnaryExpression(Parser* parser) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
-    ast->type = AST_EXPRESSION_UANRY;
+    ast->type = AST_EXPRESSION_UNARY;
     ast->as.unary.operator = parser->previous;
     ast->as.unary.operand = parsePrecidence(parser, PREC_UNARY);
     return ast;
@@ -158,13 +157,15 @@ ParseRule rules[] = {
     [TOKEN_INTEGER] =       {ConstantExpression,    NULL,   PREC_NONE},
     [TOKEN_SEMICOLON] =     {NULL,                  NULL,   PREC_NONE},
     [TOKEN_INT] =           {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_NEGATE] =        {UnaryExpression,       NULL,   PREC_NONE},
+    [TOKEN_COMPLIMENT] =    {UnaryExpression,       NULL,   PREC_NONE},
+    [TOKEN_NOT] =           {UnaryExpression,       NULL,   PREC_NONE},
     [TOKEN_ERROR] =         {NULL,                  NULL,   PREC_NONE},
     [TOKEN_EOF] =           {NULL,                  NULL,   PREC_NONE},
 };
 
 static ParseRule* getRule(TokenType type) {
     (void)BinaryExpression;
-    (void)UnaryExpression;
     return &rules[type];
 }
 

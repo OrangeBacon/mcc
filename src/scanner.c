@@ -111,7 +111,7 @@ static void number(Scanner* scanner, Token* token) {
     makeToken(scanner, token, TOKEN_INTEGER);
 }
 
-static TokenType checkKeyword(Scanner* scanner, int start, int length, 
+static TokenType checkKeyword(Scanner* scanner, int start, int length,
     const char* rest, TokenType type)
 {
     if(scanner->current - scanner->start == start + length &&
@@ -156,6 +156,9 @@ void ScannerNext(Scanner* scanner, Token* token) {
         case '(': makeToken(scanner, token, TOKEN_LEFT_PAREN); return;
         case ')': makeToken(scanner, token, TOKEN_RIGHT_PAREN); return;
         case ';': makeToken(scanner, token, TOKEN_SEMICOLON); return;
+        case '-': makeToken(scanner, token, TOKEN_NEGATE); return;
+        case '~': makeToken(scanner, token, TOKEN_COMPLIMENT); return;
+        case '!': makeToken(scanner, token, TOKEN_NOT); return;
     }
 
     if(isDigit(c)) {

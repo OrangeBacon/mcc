@@ -29,14 +29,17 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
         case AST_EXPRESSION_CONSTANT:
             PrintTabs(depth + 1);
             TokenPrint(&ast->as.constant.integer);
+            printf("\n");
             break;
         case AST_EXPRESSION_TERNARY:
             PrintTabs(depth + 1);
             printf("Operator1: ");
             TokenPrint(&ast->as.ternary.operator);
+            printf("\n");
             PrintTabs(depth + 1);
             printf("Operator2: ");
             TokenPrint(&ast->as.ternary.secondOperator);
+            printf("\n");
             ASTExpressionPrint(ast->as.ternary.operand1, depth + 1);
             ASTExpressionPrint(ast->as.ternary.operand2, depth + 1);
             ASTExpressionPrint(ast->as.ternary.operand3, depth + 1);
@@ -45,6 +48,7 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             PrintTabs(depth + 1);
             printf("Operator: ");
             TokenPrint(&ast->as.binary.operator);
+            printf("\n");
             ASTExpressionPrint(ast->as.binary.left, depth + 1);
             ASTExpressionPrint(ast->as.binary.right, depth + 1);
             break;
@@ -52,12 +56,14 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             PrintTabs(depth + 1);
             printf("Operator: ");
             TokenPrint(&ast->as.postfix.operator);
+            printf("\n");
             ASTExpressionPrint(ast->as.postfix.operand, depth + 1);
             break;
-        case AST_EXPRESSION_UANRY:
+        case AST_EXPRESSION_UNARY:
             PrintTabs(depth + 1);
             printf("Operator: ");
             TokenPrint(&ast->as.postfix.operator);
+            printf("\n");
             ASTExpressionPrint(ast->as.postfix.operand, depth + 1);
             break;
     }

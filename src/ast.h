@@ -43,7 +43,7 @@ typedef struct ASTConstantExpression {
 
 
 #define FOREACH_EXPRESSION(x, ns) \
-    x(ns, BINARY) x(ns, TERNARY) x(ns, UANRY) \
+    x(ns, BINARY) x(ns, TERNARY) x(ns, UNARY) \
     x(ns, POSTFIX) x(ns, CONSTANT)
 typedef enum ASTExpressionType {
     FOREACH_EXPRESSION(ASTENUM, AST_EXPRESSION)

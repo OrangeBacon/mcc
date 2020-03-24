@@ -3,10 +3,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static void x64ASTGenExpression(ASTExpression* ast, FILE* f);
+
+static void x64ASTGenUnary(ASTUnaryExpression* ast, FILE* f) {
+    switch(ast->operator.type) {
+        case TOKEN_NOT:
+            x64ASTGenExpression(ast->operand, f);
+            fprintf(f, "\tpop %%rax\n"
+                       "\tcmp $0, %%rax\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsete %%al\n"
+                       "\tpush %%rax\n");
+            break;
+        case TOKEN_NEGATE:
+            x64ASTGenExpression(ast->operand, f);
+            fprintf(f, "\tpop %%rax\n"
+                       "\tneg %%rax\n"
+                       "\tpush %%rax\n");
+            break;
+        case TOKEN_COMPLIMENT:
+            x64ASTGenExpression(ast->operand, f);
+            fprintf(f, "\tpop %%rax\n"
+                       "\tnot %%rax\n"
+                       "\tpush %%rax\n");
+            break;
+        default:
+            printf("x64 unreachable unary");
+            exit(0);
+    }
+}
+
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
             fprintf(f, "\tpush $%i\n", ast->as.constant.integer.numberValue);
+            break;
+        case AST_EXPRESSION_UNARY:
+            x64ASTGenUnary(&ast->as.unary, f);
             break;
         default:
             printf("Output unspecified");
