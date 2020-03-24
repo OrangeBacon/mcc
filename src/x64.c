@@ -5,30 +5,61 @@
 
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f);
 
+static void x64ASTGenBinary(ASTBinaryExpression* ast, FILE* f) {
+    switch(ast->operator.type) {
+        case TOKEN_PLUS:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tadd %%rcx, %%rax\n");
+            break;
+        case TOKEN_NEGATE:
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tsub %%rcx, %%rax\n");
+            break;
+        case TOKEN_STAR:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\timul %%rcx, %%rax\n");
+            break;
+        case TOKEN_SLASH:
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcqo\n"
+                       "\tidiv %%rcx\n");
+            break;
+        default:
+            printf("x64 unreachable binary\n");
+            exit(0);
+    }
+}
+
 static void x64ASTGenUnary(ASTUnaryExpression* ast, FILE* f) {
     switch(ast->operator.type) {
         case TOKEN_NOT:
             x64ASTGenExpression(ast->operand, f);
-            fprintf(f, "\tpop %%rax\n"
-                       "\tcmp $0, %%rax\n"
+            fprintf(f, "\tcmp $0, %%rax\n"
                        "\tmov $0, %%rax\n"
-                       "\tsete %%al\n"
-                       "\tpush %%rax\n");
+                       "\tsete %%al\n");
             break;
         case TOKEN_NEGATE:
             x64ASTGenExpression(ast->operand, f);
-            fprintf(f, "\tpop %%rax\n"
-                       "\tneg %%rax\n"
-                       "\tpush %%rax\n");
+            fprintf(f, "\tneg %%rax\n");
             break;
         case TOKEN_COMPLIMENT:
             x64ASTGenExpression(ast->operand, f);
-            fprintf(f, "\tpop %%rax\n"
-                       "\tnot %%rax\n"
-                       "\tpush %%rax\n");
+            fprintf(f, "\tnot %%rax\n");
             break;
         default:
-            printf("x64 unreachable unary");
+            printf("x64 unreachable unary\n");
             exit(0);
     }
 }
@@ -36,13 +67,16 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, FILE* f) {
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
-            fprintf(f, "\tpush $%i\n", ast->as.constant.integer.numberValue);
+            fprintf(f, "\tmov $%i, %%rax\n", ast->as.constant.integer.numberValue);
             break;
         case AST_EXPRESSION_UNARY:
             x64ASTGenUnary(&ast->as.unary, f);
             break;
+        case AST_EXPRESSION_BINARY:
+            x64ASTGenBinary(&ast->as.binary, f);
+            break;
         default:
-            printf("Output unspecified");
+            printf("Output unspecified\n");
             exit(0);
     }
 }
@@ -51,7 +85,7 @@ static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
     switch(ast->type) {
         case AST_STATEMENT_RETURN:
             x64ASTGenExpression(ast->as.return_, f);
-            fprintf(f, "\tpop %%rax\n\tret\n\n");
+            fprintf(f, "\tret\n\n");
     }
 }
 

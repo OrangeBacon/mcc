@@ -70,23 +70,23 @@ static bool match(Parser* parser, TokenType type) {
 
 typedef enum Precidence {
     PREC_NONE,
-    PREC_PRIMARY,
-    PREC_POSTFIX,
-    PREC_UNARY,
-    PREC_CAST,
-    PREC_MULTIPLICITIVE,
-    PREC_ADDITIVE,
-    PREC_SHIFT,
-    PREC_RELATION,
-    PREC_EQUALITY,
-    PREC_BITAND,
-    PREC_BITXOR,
-    PREC_BITOR,
-    PREC_LOGICAND,
-    PREC_LOGICOR,
-    PREC_CONDITIONAL,
-    PREC_ASSIGN,
     PREC_COMMA,
+    PREC_ASSIGN,
+    PREC_CONDITIONAL,
+    PREC_LOGICOR,
+    PREC_LOGICAND,
+    PREC_BITOR,
+    PREC_BITXOR,
+    PREC_BITAND,
+    PREC_EQUALITY,
+    PREC_RELATION,
+    PREC_SHIFT,
+    PREC_ADDITIVE,
+    PREC_MULTIPLICITIVE,
+    PREC_CAST,
+    PREC_UNARY,
+    PREC_POSTFIX,
+    PREC_PRIMARY,
 } Precidence;
 
 typedef ASTExpression* (*PrefixFn)(Parser*);
@@ -119,7 +119,17 @@ static ASTExpression* parsePrecidence(Parser* parser, Precidence precidence) {
     return exp;
 }
 
-static ASTExpression* ConstantExpression(Parser* parser) {
+static ASTExpression* Expression(Parser* parser) {
+    return parsePrecidence(parser, PREC_COMMA);
+}
+
+static ASTExpression* Grouping(Parser* parser) {
+    ASTExpression* ast = Expression(parser);
+    consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    return ast;
+}
+
+static ASTExpression* Constant(Parser* parser) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_CONSTANT;
     ast->as.constant.integer = parser->previous;
@@ -127,7 +137,7 @@ static ASTExpression* ConstantExpression(Parser* parser) {
     return ast;
 }
 
-static ASTExpression* UnaryExpression(Parser* parser) {
+static ASTExpression* Unary(Parser* parser) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_UNARY;
     ast->as.unary.operator = parser->previous;
@@ -135,7 +145,7 @@ static ASTExpression* UnaryExpression(Parser* parser) {
     return ast;
 }
 
-static ASTExpression* BinaryExpression(Parser* parser, ASTExpression* prev) {
+static ASTExpression* Binary(Parser* parser, ASTExpression* prev) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_BINARY;
     ast->as.binary.operator = parser->previous;
@@ -148,29 +158,27 @@ static ASTExpression* BinaryExpression(Parser* parser, ASTExpression* prev) {
 }
 
 ParseRule rules[] = {
-    [TOKEN_IDENTIFIER] =    {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_LEFT_PAREN] =    {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_RIGHT_PAREN] =   {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_LEFT_BRACE] =    {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_RIGHT_BRACE] =   {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_RETURN] =        {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_INTEGER] =       {ConstantExpression,    NULL,   PREC_NONE},
-    [TOKEN_SEMICOLON] =     {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_INT] =           {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_NEGATE] =        {UnaryExpression,       NULL,   PREC_NONE},
-    [TOKEN_COMPLIMENT] =    {UnaryExpression,       NULL,   PREC_NONE},
-    [TOKEN_NOT] =           {UnaryExpression,       NULL,   PREC_NONE},
-    [TOKEN_ERROR] =         {NULL,                  NULL,   PREC_NONE},
-    [TOKEN_EOF] =           {NULL,                  NULL,   PREC_NONE},
+    [TOKEN_IDENTIFIER] =  { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_LEFT_PAREN] =  { Grouping, NULL,   PREC_NONE           },
+    [TOKEN_RIGHT_PAREN] = { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_LEFT_BRACE] =  { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_RIGHT_BRACE] = { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_RETURN] =      { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_INTEGER] =     { Constant, NULL,   PREC_NONE           },
+    [TOKEN_SEMICOLON] =   { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_INT] =         { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_NEGATE] =      { Unary,    Binary, PREC_ADDITIVE       },
+    [TOKEN_COMPLIMENT] =  { Unary,    NULL,   PREC_NONE           },
+    [TOKEN_NOT] =         { Unary,    NULL,   PREC_NONE           },
+    [TOKEN_PLUS] =        { NULL,     Binary, PREC_ADDITIVE       },
+    [TOKEN_STAR] =        { NULL,     Binary, PREC_MULTIPLICITIVE },
+    [TOKEN_SLASH] =       { NULL,     Binary, PREC_MULTIPLICITIVE },
+    [TOKEN_ERROR] =       { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_EOF] =         { NULL,     NULL,   PREC_NONE           },
 };
 
 static ParseRule* getRule(TokenType type) {
-    (void)BinaryExpression;
     return &rules[type];
-}
-
-static ASTExpression* Expression(Parser* parser) {
-    return parsePrecidence(parser, PREC_COMMA);
 }
 
 #define ASTFN(type) \

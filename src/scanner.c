@@ -159,6 +159,9 @@ void ScannerNext(Scanner* scanner, Token* token) {
         case '-': makeToken(scanner, token, TOKEN_NEGATE); return;
         case '~': makeToken(scanner, token, TOKEN_COMPLIMENT); return;
         case '!': makeToken(scanner, token, TOKEN_NOT); return;
+        case '+': makeToken(scanner, token, TOKEN_PLUS); return;
+        case '*': makeToken(scanner, token, TOKEN_STAR); return;
+        case '/': makeToken(scanner, token, TOKEN_SLASH); return;
     }
 
     if(isDigit(c)) {
