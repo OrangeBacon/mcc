@@ -10,7 +10,8 @@
     x(AND_AND) x(OR_OR) x(EQUAL_EQUAL) \
     x(NOT_EQUAL) x(LESS) x(LESS_EQUAL) \
     x(GREATER) x(GREATER_EQUAL) x(AND) \
-    x(OR) x(EQUAL) \
+    x(OR) x(EQUAL) x(PERCENT) \
+    x(SHIFT_LEFT) x(SHIFT_RIGHT) x(XOR) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,

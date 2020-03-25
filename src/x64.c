@@ -124,6 +124,50 @@ static void x64ASTGenBinary(ASTBinaryExpression* ast, FILE* f) {
                        "\tsetne %%al\n"
                        "_%u:\n", end);
         }; break;
+        case TOKEN_OR:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tor %%rcx, %%rax\n");
+            break;
+        case TOKEN_AND:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tand %%rcx, %%rax\n");
+            break;
+        case TOKEN_PERCENT:
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcqo\n"
+                       "\tidiv %%rcx\n"
+                       "\tmov %%rdx, %%rax\n");
+            break;
+        case TOKEN_XOR:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\txor %%rcx, %%rax\n");
+            break;
+        case TOKEN_SHIFT_LEFT:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tsal %%cl, %%rax\n");
+            break;
+        case TOKEN_SHIFT_RIGHT:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tsar %%cl, %%rax\n");
+            break;
         default:
             printf("x64 unreachable binary\n");
             exit(0);
