@@ -20,6 +20,9 @@ static void PrintTabs(int depth) {
 static char* ASTExpressionTypeNames[] = {
     FOREACH_EXPRESSION(ASTSTRARRAY, 0)
 };
+static char* ASTConstantExpressionTypeNames[] = {
+    FOREACH_CONSTANTEXPRESSION(ASTSTRARRAY, 0)
+};
 
 static void ASTExpressionPrint(ASTExpression* ast, int depth) {
     PrintTabs(depth);
@@ -28,7 +31,8 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
             PrintTabs(depth + 1);
-            TokenPrint(&ast->as.constant.integer);
+            printf("%s: ", ASTConstantExpressionTypeNames[ast->as.constant.type]);
+            TokenPrint(&ast->as.constant.tok);
             printf("\n");
             break;
         case AST_EXPRESSION_TERNARY:
@@ -109,7 +113,7 @@ ASTARRAY_PRINT(InitDeclaratorList, InitDeclarator, declarator)
 static void ASTDeclarationPrint(ASTDeclaration* ast, int depth) {
     PrintTabs(depth);
     printf("ASTDeclaration:\n");
-    ASTInitDeclaratorListPrint(ast->declarators, depth + 1);
+    ASTInitDeclaratorListPrint(&ast->declarators, depth + 1);
 }
 
 static char* ASTBlockItemTypeNames[] = {

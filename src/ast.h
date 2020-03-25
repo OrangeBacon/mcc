@@ -37,8 +37,16 @@ typedef struct ASTPostfixExpression {
     struct ASTExpression* operand;
 } ASTPostfixExpression;
 
+#define FOREACH_CONSTANTEXPRESSION(x, ns) \
+    x(ns, INTEGER) x(ns, VARIABLE)
+typedef enum ASTConstantExpressionType {
+    FOREACH_CONSTANTEXPRESSION(ASTENUM, AST_CONSTANT_EXPRESSION)
+} ASTConstantExpressionType;
+
 typedef struct ASTConstantExpression {
-    Token integer;
+    ASTConstantExpressionType type;
+    Token tok;
+    int stackDepth;
 } ASTConstantExpression;
 
 
@@ -92,7 +100,7 @@ typedef struct ASTInitDeclarator {
 ASTARRAY(InitDeclaratorList, InitDeclarator, declarator);
 
 typedef struct ASTDeclaration {
-    ASTInitDeclaratorList* declarators;
+    ASTInitDeclaratorList declarators;
 } ASTDeclaration;
 
 #define FOREACH_BLOCKITEM(x, ns) \

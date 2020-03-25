@@ -172,6 +172,7 @@ void ScannerNext(Scanner* scanner, Token* token) {
         case '/': makeToken(scanner, token, TOKEN_SLASH); return;
         case '^': makeToken(scanner, token, TOKEN_XOR); return;
         case '%': makeToken(scanner, token, TOKEN_PERCENT); return;
+        case ',': makeToken(scanner, token, TOKEN_COMMA); return;
 
         case '!': makeToken(scanner, token, match(scanner, '=')?
             TOKEN_NOT_EQUAL:TOKEN_NOT); return;

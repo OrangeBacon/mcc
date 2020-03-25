@@ -1,6 +1,6 @@
 #include "symbolTable.h"
 
-static uint32_t stringHash(char* str, unsigned int length) {
+static uint32_t stringHash(const char* str, unsigned int length) {
     uint32_t hash = 2166126261u;
 
     for(size_t i = 0; i < length; i++) {
@@ -19,7 +19,7 @@ void SymbolTableInit(SymbolTable* table) {
 // Add a new local variable to the current scope
 // output only valid while no more locals added to the table as this function
 // could change the location of the symbol table in memory when it is extended
-SymbolLocal* SymbolTableAddLocal(SymbolTable* table, char* name, unsigned int length) {
+SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned int length) {
 
     // check for repeat definitions
     SymbolLocal* local = SymbolTableGetLocal(table, name, length);
@@ -44,10 +44,10 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, char* name, unsigned int le
     return ret;
 }
 
-SymbolLocal* SymbolTableGetLocal(SymbolTable* table, char* name, unsigned int length) {
+SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned int length) {
     uint32_t hash = stringHash(name, length);
 
-    for(unsigned int i = table->localCount - 1; i >= 0; i--) {
+    for(int i = table->localCount - 1; i >= 0; i--) {
         if(table->locals[i].length == length && table->locals[i].hash == hash) {
             return &table->locals[i];
         }

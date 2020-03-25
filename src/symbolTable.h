@@ -5,11 +5,11 @@
 #include "memory.h"
 
 typedef struct SymbolLocal {
-    char* name;
+    const char* name;
     unsigned int length;
     uint32_t hash;
     unsigned int scopeDepth;
-    unsigned int stackOffset;
+    int stackOffset;
 } SymbolLocal;
 
 typedef struct SymbolTable {
@@ -19,9 +19,9 @@ typedef struct SymbolTable {
 
 void SymbolTableInit(SymbolTable* table);
 
-SymbolLocal* SymbolTableAddLocal(SymbolTable* table);
+SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned int length);
 
-SymbolLocal* SymbolTableGetLocal(SymbolTable* table, char* name, unsigned int length);
+SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned int length);
 
 void SymbolTableEnter(SymbolTable* table);
 

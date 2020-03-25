@@ -8,13 +8,14 @@ void ParserInit(Parser* parser, Scanner* scanner) {
     parser->scanner = scanner;
     parser->panicMode = false;
     parser->hadError = false;
+    SymbolTableInit(&parser->locals);
 }
 
 static void errorAt(Parser* parser, Token* loc, const char* message) {
     if(parser->panicMode) return;
     parser->panicMode = true;
 
-    fprintf(stderr, "[%d:%d] Error: ", loc->line, loc->column);
+    fprintf(stderr, "[%d:%d] Error", loc->line, loc->column);
 
     if (loc->type == TOKEN_EOF) {
         fprintf(stderr, " at end");
@@ -123,6 +124,23 @@ static ASTExpression* Expression(Parser* parser) {
     return parsePrecidence(parser, PREC_COMMA);
 }
 
+static ASTExpression* Variable(Parser* parser) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_CONSTANT;
+    ast->as.constant.type = AST_CONSTANT_EXPRESSION_VARIABLE;
+    ast->as.constant.tok = parser->previous;
+
+    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
+        parser->previous.start, parser->previous.length);
+    if(local == NULL) {
+        error(parser, "Variable name not declared");
+        return ast;
+    }
+    ast->as.constant.stackDepth = local->stackOffset;
+
+    return ast;
+}
+
 static ASTExpression* Grouping(Parser* parser) {
     ASTExpression* ast = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
@@ -132,8 +150,9 @@ static ASTExpression* Grouping(Parser* parser) {
 static ASTExpression* Constant(Parser* parser) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_CONSTANT;
-    ast->as.constant.integer = parser->previous;
-    ast->as.constant.integer.numberValue = strtod(parser->previous.start, NULL);
+    ast->as.constant.type = AST_CONSTANT_EXPRESSION_INTEGER;
+    ast->as.constant.tok = parser->previous;
+    ast->as.constant.tok.numberValue = strtod(parser->previous.start, NULL);
     return ast;
 }
 
@@ -158,7 +177,7 @@ static ASTExpression* Binary(Parser* parser, ASTExpression* prev) {
 }
 
 ParseRule rules[] = {
-    [TOKEN_IDENTIFIER] =    { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_IDENTIFIER] =    { Variable, NULL,   PREC_NONE           },
     [TOKEN_LEFT_PAREN] =    { Grouping, NULL,   PREC_NONE           },
     [TOKEN_RIGHT_PAREN] =   { NULL,     NULL,   PREC_NONE           },
     [TOKEN_LEFT_BRACE] =    { NULL,     NULL,   PREC_NONE           },
@@ -202,6 +221,38 @@ static ParseRule* getRule(TokenType type) {
 #define ASTFN_END() \
     return ast; }
 
+ASTFN(InitDeclarator)
+    consume(parser, TOKEN_IDENTIFIER, "Expected variable name");
+    ast->declarator = parser->previous;
+    SymbolLocal* local = SymbolTableAddLocal(&parser->locals,
+        ast->declarator.start, ast->declarator.length);
+    if(local == NULL) {
+        error(parser, "Cannot re-declare variable in same scope");
+        return NULL;
+    }
+    local->stackOffset = parser->stackIndex;
+    parser->stackIndex -= 8;
+
+    if(match(parser, TOKEN_EQUAL)) {
+        ast->type = AST_INIT_DECLARATOR_INITIALIZE;
+        ast->initializer = parsePrecidence(parser, PREC_ASSIGN);
+    } else {
+        ast->type = AST_INIT_DECLARATOR_NO_INITIALIZE;
+    }
+ASTFN_END()
+
+ASTFN(Declaration)
+    ARRAY_ALLOC(ASTInitDeclarator*, ast->declarators, declarator);
+
+    while(!match(parser, TOKEN_EOF)) {
+        if(!check(parser, TOKEN_IDENTIFIER)) break;
+        ARRAY_PUSH(ast->declarators, declarator, InitDeclarator(parser));
+        if(!match(parser, TOKEN_COMMA)) break;
+    }
+
+    consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+ASTFN_END()
+
 ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {
         ast->type = AST_STATEMENT_RETURN;
@@ -211,33 +262,27 @@ ASTFN(Statement)
 ASTFN_END()
 
 ASTFN(BlockItem)
-    ast->type = AST_BLOCK_ITEM_STATEMENT;
-    ast->as.statement = Statement(parser);
+    if(match(parser, TOKEN_INT)) {
+        ast->type = AST_BLOCK_ITEM_DECLARATION;
+        ast->as.declaration = Declaration(parser);
+    } else {
+        ast->type = AST_BLOCK_ITEM_STATEMENT;
+        ast->as.statement = Statement(parser);
+    }
 ASTFN_END()
 
 ASTFN(CompoundStatement)
+    SymbolTableEnter(&parser->locals);
     consume(parser, TOKEN_LEFT_BRACE, "Expected '{'");
 
     ARRAY_ALLOC(ASTBlockItem*, *ast, item);
     while(!match(parser, TOKEN_EOF)) {
-        //ARRAY_PUSH(*ast, item, BlockItem(parser));
-        do {
-            if(sizeof(BlockItem(parser)) != (*ast).itemElementSize) {
-                printf("Push to array with incorrect item size (%zu), array item " "size is %u at %s:%d\n", sizeof(BlockItem(parser)), (*ast).itemElementSize, "C:\\Users\\Will\\Documents\\repos\\mcc\\src\\parser.c", 97);
-            }
-            if((*ast).itemCount == (*ast).itemCapacity) {
-                (*ast).items = ArenaReAlloc((*ast).items, (*ast).itemElementSize * (*ast).itemCapacity, (*ast).itemElementSize * (*ast).itemCapacity * 2);
-                (*ast).itemCapacity *= 2;
-            }
-            ASTBlockItem* b = BlockItem(parser);
-            ast->items[0] = b;
-            (*ast).itemCount++;
-        } while(0);
-
+        ARRAY_PUSH(*ast, item, BlockItem(parser));
         if(parser->current.type == TOKEN_RIGHT_BRACE) break;
     }
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expected '}");
+    SymbolTableExit(&parser->locals);
 ASTFN_END()
 
 ASTFN(FunctionDefinition)
@@ -245,6 +290,7 @@ ASTFN(FunctionDefinition)
     ast->name = parser->previous;
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    parser->stackIndex = -8;
     ast->statement = CompoundStatement(parser);
 ASTFN_END()
 
@@ -267,5 +313,6 @@ bool ParserRun(Parser* parser) {
     advance(parser);
 
     parser->ast = TranslationUnit(parser);
+
     return !parser->hadError;
 }

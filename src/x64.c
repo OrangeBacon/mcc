@@ -196,10 +196,21 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, FILE* f) {
     }
 }
 
+static void x64ASTGenConstant(ASTConstantExpression* ast, FILE* f) {
+    switch(ast->type) {
+        case AST_CONSTANT_EXPRESSION_VARIABLE: {
+            fprintf(f, "\tmov %d(%%rbp), %%rax\n", ast->stackDepth);
+        }; break;
+        case AST_CONSTANT_EXPRESSION_INTEGER:
+            fprintf(f, "\tmov $%i, %%rax\n", ast->tok.numberValue);
+            break;
+    }
+}
+
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
-            fprintf(f, "\tmov $%i, %%rax\n", ast->as.constant.integer.numberValue);
+            x64ASTGenConstant(&ast->as.constant, f);
             break;
         case AST_EXPRESSION_UNARY:
             x64ASTGenUnary(&ast->as.unary, f);
@@ -217,11 +228,25 @@ static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
     switch(ast->type) {
         case AST_STATEMENT_RETURN:
             x64ASTGenExpression(ast->as.return_, f);
-            fprintf(f, "\tret\n\n");
+            fprintf(f, "\tmov %%rbp, %%rsp\n"
+                       "\tpop %%rbp\n"
+                       "\tret\n\n");
             break;
         case AST_STATEMENT_EXPRESSION:
             x64ASTGenExpression(ast->as.expression, f);
             break;
+    }
+}
+
+static void x64ASTGenDeclaration(ASTDeclaration* ast, FILE* f) {
+    for(unsigned int i = 0; i < ast->declarators.declaratorCount; i++) {
+        ASTInitDeclarator* a = ast->declarators.declarators[i];
+        if(a->type == AST_INIT_DECLARATOR_INITIALIZE) {
+            x64ASTGenExpression(a->initializer, f);
+        } else {
+            fprintf(f, "\tmov $0xcafebabe, %%rax\n");
+        }
+        fprintf(f, "\tpush %%rax\n");
     }
 }
 
@@ -230,9 +255,9 @@ static void x64ASTGenBlockItem(ASTBlockItem* ast, FILE* f) {
         case AST_BLOCK_ITEM_STATEMENT:
             x64ASTGenStatement(ast->as.statement, f);
             break;
-        default:
-            printf("Block item type error\n");
-            exit(0);
+        case AST_BLOCK_ITEM_DECLARATION:
+            x64ASTGenDeclaration(ast->as.declaration, f);
+            break;
     }
 }
 
@@ -244,8 +269,19 @@ static void x64ASTGenCompoundStatement(ASTCompoundStatement* ast, FILE* f) {
 
 static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, FILE* f) {
     fprintf(f, ".globl %.*s\n", ast->name.length, ast->name.start);
-    fprintf(f, "%.*s:\n", ast->name.length, ast->name.start);
-    x64ASTGenCompoundStatement(ast->statement, f);
+    fprintf(f, "%.*s:\n"
+               "\tpush %%rbp\n"
+               "\tmov %%rsp, %%rbp\n", ast->name.length, ast->name.start);
+
+    ASTCompoundStatement* s = ast->statement;
+    x64ASTGenCompoundStatement(s, f);
+    if(s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT &&
+       s->items[s->itemCount - 1]->as.statement->type != AST_STATEMENT_RETURN) {
+        fprintf(f, "\tmov $0, %%rax\n"
+                   "\tmov %%rbp, %%rsp\n"
+                   "\tpop %%rbp\n"
+                   "\tret\n\n");
+    }
 }
 
 static void x64ASTGenExternalDeclaration(ASTExternalDeclaration* ast, FILE* f) {
