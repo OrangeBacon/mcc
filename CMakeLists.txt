@@ -18,6 +18,7 @@ add_executable(mcc
     src/memory.c
     src/parser.c
     src/x64.c
+    src/symbolTable.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
