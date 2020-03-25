@@ -62,7 +62,7 @@ typedef struct ASTExpression {
 } ASTExpression;
 
 #define FOREACH_STATEMENT(x, ns) \
-    x(ns, RETURN)
+    x(ns, RETURN) x(ns, EXPRESSION)
 typedef enum ASTStatementType {
     FOREACH_STATEMENT(ASTENUM, AST_STATEMENT)
 } ASTStatementType;
@@ -72,11 +72,31 @@ typedef struct ASTStatement {
 
     union {
         ASTExpression* return_;
+        ASTExpression* expression;
     } as;
 } ASTStatement;
 
+#define FOREACH_INITDECLARATOR(x, ns) \
+    x(ns, INITIALIZE) x(ns, NO_INITIALIZE)
+typedef enum ASTInitDeclaratorType {
+    FOREACH_INITDECLARATOR(ASTENUM, AST_INIT_DECLARATOR)
+} ASTInitDeclaratorType;
+
+typedef struct ASTInitDeclarator {
+    ASTInitDeclaratorType type;
+
+    Token declarator;
+    ASTExpression* initializer;
+} ASTInitDeclarator;
+
+ASTARRAY(InitDeclaratorList, InitDeclarator, declarator);
+
+typedef struct ASTDeclaration {
+    ASTInitDeclaratorList* declarators;
+} ASTDeclaration;
+
 #define FOREACH_BLOCKITEM(x, ns) \
-    x(ns, STATEMENT)
+    x(ns, STATEMENT) x(ns, DECLARATION)
 typedef enum ASTBlockItemType {
     FOREACH_BLOCKITEM(ASTENUM, AST_BLOCK_ITEM)
 } ASTBlockItemType;
@@ -86,6 +106,7 @@ typedef struct ASTBlockItem {
 
     union {
         ASTStatement* statement;
+        ASTDeclaration* declaration;
     } as;
 } ASTBlockItem;
 

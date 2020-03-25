@@ -218,6 +218,10 @@ static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
         case AST_STATEMENT_RETURN:
             x64ASTGenExpression(ast->as.return_, f);
             fprintf(f, "\tret\n\n");
+            break;
+        case AST_STATEMENT_EXPRESSION:
+            x64ASTGenExpression(ast->as.expression, f);
+            break;
     }
 }
 
@@ -225,6 +229,10 @@ static void x64ASTGenBlockItem(ASTBlockItem* ast, FILE* f) {
     switch(ast->type) {
         case AST_BLOCK_ITEM_STATEMENT:
             x64ASTGenStatement(ast->as.statement, f);
+            break;
+        default:
+            printf("Block item type error\n");
+            exit(0);
     }
 }
 

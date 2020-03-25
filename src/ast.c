@@ -80,7 +80,36 @@ static void ASTStatementPrint(ASTStatement* ast, int depth) {
     switch(ast->type) {
         case AST_STATEMENT_RETURN:
             ASTExpressionPrint(ast->as.return_, depth + 1);
+            break;
+        case AST_STATEMENT_EXPRESSION:
+            ASTExpressionPrint(ast->as.expression, depth + 1);
+            break;
     }
+}
+
+static char* ASTInitDeclaratorTypeNames[] = {
+    FOREACH_INITDECLARATOR(ASTSTRARRAY, 0)
+};
+
+static void ASTInitDeclaratorPrint(ASTInitDeclarator* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTInitDeclarator %s:\n", ASTInitDeclaratorTypeNames[ast->type]);
+    PrintTabs(depth + 1);
+    printf("Identifier: ");
+    TokenPrint(&ast->declarator);
+    printf("\n");
+
+    if(ast->type == AST_INIT_DECLARATOR_INITIALIZE) {
+        ASTExpressionPrint(ast->initializer, depth + 1);
+    }
+}
+
+ASTARRAY_PRINT(InitDeclaratorList, InitDeclarator, declarator)
+
+static void ASTDeclarationPrint(ASTDeclaration* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTDeclaration:\n");
+    ASTInitDeclaratorListPrint(ast->declarators, depth + 1);
 }
 
 static char* ASTBlockItemTypeNames[] = {
@@ -94,6 +123,10 @@ static void ASTBlockItemPrint(ASTBlockItem* ast, int depth) {
     switch(ast->type) {
         case AST_BLOCK_ITEM_STATEMENT:
             ASTStatementPrint(ast->as.statement, depth + 1);
+            break;
+        case AST_BLOCK_ITEM_DECLARATION:
+            ASTDeclarationPrint(ast->as.declaration, depth + 1);
+            break;
     }
 }
 
