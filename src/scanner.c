@@ -49,6 +49,15 @@ static char peekNext(Scanner* scanner) {
     return scanner->current[1];
 }
 
+static bool match(Scanner* scanner, char expected) {
+    if(isAtEnd(scanner)) return false;
+    if(*scanner->current != expected) return false;
+
+    scanner->current++;
+    scanner->column++;
+    return true;
+}
+
 static bool isDigit(char c) {
     return c >= '0' && c <= '9';
 }
@@ -158,10 +167,22 @@ void ScannerNext(Scanner* scanner, Token* token) {
         case ';': makeToken(scanner, token, TOKEN_SEMICOLON); return;
         case '-': makeToken(scanner, token, TOKEN_NEGATE); return;
         case '~': makeToken(scanner, token, TOKEN_COMPLIMENT); return;
-        case '!': makeToken(scanner, token, TOKEN_NOT); return;
         case '+': makeToken(scanner, token, TOKEN_PLUS); return;
         case '*': makeToken(scanner, token, TOKEN_STAR); return;
         case '/': makeToken(scanner, token, TOKEN_SLASH); return;
+
+        case '!': makeToken(scanner, token, match(scanner, '=')?
+            TOKEN_NOT_EQUAL:TOKEN_NOT); return;
+        case '&': makeToken(scanner, token, match(scanner, '&')?
+            TOKEN_AND_AND:TOKEN_AND); return;
+        case '|': makeToken(scanner, token, match(scanner, '|')?
+            TOKEN_OR_OR:TOKEN_OR); return;
+        case '=': makeToken(scanner, token, match(scanner, '=')?
+            TOKEN_EQUAL_EQUAL:TOKEN_EQUAL); return;
+        case '<': makeToken(scanner, token, match(scanner, '=')?
+            TOKEN_LESS_EQUAL:TOKEN_LESS); return;
+        case '>': makeToken(scanner, token, match(scanner, '=')?
+            TOKEN_GREATER_EQUAL:TOKEN_GREATER); return;
     }
 
     if(isDigit(c)) {

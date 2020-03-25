@@ -7,6 +7,10 @@
     x(INTEGER) x(SEMICOLON) x(INT) \
     x(NEGATE) x(COMPLIMENT) x(NOT) \
     x(PLUS) x(STAR) x(SLASH) \
+    x(AND_AND) x(OR_OR) x(EQUAL_EQUAL) \
+    x(NOT_EQUAL) x(LESS) x(LESS_EQUAL) \
+    x(GREATER) x(GREATER_EQUAL) x(AND) \
+    x(OR) x(EQUAL) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,

@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static unsigned int getID() {
+    static int i = 0;
+    return i++;
+}
+
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f);
 
 static void x64ASTGenBinary(ASTBinaryExpression* ast, FILE* f) {
@@ -36,6 +41,89 @@ static void x64ASTGenBinary(ASTBinaryExpression* ast, FILE* f) {
                        "\tcqo\n"
                        "\tidiv %%rcx\n");
             break;
+        case TOKEN_EQUAL_EQUAL:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcmp %%rax, %%rcx\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsete %%al\n");
+            break;
+        case TOKEN_NOT_EQUAL:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcmp %%rax, %%rcx\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsetne %%al\n");
+            break;
+        case TOKEN_LESS:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcmp %%rax, %%rcx\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsetl %%al\n");
+            break;
+        case TOKEN_LESS_EQUAL:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcmp %%rax, %%rcx\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsetle %%al\n");
+            break;
+        case TOKEN_GREATER:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcmp %%rax, %%rcx\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsetg %%al\n");
+            break;
+        case TOKEN_GREATER_EQUAL:
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tpush %%rax\n");
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tpop %%rcx\n"
+                       "\tcmp %%rax, %%rcx\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsetge %%al\n");
+            break;
+        case TOKEN_OR_OR: {
+            unsigned int clause2 = getID();
+            unsigned int end = getID();
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tje _%u\n"
+                       "\tmov $1, %%rax\n"
+                       "\tjmp _%u\n"
+                       "_%u:\n", clause2, end, clause2);
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsetne %%al\n"
+                       "_%u:\n", end);
+        }; break;
+        case TOKEN_AND_AND: {
+            unsigned int clause2 = getID();
+            unsigned int end = getID();
+            x64ASTGenExpression(ast->left, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tjne _%u\n"
+                       "\tjmp _%u\n"
+                       "_%u:\n", clause2, end, clause2);
+            x64ASTGenExpression(ast->right, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tmov $0, %%rax\n"
+                       "\tsetne %%al\n"
+                       "_%u:\n", end);
+        }; break;
         default:
             printf("x64 unreachable binary\n");
             exit(0);
