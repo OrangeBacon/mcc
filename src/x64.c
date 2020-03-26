@@ -221,7 +221,77 @@ static void x64ASTGenConstant(ASTConstantExpression* ast, FILE* f) {
 
 static void x64ASTGenAssign(ASTAssignExpression* ast, FILE* f) {
     x64ASTGenExpression(ast->value, f);
-    fprintf(f, "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset);
+    switch(ast->operator.type) {
+        case TOKEN_EQUAL:
+            fprintf(f, "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset);
+            break;
+        case TOKEN_PLUS_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tadd %%rcx, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_MINUS_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tsub %%rcx, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_SLASH_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tcqo\n"
+                       "\tidiv %%rcx\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_STAR_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\timul %%rcx, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_PERCENT_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tcqo\n"
+                       "\tidiv %%rcx\n"
+                       "\tmov %%rdx, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_LEFT_SHIFT_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tsal %%cl, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_RIGHT_SHIFT_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tsar %%cl, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_AND_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tand %%rcx, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_OR_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tor %%rcx, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_XOR_EQUAL:
+            fprintf(f, "\tmov %%rax, %%rcx\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\txor %%rcx, %%rax\n"
+                       "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset, ast->stackOffset);
+            break;
+        default:
+            printf("Unknown assignment\n");
+            exit(0);
+    }
 }
 
 static void x64ASTGenPostfix(ASTPostfixExpression* ast, FILE* f) {

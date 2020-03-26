@@ -77,6 +77,10 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
         case AST_EXPRESSION_ASSIGN:
             PrintTabs(depth + 1);
             printf("Target: %d\n", ast->as.assign.stackOffset);
+            PrintTabs(depth + 1);
+            printf("Operator: ");
+            TokenPrint(&ast->as.assign.operator);
+            printf("\n");
             ASTExpressionPrint(ast->as.assign.value, depth + 1);
             break;
     }

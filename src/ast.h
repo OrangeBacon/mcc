@@ -54,6 +54,7 @@ typedef struct ASTConstantExpression {
 typedef struct ASTAssignExpression {
     int stackOffset;
     struct ASTExpression* value;
+    Token operator;
 } ASTAssignExpression;
 
 #define FOREACH_EXPRESSION(x, ns) \
