@@ -164,6 +164,34 @@ static ASTExpression* Unary(Parser* parser) {
     return ast;
 }
 
+static ASTExpression* PreIncDec(Parser* parser) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_UNARY;
+    ast->as.unary.operator = parser->previous;
+
+    ASTExpression* exp = parsePrecidence(parser, PREC_UNARY);
+    if(exp->type != AST_EXPRESSION_CONSTANT) {
+        error(parser, "Expected constant before assignement");
+        return NULL;
+    }
+    if(exp->as.constant.type != AST_CONSTANT_EXPRESSION_VARIABLE) {
+        error(parser, "Cannot assign to non variable expression");
+        return NULL;
+    }
+
+    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
+        exp->as.constant.tok.start, exp->as.constant.tok.length);
+    if(local == NULL) {
+        error(parser, "Variable name not declared");
+        return ast;
+    }
+
+    ast->as.unary.operand = exp;
+    ast->as.unary.stackOffset = local->stackOffset;
+
+    return ast;
+}
+
 static ASTExpression* Binary(Parser* parser, ASTExpression* prev) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_BINARY;
@@ -202,40 +230,68 @@ static ASTExpression* Assign(Parser* parser, ASTExpression* prev) {
     return ast;
 }
 
+static ASTExpression* PostIncDec(Parser* parser, ASTExpression* prev) {
+    if(prev->type != AST_EXPRESSION_CONSTANT) {
+        error(parser, "Expected constant before post inc/dec operator");
+        return NULL;
+    }
+    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_VARIABLE) {
+        error(parser, "Cannot post inc/dec non variable expression");
+        return NULL;
+    }
+
+    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
+        prev->as.constant.tok.start, prev->as.constant.tok.length);
+    if(local == NULL) {
+        error(parser, "Variable name not declared");
+        return NULL;
+    }
+
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_POSTFIX;
+    ast->as.postfix.operator = parser->previous;
+    ast->as.postfix.operand = prev;
+    ast->as.postfix.stackOffset = local->stackOffset;
+
+    return ast;
+}
+
 ParseRule rules[] = {
-    [TOKEN_IDENTIFIER] =    { Variable, NULL,   PREC_NONE           },
-    [TOKEN_LEFT_PAREN] =    { Grouping, NULL,   PREC_NONE           },
-    [TOKEN_RIGHT_PAREN] =   { NULL,     NULL,   PREC_NONE           },
-    [TOKEN_LEFT_BRACE] =    { NULL,     NULL,   PREC_NONE           },
-    [TOKEN_RIGHT_BRACE] =   { NULL,     NULL,   PREC_NONE           },
-    [TOKEN_RETURN] =        { NULL,     NULL,   PREC_NONE           },
-    [TOKEN_INTEGER] =       { Constant, NULL,   PREC_NONE           },
-    [TOKEN_SEMICOLON] =     { NULL,     NULL,   PREC_NONE           },
-    [TOKEN_INT] =           { NULL,     NULL,   PREC_NONE           },
-    [TOKEN_NEGATE] =        { Unary,    Binary, PREC_ADDITIVE       },
-    [TOKEN_COMPLIMENT] =    { Unary,    NULL,   PREC_NONE           },
-    [TOKEN_NOT] =           { Unary,    NULL,   PREC_NONE           },
-    [TOKEN_PLUS] =          { NULL,     Binary, PREC_ADDITIVE       },
-    [TOKEN_STAR] =          { NULL,     Binary, PREC_MULTIPLICITIVE },
-    [TOKEN_SLASH] =         { NULL,     Binary, PREC_MULTIPLICITIVE },
-    [TOKEN_AND_AND] =       { NULL,     Binary, PREC_LOGICAND       },
-    [TOKEN_OR_OR] =         { NULL,     Binary, PREC_LOGICOR        },
-    [TOKEN_EQUAL_EQUAL] =   { NULL,     Binary, PREC_EQUALITY       },
-    [TOKEN_NOT_EQUAL] =     { NULL,     Binary, PREC_EQUALITY       },
-    [TOKEN_LESS] =          { NULL,     Binary, PREC_RELATION       },
-    [TOKEN_LESS_EQUAL] =    { NULL,     Binary, PREC_RELATION       },
-    [TOKEN_GREATER] =       { NULL,     Binary, PREC_RELATION       },
-    [TOKEN_GREATER_EQUAL] = { NULL,     Binary, PREC_RELATION       },
-    [TOKEN_AND] =           { NULL,     Binary, PREC_BITAND         },
-    [TOKEN_OR] =            { NULL,     Binary, PREC_BITOR          },
-    [TOKEN_EQUAL] =         { NULL,     Assign, PREC_ASSIGN         },
-    [TOKEN_PERCENT] =       { NULL,     Binary, PREC_MULTIPLICITIVE },
-    [TOKEN_SHIFT_LEFT] =    { NULL,     Binary, PREC_SHIFT          },
-    [TOKEN_SHIFT_RIGHT] =   { NULL,     Binary, PREC_SHIFT          },
-    [TOKEN_XOR] =           { NULL,     Binary, PREC_BITXOR         },
-    [TOKEN_COMMA] =         { NULL,     Binary,  PREC_COMMA          },
-    [TOKEN_ERROR] =         { NULL,     NULL,   PREC_NONE           },
-    [TOKEN_EOF] =           { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_IDENTIFIER] =    { Variable,  NULL,       PREC_NONE           },
+    [TOKEN_LEFT_PAREN] =    { Grouping,  NULL,       PREC_NONE           },
+    [TOKEN_RIGHT_PAREN] =   { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_LEFT_BRACE] =    { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_RIGHT_BRACE] =   { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_RETURN] =        { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_INTEGER] =       { Constant,  NULL,       PREC_NONE           },
+    [TOKEN_SEMICOLON] =     { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_INT] =           { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_NEGATE] =        { Unary,     Binary,     PREC_ADDITIVE       },
+    [TOKEN_COMPLIMENT] =    { Unary,     NULL,       PREC_NONE           },
+    [TOKEN_NOT] =           { Unary,     NULL,       PREC_NONE           },
+    [TOKEN_PLUS] =          { NULL,      Binary,     PREC_ADDITIVE       },
+    [TOKEN_STAR] =          { NULL,      Binary,     PREC_MULTIPLICITIVE },
+    [TOKEN_SLASH] =         { NULL,      Binary,     PREC_MULTIPLICITIVE },
+    [TOKEN_AND_AND] =       { NULL,      Binary,     PREC_LOGICAND       },
+    [TOKEN_OR_OR] =         { NULL,      Binary,     PREC_LOGICOR        },
+    [TOKEN_EQUAL_EQUAL] =   { NULL,      Binary,     PREC_EQUALITY       },
+    [TOKEN_NOT_EQUAL] =     { NULL,      Binary,     PREC_EQUALITY       },
+    [TOKEN_LESS] =          { NULL,      Binary,     PREC_RELATION       },
+    [TOKEN_LESS_EQUAL] =    { NULL,      Binary,     PREC_RELATION       },
+    [TOKEN_GREATER] =       { NULL,      Binary,     PREC_RELATION       },
+    [TOKEN_GREATER_EQUAL] = { NULL,      Binary,     PREC_RELATION       },
+    [TOKEN_AND] =           { NULL,      Binary,     PREC_BITAND         },
+    [TOKEN_OR] =            { NULL,      Binary,     PREC_BITOR          },
+    [TOKEN_EQUAL] =         { NULL,      Assign,     PREC_ASSIGN         },
+    [TOKEN_PERCENT] =       { NULL,      Binary,     PREC_MULTIPLICITIVE },
+    [TOKEN_SHIFT_LEFT] =    { NULL,      Binary,     PREC_SHIFT          },
+    [TOKEN_SHIFT_RIGHT] =   { NULL,      Binary,     PREC_SHIFT          },
+    [TOKEN_XOR] =           { NULL,      Binary,     PREC_BITXOR         },
+    [TOKEN_COMMA] =         { NULL,      Binary,     PREC_COMMA          },
+    [TOKEN_MINUS_MINUS] =   { PreIncDec, PostIncDec, PREC_POSTFIX        },
+    [TOKEN_PLUS_PLUS] =     { PreIncDec, PostIncDec, PREC_POSTFIX        },
+    [TOKEN_ERROR] =         { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_EOF] =           { NULL,      NULL,       PREC_NONE           },
 };
 
 static ParseRule* getRule(TokenType type) {

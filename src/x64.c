@@ -194,6 +194,14 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, FILE* f) {
             x64ASTGenExpression(ast->operand, f);
             fprintf(f, "\tnot %%rax\n");
             break;
+        case TOKEN_PLUS_PLUS:
+            fprintf(f, "\tincq %d(%%rbp)\n"
+                       "\tmov %d(%%rbp), %%rax\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_MINUS_MINUS:
+        fprintf(f, "\tdecq %d(%%rbp)\n"
+                       "\tmov %d(%%rbp), %%rax\n", ast->stackOffset, ast->stackOffset);
+            break;
         default:
             printf("x64 unreachable unary\n");
             exit(0);
@@ -216,6 +224,24 @@ static void x64ASTGenAssign(ASTAssignExpression* ast, FILE* f) {
     fprintf(f, "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset);
 }
 
+static void x64ASTGenPostfix(ASTPostfixExpression* ast, FILE* f) {
+    switch(ast->operator.type) {
+        case TOKEN_PLUS_PLUS:
+            fprintf(f, "\tincq %d(%%rbp)\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tdec %%rax\n", ast->stackOffset, ast->stackOffset);
+            break;
+        case TOKEN_MINUS_MINUS:
+            fprintf(f, "\tdecq %d(%%rbp)\n"
+                       "\tmov %d(%%rbp), %%rax\n"
+                       "\tinc %%rax\n", ast->stackOffset, ast->stackOffset);
+            break;
+        default:
+            printf("Postfix undefined\n");
+            exit(0);
+    }
+}
+
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
@@ -229,6 +255,9 @@ static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
             break;
         case AST_EXPRESSION_ASSIGN:
             x64ASTGenAssign(&ast->as.assign, f);
+            break;
+        case AST_EXPRESSION_POSTFIX:
+            x64ASTGenPostfix(&ast->as.postfix, f);
             break;
         default:
             printf("Output unspecified\n");

@@ -165,15 +165,17 @@ void ScannerNext(Scanner* scanner, Token* token) {
         case '(': makeToken(scanner, token, TOKEN_LEFT_PAREN); return;
         case ')': makeToken(scanner, token, TOKEN_RIGHT_PAREN); return;
         case ';': makeToken(scanner, token, TOKEN_SEMICOLON); return;
-        case '-': makeToken(scanner, token, TOKEN_NEGATE); return;
         case '~': makeToken(scanner, token, TOKEN_COMPLIMENT); return;
-        case '+': makeToken(scanner, token, TOKEN_PLUS); return;
         case '*': makeToken(scanner, token, TOKEN_STAR); return;
         case '/': makeToken(scanner, token, TOKEN_SLASH); return;
         case '^': makeToken(scanner, token, TOKEN_XOR); return;
         case '%': makeToken(scanner, token, TOKEN_PERCENT); return;
         case ',': makeToken(scanner, token, TOKEN_COMMA); return;
 
+        case '+': makeToken(scanner, token, match(scanner, '+')?
+            TOKEN_PLUS_PLUS:TOKEN_PLUS); return;
+        case '-': makeToken(scanner, token, match(scanner, '-')?
+            TOKEN_MINUS_MINUS:TOKEN_NEGATE); return;
         case '!': makeToken(scanner, token, match(scanner, '=')?
             TOKEN_NOT_EQUAL:TOKEN_NOT); return;
         case '&': makeToken(scanner, token, match(scanner, '&')?

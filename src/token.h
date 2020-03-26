@@ -12,7 +12,7 @@
     x(GREATER) x(GREATER_EQUAL) x(AND) \
     x(OR) x(EQUAL) x(PERCENT) \
     x(SHIFT_LEFT) x(SHIFT_RIGHT) x(XOR) \
-    x(COMMA) \
+    x(COMMA) x(PLUS_PLUS) x(MINUS_MINUS) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,

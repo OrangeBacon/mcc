@@ -30,11 +30,13 @@ typedef struct ASTTernaryExpression {
 typedef struct ASTUnaryExpression {
     Token operator;
     struct ASTExpression* operand;
+    int stackOffset;
 } ASTUnaryExpression;
 
 typedef struct ASTPostfixExpression {
     Token operator;
     struct ASTExpression* operand;
+    int stackOffset;
 } ASTPostfixExpression;
 
 #define FOREACH_CONSTANTEXPRESSION(x, ns) \
