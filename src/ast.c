@@ -34,6 +34,10 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             printf("%s: ", ASTConstantExpressionTypeNames[ast->as.constant.type]);
             TokenPrint(&ast->as.constant.tok);
             printf("\n");
+            if(ast->as.constant.type == AST_CONSTANT_EXPRESSION_VARIABLE) {
+                PrintTabs(depth + 2);
+                printf("stack offset: %d\n", ast->as.constant.stackDepth);
+            }
             break;
         case AST_EXPRESSION_TERNARY:
             PrintTabs(depth + 1);
@@ -69,6 +73,11 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             TokenPrint(&ast->as.postfix.operator);
             printf("\n");
             ASTExpressionPrint(ast->as.postfix.operand, depth + 1);
+            break;
+        case AST_EXPRESSION_ASSIGN:
+            PrintTabs(depth + 1);
+            printf("Target: %d\n", ast->as.assign.stackOffset);
+            ASTExpressionPrint(ast->as.assign.value, depth + 1);
             break;
     }
 }

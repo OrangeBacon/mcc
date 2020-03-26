@@ -176,6 +176,32 @@ static ASTExpression* Binary(Parser* parser, ASTExpression* prev) {
     return ast;
 }
 
+static ASTExpression* Assign(Parser* parser, ASTExpression* prev) {
+    if(prev->type != AST_EXPRESSION_CONSTANT) {
+        error(parser, "Expected constant before assignement");
+        return NULL;
+    }
+    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_VARIABLE) {
+        error(parser, "Cannot assign to non variable expression");
+        return NULL;
+    }
+
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_ASSIGN;
+    ast->as.assign.value = parsePrecidence(parser, PREC_ASSIGN);
+
+    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
+        prev->as.constant.tok.start, prev->as.constant.tok.length);
+    if(local == NULL) {
+        error(parser, "Variable name not declared");
+        return ast;
+    }
+
+    ast->as.assign.stackOffset = local->stackOffset;
+
+    return ast;
+}
+
 ParseRule rules[] = {
     [TOKEN_IDENTIFIER] =    { Variable, NULL,   PREC_NONE           },
     [TOKEN_LEFT_PAREN] =    { Grouping, NULL,   PREC_NONE           },
@@ -202,7 +228,7 @@ ParseRule rules[] = {
     [TOKEN_GREATER_EQUAL] = { NULL,     Binary, PREC_RELATION       },
     [TOKEN_AND] =           { NULL,     Binary, PREC_BITAND         },
     [TOKEN_OR] =            { NULL,     Binary, PREC_BITOR          },
-    [TOKEN_EQUAL] =         { NULL,     NULL,   PREC_NONE           },
+    [TOKEN_EQUAL] =         { NULL,     Assign, PREC_ASSIGN         },
     [TOKEN_PERCENT] =       { NULL,     Binary, PREC_MULTIPLICITIVE },
     [TOKEN_SHIFT_LEFT] =    { NULL,     Binary, PREC_SHIFT          },
     [TOKEN_SHIFT_RIGHT] =   { NULL,     Binary, PREC_SHIFT          },
@@ -257,6 +283,10 @@ ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {
         ast->type = AST_STATEMENT_RETURN;
         ast->as.return_ = Expression(parser);
+        consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    } else {
+        ast->type = AST_STATEMENT_EXPRESSION;
+        ast->as.expression = Expression(parser);
         consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     }
 ASTFN_END()

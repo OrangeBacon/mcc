@@ -49,10 +49,14 @@ typedef struct ASTConstantExpression {
     int stackDepth;
 } ASTConstantExpression;
 
+typedef struct ASTAssignExpression {
+    int stackOffset;
+    struct ASTExpression* value;
+} ASTAssignExpression;
 
 #define FOREACH_EXPRESSION(x, ns) \
     x(ns, BINARY) x(ns, TERNARY) x(ns, UNARY) \
-    x(ns, POSTFIX) x(ns, CONSTANT)
+    x(ns, POSTFIX) x(ns, CONSTANT) x(ns, ASSIGN)
 typedef enum ASTExpressionType {
     FOREACH_EXPRESSION(ASTENUM, AST_EXPRESSION)
 } ASTExpressionType;
@@ -66,6 +70,7 @@ typedef struct ASTExpression {
         ASTUnaryExpression unary;
         ASTPostfixExpression postfix;
         ASTConstantExpression constant;
+        ASTAssignExpression assign;
     } as;
 } ASTExpression;
 

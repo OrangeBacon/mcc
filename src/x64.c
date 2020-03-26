@@ -207,6 +207,11 @@ static void x64ASTGenConstant(ASTConstantExpression* ast, FILE* f) {
     }
 }
 
+static void x64ASTGenAssign(ASTAssignExpression* ast, FILE* f) {
+    x64ASTGenExpression(ast->value, f);
+    fprintf(f, "\tmov %%rax, %d(%%rbp)\n", ast->stackOffset);
+}
+
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
@@ -217,6 +222,9 @@ static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
             break;
         case AST_EXPRESSION_BINARY:
             x64ASTGenBinary(&ast->as.binary, f);
+            break;
+        case AST_EXPRESSION_ASSIGN:
+            x64ASTGenAssign(&ast->as.assign, f);
             break;
         default:
             printf("Output unspecified\n");
