@@ -168,6 +168,10 @@ static void x64ASTGenBinary(ASTBinaryExpression* ast, FILE* f) {
             fprintf(f, "\tpop %%rcx\n"
                        "\tsar %%cl, %%rax\n");
             break;
+        case TOKEN_COMMA:
+            x64ASTGenExpression(ast->left, f);
+            x64ASTGenExpression(ast->right, f);
+            break;
         default:
             printf("x64 unreachable binary\n");
             exit(0);

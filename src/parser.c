@@ -233,6 +233,7 @@ ParseRule rules[] = {
     [TOKEN_SHIFT_LEFT] =    { NULL,     Binary, PREC_SHIFT          },
     [TOKEN_SHIFT_RIGHT] =   { NULL,     Binary, PREC_SHIFT          },
     [TOKEN_XOR] =           { NULL,     Binary, PREC_BITXOR         },
+    [TOKEN_COMMA] =         { NULL,     Binary,  PREC_COMMA          },
     [TOKEN_ERROR] =         { NULL,     NULL,   PREC_NONE           },
     [TOKEN_EOF] =           { NULL,     NULL,   PREC_NONE           },
 };
