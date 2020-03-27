@@ -77,8 +77,23 @@ typedef struct ASTExpression {
     } as;
 } ASTExpression;
 
+struct ASTStatement;
+
+#define FOREACH_SELECTIONSTATEMENT(x, ns) \
+    x(ns, IF) x(ns, IFELSE)
+typedef enum ASTSelectionStatementType {
+    FOREACH_SELECTIONSTATEMENT(ASTENUM, AST_SELECTION_STATEMENT)
+} ASTSelectionStatementType;
+
+typedef struct ASTSelectionStatement {
+    ASTSelectionStatementType type;
+    ASTExpression* condition;
+    struct ASTStatement* block;
+    struct ASTStatement* elseBlock;
+} ASTSelectionStatement;
+
 #define FOREACH_STATEMENT(x, ns) \
-    x(ns, RETURN) x(ns, EXPRESSION)
+    x(ns, RETURN) x(ns, EXPRESSION) x(ns, SELECTION)
 typedef enum ASTStatementType {
     FOREACH_STATEMENT(ASTENUM, AST_STATEMENT)
 } ASTStatementType;
@@ -89,6 +104,7 @@ typedef struct ASTStatement {
     union {
         ASTExpression* return_;
         ASTExpression* expression;
+        ASTSelectionStatement* selection;
     } as;
 } ASTStatement;
 

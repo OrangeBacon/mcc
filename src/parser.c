@@ -257,6 +257,19 @@ static ASTExpression* PostIncDec(Parser* parser, ASTExpression* prev) {
     return ast;
 }
 
+static ASTExpression* Condition(Parser* parser, ASTExpression* prev) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_TERNARY;
+    ast->as.ternary.operator = parser->previous;
+    ast->as.ternary.operand1 = prev;
+    ast->as.ternary.operand2 = Expression(parser);
+    consume(parser, TOKEN_COLON, "Expected ':' in conditional expression");
+    ast->as.ternary.secondOperator = parser->previous;
+    ast->as.ternary.operand3 = parsePrecidence(parser, PREC_CONDITIONAL);
+
+    return ast;
+}
+
 ParseRule rules[] = {
     [TOKEN_IDENTIFIER] =        { Variable,  NULL,       PREC_NONE           },
     [TOKEN_LEFT_PAREN] =        { Grouping,  NULL,       PREC_NONE           },
@@ -301,6 +314,10 @@ ParseRule rules[] = {
     [TOKEN_AND_EQUAL] =         { NULL,      Assign,     PREC_ASSIGN         },
     [TOKEN_OR_EQUAL] =          { NULL,      Assign,     PREC_ASSIGN         },
     [TOKEN_XOR_EQUAL] =         { NULL,      Assign,     PREC_ASSIGN         },
+    [TOKEN_IF] =                { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_ELSE] =              { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_COLON] =             { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_QUESTION] =          { NULL,      Condition,  PREC_CONDITIONAL    },
     [TOKEN_ERROR] =             { NULL,      NULL,       PREC_NONE           },
     [TOKEN_EOF] =               { NULL,      NULL,       PREC_NONE           },
 };
@@ -347,11 +364,31 @@ ASTFN(Declaration)
     consume(parser, TOKEN_SEMICOLON, "Expected ';'");
 ASTFN_END()
 
+static ASTStatement* Statement(Parser*);
+
+ASTFN(SelectionStatement)
+    consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
+    ast->condition = Expression(parser);
+    consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    ast->block = Statement(parser);
+    if(match(parser, TOKEN_ELSE)) {
+        ast->type = AST_SELECTION_STATEMENT_IFELSE;
+        ast->elseBlock = Statement(parser);
+    } else {
+        ast->type = AST_SELECTION_STATEMENT_IF;
+    }
+ASTFN_END()
+
 ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {
         ast->type = AST_STATEMENT_RETURN;
         ast->as.return_ = Expression(parser);
         consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    } else if(match(parser, TOKEN_IF)) {
+        ast->type = AST_STATEMENT_SELECTION;
+        ast->as.selection = SelectionStatement(parser);
+    } else if(match(parser, TOKEN_SEMICOLON)) {
+        return Statement(parser);
     } else {
         ast->type = AST_STATEMENT_EXPRESSION;
         ast->as.expression = Expression(parser);

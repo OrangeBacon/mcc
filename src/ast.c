@@ -86,6 +86,30 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
     }
 }
 
+static void ASTStatementPrint(ASTStatement* ast, int depth);
+
+static char* ASTSelectionStatementTypeNames[] = {
+    FOREACH_SELECTIONSTATEMENT(ASTSTRARRAY, 0)
+};
+
+static void ASTSelectionStatementPrint(ASTSelectionStatement* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTSelectionStatement %s:\n", ASTSelectionStatementTypeNames[ast->type]);
+
+    switch(ast->type) {
+        case AST_SELECTION_STATEMENT_IF:
+            ASTExpressionPrint(ast->condition, depth + 1);
+            ASTStatementPrint(ast->block, depth + 1);
+            break;
+        case AST_SELECTION_STATEMENT_IFELSE:
+            ASTExpressionPrint(ast->condition, depth + 1);
+            ASTStatementPrint(ast->block, depth + 1);
+            ASTStatementPrint(ast->elseBlock, depth + 1);
+            break;
+    }
+}
+
+
 static char* ASTStatementTypeNames[] = {
     FOREACH_STATEMENT(ASTSTRARRAY, 0)
 };
@@ -100,6 +124,9 @@ static void ASTStatementPrint(ASTStatement* ast, int depth) {
             break;
         case AST_STATEMENT_EXPRESSION:
             ASTExpressionPrint(ast->as.expression, depth + 1);
+            break;
+        case AST_STATEMENT_SELECTION:
+            ASTSelectionStatementPrint(ast->as.selection, depth + 1);
             break;
     }
 }

@@ -133,8 +133,14 @@ static TokenType checkKeyword(Scanner* scanner, int start, int length,
 
 static TokenType identiferType(Scanner* scanner) {
     switch(scanner->start[0]) {
-        case 'i': return checkKeyword(scanner, 1, 2, "nt", TOKEN_INT);
         case 'r': return checkKeyword(scanner, 1, 5, "eturn", TOKEN_RETURN);
+        case 'e': return checkKeyword(scanner, 1, 3, "lse", TOKEN_ELSE);
+        case 'i': if(scanner->current - scanner->start > 1) {
+            switch(scanner->start[1]) {
+                case 'n': return checkKeyword(scanner, 2, 1, "t", TOKEN_INT);
+                case 'f': return checkKeyword(scanner, 2, 0, "", TOKEN_IF);
+            }
+        }; break;
     }
 
     return TOKEN_IDENTIFIER;
@@ -167,6 +173,8 @@ void ScannerNext(Scanner* scanner, Token* token) {
         case ';': makeToken(scanner, token, TOKEN_SEMICOLON); return;
         case '~': makeToken(scanner, token, TOKEN_COMPLIMENT); return;
         case ',': makeToken(scanner, token, TOKEN_COMMA); return;
+        case '?': makeToken(scanner, token, TOKEN_QUESTION); return;
+        case ':': makeToken(scanner, token, TOKEN_COLON); return;
 
         case '*': makeToken(scanner, token, match(scanner, '=')?
             TOKEN_STAR_EQUAL:TOKEN_STAR); return;

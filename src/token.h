@@ -16,7 +16,8 @@
     x(PLUS_EQUAL) x(MINUS_EQUAL) x(SLASH_EQUAL) \
     x(STAR_EQUAL) x(PERCENT_EQUAL) x(LEFT_SHIFT_EQUAL) \
     x(RIGHT_SHIFT_EQUAL) x(AND_EQUAL) x(OR_EQUAL) \
-    x(XOR_EQUAL) \
+    x(XOR_EQUAL) x(IF) x(ELSE) \
+    x(COLON) x(QUESTION) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,

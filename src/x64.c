@@ -312,6 +312,19 @@ static void x64ASTGenPostfix(ASTPostfixExpression* ast, FILE* f) {
     }
 }
 
+static void x64ASTGenTernary(ASTTernaryExpression* ast, FILE* f) {
+    unsigned int elseExp = getID();
+    unsigned int endExp = getID();
+    x64ASTGenExpression(ast->operand1, f);
+    fprintf(f, "\tcmp $0, %%rax\n"
+               "\tje _%u\n", elseExp);
+    x64ASTGenExpression(ast->operand2, f);
+    fprintf(f, "\tjmp _%u\n"
+               "_%u:\n", endExp, elseExp);
+    x64ASTGenExpression(ast->operand3, f);
+    fprintf(f, "_%u:\n", endExp);
+}
+
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
@@ -329,10 +342,34 @@ static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
         case AST_EXPRESSION_POSTFIX:
             x64ASTGenPostfix(&ast->as.postfix, f);
             break;
+        case AST_EXPRESSION_TERNARY:
+            x64ASTGenTernary(&ast->as.ternary, f);
+            break;
         default:
             printf("Output unspecified\n");
             exit(0);
     }
+}
+
+static void x64ASTGenStatement(ASTStatement* ast, FILE* f);
+
+static void x64ASTGenSelectionStatement(ASTSelectionStatement* ast, FILE* f) {
+    unsigned int elseExp = getID();
+    unsigned int endExp = getID();
+    x64ASTGenExpression(ast->condition, f);
+    fprintf(f, "\tcmp $0, %%rax\n");
+    if(ast->type == AST_SELECTION_STATEMENT_IF) {
+        fprintf(f, "\tje _%u\n", endExp);
+    } else {
+        fprintf(f, "\tje _%u\n", elseExp);
+    }
+    x64ASTGenStatement(ast->block, f);
+    if(ast->type == AST_SELECTION_STATEMENT_IFELSE) {
+        fprintf(f, "\tjmp _%u\n"
+                   "_%u:\n", endExp, elseExp);
+        x64ASTGenStatement(ast->block, f);
+    }
+    fprintf(f, "_%u:\n", endExp);
 }
 
 static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
@@ -345,6 +382,9 @@ static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
             break;
         case AST_STATEMENT_EXPRESSION:
             x64ASTGenExpression(ast->as.expression, f);
+            break;
+        case AST_STATEMENT_SELECTION:
+            x64ASTGenSelectionStatement(ast->as.selection, f);
             break;
     }
 }
