@@ -392,6 +392,7 @@ ASTFN(CompoundStatement)
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expected '}");
     ast->popCount = SymbolTableExit(&parser->locals);
+    parser->stackIndex += 8 * ast->popCount;
 ASTFN_END()
 
 ASTFN(Statement)
