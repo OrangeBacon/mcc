@@ -367,7 +367,7 @@ static void x64ASTGenSelectionStatement(ASTSelectionStatement* ast, FILE* f) {
     if(ast->type == AST_SELECTION_STATEMENT_IFELSE) {
         fprintf(f, "\tjmp _%u\n"
                    "_%u:\n", endExp, elseExp);
-        x64ASTGenStatement(ast->block, f);
+        x64ASTGenStatement(ast->elseBlock, f);
     }
     fprintf(f, "_%u:\n", endExp);
 }
@@ -437,7 +437,7 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, FILE* f) {
 
     ASTFnCompoundStatement* s = ast->statement;
     x64ASTGenFnCompoundStatement(s, f);
-    if(s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT &&
+    if(s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT ||
        s->items[s->itemCount - 1]->as.statement->type != AST_STATEMENT_RETURN) {
         fprintf(f, "\tmov $0, %%rax\n"
                    "\tmov %%rbp, %%rsp\n"
