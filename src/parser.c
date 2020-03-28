@@ -379,6 +379,21 @@ ASTFN(SelectionStatement)
     }
 ASTFN_END()
 
+static ASTBlockItem* BlockItem(Parser*);
+
+ASTFN(CompoundStatement)
+    SymbolTableEnter(&parser->locals);
+
+    ARRAY_ALLOC(ASTBlockItem*, *ast, item);
+    while(!match(parser, TOKEN_EOF)) {
+        ARRAY_PUSH(*ast, item, BlockItem(parser));
+        if(parser->current.type == TOKEN_RIGHT_BRACE) break;
+    }
+
+    consume(parser, TOKEN_RIGHT_BRACE, "Expected '}");
+    ast->popCount = SymbolTableExit(&parser->locals);
+ASTFN_END()
+
 ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {
         ast->type = AST_STATEMENT_RETURN;
@@ -389,6 +404,9 @@ ASTFN(Statement)
         ast->as.selection = SelectionStatement(parser);
     } else if(match(parser, TOKEN_SEMICOLON)) {
         return Statement(parser);
+    } else if(match(parser, TOKEN_LEFT_BRACE)) {
+        ast->type = AST_STATEMENT_COMPOUND;
+        ast->as.compound = CompoundStatement(parser);
     } else {
         ast->type = AST_STATEMENT_EXPRESSION;
         ast->as.expression = Expression(parser);
@@ -406,7 +424,7 @@ ASTFN(BlockItem)
     }
 ASTFN_END()
 
-ASTFN(CompoundStatement)
+ASTFN(FnCompoundStatement)
     SymbolTableEnter(&parser->locals);
     consume(parser, TOKEN_LEFT_BRACE, "Expected '{'");
 
@@ -426,7 +444,7 @@ ASTFN(FunctionDefinition)
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     parser->stackIndex = -8;
-    ast->statement = CompoundStatement(parser);
+    ast->statement = FnCompoundStatement(parser);
 ASTFN_END()
 
 ASTFN(ExternalDeclaration)

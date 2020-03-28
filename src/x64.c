@@ -372,6 +372,14 @@ static void x64ASTGenSelectionStatement(ASTSelectionStatement* ast, FILE* f) {
     fprintf(f, "_%u:\n", endExp);
 }
 
+static void x64ASTGenBlockItem(ASTBlockItem*, FILE*);
+static void x64ASTGenCompoundStatement(ASTCompoundStatement* ast, FILE* f) {
+    for(unsigned int i = 0; i < ast->itemCount; i++) {
+        x64ASTGenBlockItem(ast->items[i], f);
+    }
+    fprintf(f, "\tadd $%u, %%rsp\n", ast->popCount * 8);
+}
+
 static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
     switch(ast->type) {
         case AST_STATEMENT_RETURN:
@@ -385,6 +393,9 @@ static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
             break;
         case AST_STATEMENT_SELECTION:
             x64ASTGenSelectionStatement(ast->as.selection, f);
+            break;
+        case AST_STATEMENT_COMPOUND:
+            x64ASTGenCompoundStatement(ast->as.compound, f);
             break;
     }
 }
@@ -412,7 +423,7 @@ static void x64ASTGenBlockItem(ASTBlockItem* ast, FILE* f) {
     }
 }
 
-static void x64ASTGenCompoundStatement(ASTCompoundStatement* ast, FILE* f) {
+static void x64ASTGenFnCompoundStatement(ASTFnCompoundStatement* ast, FILE* f) {
     for(unsigned int i = 0; i < ast->itemCount; i++) {
         x64ASTGenBlockItem(ast->items[i], f);
     }
@@ -424,8 +435,8 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, FILE* f) {
                "\tpush %%rbp\n"
                "\tmov %%rsp, %%rbp\n", ast->name.length, ast->name.start);
 
-    ASTCompoundStatement* s = ast->statement;
-    x64ASTGenCompoundStatement(s, f);
+    ASTFnCompoundStatement* s = ast->statement;
+    x64ASTGenFnCompoundStatement(s, f);
     if(s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT &&
        s->items[s->itemCount - 1]->as.statement->type != AST_STATEMENT_RETURN) {
         fprintf(f, "\tmov $0, %%rax\n"

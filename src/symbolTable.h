@@ -25,6 +25,6 @@ SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned 
 
 void SymbolTableEnter(SymbolTable* table);
 
-void SymbolTableExit(SymbolTable* table);
+int SymbolTableExit(SymbolTable* table);
 
 #endif

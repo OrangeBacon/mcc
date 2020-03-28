@@ -92,8 +92,11 @@ typedef struct ASTSelectionStatement {
     struct ASTStatement* elseBlock;
 } ASTSelectionStatement;
 
+struct ASTCompoundStatement;
+
 #define FOREACH_STATEMENT(x, ns) \
-    x(ns, RETURN) x(ns, EXPRESSION) x(ns, SELECTION)
+    x(ns, RETURN) x(ns, EXPRESSION) x(ns, SELECTION) \
+    x(ns, COMPOUND)
 typedef enum ASTStatementType {
     FOREACH_STATEMENT(ASTENUM, AST_STATEMENT)
 } ASTStatementType;
@@ -105,6 +108,7 @@ typedef struct ASTStatement {
         ASTExpression* return_;
         ASTExpression* expression;
         ASTSelectionStatement* selection;
+        struct ASTCompoundStatement* compound;
     } as;
 } ASTStatement;
 
@@ -137,16 +141,21 @@ typedef struct ASTBlockItem {
     ASTBlockItemType type;
 
     union {
-        ASTStatement* statement;
+        struct ASTStatement* statement;
         ASTDeclaration* declaration;
     } as;
 } ASTBlockItem;
 
-ASTARRAY(CompoundStatement, BlockItem, item);
+ASTARRAY(FnCompoundStatement, BlockItem, item);
+
+typedef struct ASTCompoundStatement {
+    ARRAY_DEFINE(ASTBlockItem*, item);
+    int popCount;
+} ASTCompoundStatement;
 
 typedef struct ASTFunctionDefinition {
     Token name;
-    ASTCompoundStatement* statement;
+    ASTFnCompoundStatement* statement;
 } ASTFunctionDefinition;
 
 #define FOREACH_EXTERNALDECLARATION(x, ns) \

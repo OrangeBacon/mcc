@@ -109,28 +109,6 @@ static void ASTSelectionStatementPrint(ASTSelectionStatement* ast, int depth) {
     }
 }
 
-
-static char* ASTStatementTypeNames[] = {
-    FOREACH_STATEMENT(ASTSTRARRAY, 0)
-};
-
-static void ASTStatementPrint(ASTStatement* ast, int depth) {
-    PrintTabs(depth);
-    printf("ASTStatement %s:\n", ASTStatementTypeNames[ast->type]);
-
-    switch(ast->type) {
-        case AST_STATEMENT_RETURN:
-            ASTExpressionPrint(ast->as.return_, depth + 1);
-            break;
-        case AST_STATEMENT_EXPRESSION:
-            ASTExpressionPrint(ast->as.expression, depth + 1);
-            break;
-        case AST_STATEMENT_SELECTION:
-            ASTSelectionStatementPrint(ast->as.selection, depth + 1);
-            break;
-    }
-}
-
 static char* ASTInitDeclaratorTypeNames[] = {
     FOREACH_INITDECLARATOR(ASTSTRARRAY, 0)
 };
@@ -156,6 +134,32 @@ static void ASTDeclarationPrint(ASTDeclaration* ast, int depth) {
     ASTInitDeclaratorListPrint(&ast->declarators, depth + 1);
 }
 
+static void ASTCompoundStatementPrint(ASTCompoundStatement* ast, int depth);
+
+static char* ASTStatementTypeNames[] = {
+    FOREACH_STATEMENT(ASTSTRARRAY, 0)
+};
+
+static void ASTStatementPrint(ASTStatement* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTStatement %s:\n", ASTStatementTypeNames[ast->type]);
+
+    switch(ast->type) {
+        case AST_STATEMENT_RETURN:
+            ASTExpressionPrint(ast->as.return_, depth + 1);
+            break;
+        case AST_STATEMENT_EXPRESSION:
+            ASTExpressionPrint(ast->as.expression, depth + 1);
+            break;
+        case AST_STATEMENT_SELECTION:
+            ASTSelectionStatementPrint(ast->as.selection, depth + 1);
+            break;
+        case AST_STATEMENT_COMPOUND:
+            ASTCompoundStatementPrint(ast->as.compound, depth + 1);
+            break;
+    }
+}
+
 static char* ASTBlockItemTypeNames[] = {
     FOREACH_BLOCKITEM(ASTSTRARRAY, 0)
 };
@@ -175,13 +179,14 @@ static void ASTBlockItemPrint(ASTBlockItem* ast, int depth) {
 }
 
 ASTARRAY_PRINT(CompoundStatement, BlockItem, item)
+ASTARRAY_PRINT(FnCompoundStatement, BlockItem, item)
 
 static void ASTFunctionDefinitionPrint(ASTFunctionDefinition* ast, int depth) {
     PrintTabs(depth);
     printf("ASTFunctionDefinition ");
     TokenPrint(&ast->name);
     printf("\n");
-    ASTCompoundStatementPrint(ast->statement, depth + 1);
+    ASTFnCompoundStatementPrint(ast->statement, depth + 1);
 }
 
 static char* ASTExternalDeclarationTypeNames[] = {

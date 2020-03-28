@@ -60,9 +60,14 @@ void SymbolTableEnter(SymbolTable* table) {
     table->currentDepth++;
 }
 
-void SymbolTableExit(SymbolTable* table) {
+int SymbolTableExit(SymbolTable* table) {
+    table->currentDepth--;
+
+    int removed = 0;
     while(table->localCount > 0 &&
           table->locals[table->localCount - 1].scopeDepth > table->currentDepth) {
+        removed++;
         table->localCount--;
     }
+    return removed;
 }
