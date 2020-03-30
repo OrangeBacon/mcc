@@ -17,7 +17,8 @@
     x(STAR_EQUAL) x(PERCENT_EQUAL) x(LEFT_SHIFT_EQUAL) \
     x(RIGHT_SHIFT_EQUAL) x(AND_EQUAL) x(OR_EQUAL) \
     x(XOR_EQUAL) x(IF) x(ELSE) \
-    x(COLON) x(QUESTION) \
+    x(COLON) x(QUESTION) x(FOR) \
+    x(DO) x(WHILE) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,

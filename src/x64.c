@@ -326,6 +326,9 @@ static void x64ASTGenTernary(ASTTernaryExpression* ast, FILE* f) {
 }
 
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
+    if(ast == NULL) {
+        return;
+    }
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
             x64ASTGenConstant(&ast->as.constant, f);
@@ -380,6 +383,60 @@ static void x64ASTGenCompoundStatement(ASTCompoundStatement* ast, FILE* f) {
     fprintf(f, "\tadd $%u, %%rsp\n", ast->popCount * 8);
 }
 
+
+static void x64ASTGenDeclaration(ASTDeclaration* ast, FILE* f);
+
+static void x64ASTGenIterationStatement(ASTIterationStatement* ast, FILE* f) {
+    switch(ast->type) {
+        case AST_ITERATION_STATEMENT_WHILE: {
+            unsigned int start = getID();
+            unsigned int end = getID();
+            fprintf(f, "_%u:\n", start);
+            x64ASTGenExpression(ast->control, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tje _%u\n", end);
+            x64ASTGenStatement(ast->body, f);
+            fprintf(f, "\tjmp _%u\n"
+                       "_%u:\n", start, end);
+        }; break;
+        case AST_ITERATION_STATEMENT_DO: {
+            unsigned int start = getID();
+            fprintf(f, "_%u:\n", start);
+            x64ASTGenStatement(ast->body, f);
+            x64ASTGenExpression(ast->control, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tjne _%u\n", start);
+        }; break;
+        case AST_ITERATION_STATEMENT_FOR_EXPR: {
+            unsigned int cond = getID();
+            unsigned int end = getID();
+            x64ASTGenExpression(ast->preExpr, f);
+            fprintf(f, "_%u:\n", cond);
+            x64ASTGenExpression(ast->control, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tje _%u\n", end);
+            x64ASTGenStatement(ast->body, f);
+            x64ASTGenExpression(ast->post, f);
+            fprintf(f, "\tjmp _%u\n"
+                       "_%u:\n", cond, end);
+        }; break;
+        case AST_ITERATION_STATEMENT_FOR_DECL: {
+            unsigned int cond = getID();
+            unsigned int end = getID();
+            x64ASTGenDeclaration(ast->preDecl, f);
+            fprintf(f, "_%u:\n", cond);
+            x64ASTGenExpression(ast->control, f);
+            fprintf(f, "\tcmp $0, %%rax\n"
+                       "\tje _%u\n", end);
+            x64ASTGenStatement(ast->body, f);
+            x64ASTGenExpression(ast->post, f);
+            fprintf(f, "\tjmp _%u\n"
+                       "_%u:\n"
+                       "\tadd $%u, %%rsp\n", cond, end, ast->freeCount * 8);
+        }; break;
+    }
+}
+
 static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
     switch(ast->type) {
         case AST_STATEMENT_RETURN:
@@ -396,6 +453,11 @@ static void x64ASTGenStatement(ASTStatement* ast, FILE* f) {
             break;
         case AST_STATEMENT_COMPOUND:
             x64ASTGenCompoundStatement(ast->as.compound, f);
+            break;
+        case AST_STATEMENT_ITERATION:
+            x64ASTGenIterationStatement(ast->as.iteration, f);
+            break;
+        case AST_STATEMENT_NULL:
             break;
     }
 }

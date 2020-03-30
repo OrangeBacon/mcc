@@ -134,6 +134,64 @@ static void ASTDeclarationPrint(ASTDeclaration* ast, int depth) {
     ASTInitDeclaratorListPrint(&ast->declarators, depth + 1);
 }
 
+static char* ASTIterationStatementTypeNames[] = {
+    FOREACH_ITERATIONSTATEMENT(ASTSTRARRAY, 0)
+};
+
+static void ASTIterationStatementPrint(ASTIterationStatement* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTIterationStatement %s:\n", ASTIterationStatementTypeNames[ast->type]);
+
+    switch(ast->type) {
+        case AST_ITERATION_STATEMENT_DO:
+            PrintTabs(depth + 1);
+            printf("body: \n");
+            ASTStatementPrint(ast->body, depth + 1);
+            PrintTabs(depth + 1);
+            printf("expression: \n");
+            ASTExpressionPrint(ast->control, depth + 1);
+            break;
+        case AST_ITERATION_STATEMENT_FOR_DECL:
+            PrintTabs(depth + 1);
+            printf("decl: \n");
+            ASTDeclarationPrint(ast->preDecl, depth + 1);
+            PrintTabs(depth + 1);
+            printf("freeCount: %d\n", ast->freeCount);
+            PrintTabs(depth + 1);
+            printf("control: \n");
+            ASTExpressionPrint(ast->control, depth + 1);
+            PrintTabs(depth + 1);
+            printf("post: \n");
+            ASTExpressionPrint(ast->post, depth + 1);
+            PrintTabs(depth + 1);
+            printf("body: \n");
+            ASTStatementPrint(ast->body, depth + 1);
+            break;
+        case AST_ITERATION_STATEMENT_FOR_EXPR:
+            PrintTabs(depth + 1);
+            printf("start: \n");
+            ASTExpressionPrint(ast->preExpr, depth + 1);
+            PrintTabs(depth + 1);
+            printf("control: \n");
+            ASTExpressionPrint(ast->control, depth + 1);
+            PrintTabs(depth + 1);
+            printf("post: \n");
+            ASTExpressionPrint(ast->post, depth + 1);
+            PrintTabs(depth + 1);
+            printf("body: \n");
+            ASTStatementPrint(ast->body, depth + 1);
+            break;
+        case AST_ITERATION_STATEMENT_WHILE:
+            PrintTabs(depth + 1);
+            printf("expression: \n");
+            ASTExpressionPrint(ast->control, depth + 1);
+            PrintTabs(depth + 1);
+            printf("body: \n");
+            ASTStatementPrint(ast->body, depth + 1);
+            break;
+    }
+}
+
 static void ASTCompoundStatementPrint(ASTCompoundStatement* ast, int depth);
 
 static char* ASTStatementTypeNames[] = {
@@ -156,6 +214,11 @@ static void ASTStatementPrint(ASTStatement* ast, int depth) {
             break;
         case AST_STATEMENT_COMPOUND:
             ASTCompoundStatementPrint(ast->as.compound, depth + 1);
+            break;
+        case AST_STATEMENT_ITERATION:
+            ASTIterationStatementPrint(ast->as.iteration, depth + 1);
+            break;
+        case AST_STATEMENT_NULL:
             break;
     }
 }

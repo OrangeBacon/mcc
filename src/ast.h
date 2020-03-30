@@ -92,11 +92,27 @@ typedef struct ASTSelectionStatement {
     struct ASTStatement* elseBlock;
 } ASTSelectionStatement;
 
-struct ASTCompoundStatement;
+#define FOREACH_ITERATIONSTATEMENT(x, ns) \
+    x(ns, FOR_DECL) x(ns, FOR_EXPR) \
+    x(ns, WHILE) x(ns, DO)
+typedef enum ASTIterationStatementType {
+    FOREACH_ITERATIONSTATEMENT(ASTENUM, AST_ITERATION_STATEMENT)
+} ASTIterationStatementType;
+
+typedef struct ASTIterationStatement {
+    ASTIterationStatementType type;
+
+    ASTExpression* control;
+    ASTExpression* preExpr;
+    struct ASTDeclaration* preDecl;
+    ASTExpression* post;
+    struct ASTStatement* body;
+    int freeCount;
+} ASTIterationStatement;
 
 #define FOREACH_STATEMENT(x, ns) \
     x(ns, RETURN) x(ns, EXPRESSION) x(ns, SELECTION) \
-    x(ns, COMPOUND)
+    x(ns, COMPOUND) x(ns, ITERATION) x(ns, NULL)
 typedef enum ASTStatementType {
     FOREACH_STATEMENT(ASTENUM, AST_STATEMENT)
 } ASTStatementType;
@@ -108,6 +124,7 @@ typedef struct ASTStatement {
         ASTExpression* return_;
         ASTExpression* expression;
         ASTSelectionStatement* selection;
+        ASTIterationStatement* iteration;
         struct ASTCompoundStatement* compound;
     } as;
 } ASTStatement;

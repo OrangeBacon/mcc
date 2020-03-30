@@ -318,6 +318,9 @@ ParseRule rules[] = {
     [TOKEN_ELSE] =              { NULL,      NULL,       PREC_NONE           },
     [TOKEN_COLON] =             { NULL,      NULL,       PREC_NONE           },
     [TOKEN_QUESTION] =          { NULL,      Condition,  PREC_CONDITIONAL    },
+    [TOKEN_FOR] =               { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_WHILE] =             { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_DO] =                { NULL,      NULL,       PREC_NONE           },
     [TOKEN_ERROR] =             { NULL,      NULL,       PREC_NONE           },
     [TOKEN_EOF] =               { NULL,      NULL,       PREC_NONE           },
 };
@@ -390,10 +393,77 @@ ASTFN(CompoundStatement)
         if(parser->current.type == TOKEN_RIGHT_BRACE) break;
     }
 
-    consume(parser, TOKEN_RIGHT_BRACE, "Expected '}");
+    consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
     ast->popCount = SymbolTableExit(&parser->locals);
     parser->stackIndex += 8 * ast->popCount;
 ASTFN_END()
+
+ASTIterationStatement* While(Parser* parser) {
+    ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_ITERATION_STATEMENT_WHILE;
+
+    consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
+    ast->control = Expression(parser);
+    consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    ast->body = Statement(parser);
+
+    return ast;
+}
+
+ASTIterationStatement* For(Parser* parser) {
+    ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
+
+    SymbolTableEnter(&parser->locals);
+
+    consume(parser, TOKEN_LEFT_PAREN, "Expected '(");
+    if(match(parser, TOKEN_INT)) {
+        ast->type = AST_ITERATION_STATEMENT_FOR_DECL;
+        ast->preDecl = Declaration(parser);
+    } else if(match(parser, TOKEN_SEMICOLON)) {
+        ast->type = AST_ITERATION_STATEMENT_FOR_EXPR;
+        ast->preExpr = NULL;
+    } else {
+        ast->type = AST_ITERATION_STATEMENT_FOR_EXPR;
+        ast->preExpr = Expression(parser);
+        consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    }
+
+    if(match(parser, TOKEN_SEMICOLON)) {
+        ast->control = NULL;
+    } else {
+        ast->control = Expression(parser);
+        consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    }
+
+    if(match(parser, TOKEN_RIGHT_PAREN)) {
+        ast->post = NULL;
+    } else {
+        ast->post = Expression(parser);
+        consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    }
+
+    ast->body = Statement(parser);
+
+    ast->freeCount = SymbolTableExit(&parser->locals);
+    parser->stackIndex += 8 * ast->freeCount;
+
+    return ast;
+}
+
+ASTIterationStatement* DoWhile(Parser* parser) {
+    ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_ITERATION_STATEMENT_DO;
+
+    ast->body = Statement(parser);
+
+    consume(parser, TOKEN_WHILE, "Expected 'while'");
+    consume(parser, TOKEN_LEFT_PAREN, "Expected '(");
+    ast->control = Expression(parser);
+    consume(parser, TOKEN_RIGHT_PAREN, "Expectedd ')'");
+    consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+
+    return ast;
+}
 
 ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {
@@ -404,10 +474,19 @@ ASTFN(Statement)
         ast->type = AST_STATEMENT_SELECTION;
         ast->as.selection = SelectionStatement(parser);
     } else if(match(parser, TOKEN_SEMICOLON)) {
-        return Statement(parser);
+        ast->type = AST_STATEMENT_NULL;
     } else if(match(parser, TOKEN_LEFT_BRACE)) {
         ast->type = AST_STATEMENT_COMPOUND;
         ast->as.compound = CompoundStatement(parser);
+    } else if(match(parser, TOKEN_WHILE)) {
+        ast->type = AST_STATEMENT_ITERATION;
+        ast->as.iteration = While(parser);
+    } else if(match(parser, TOKEN_FOR)) {
+        ast->type = AST_STATEMENT_ITERATION;
+        ast->as.iteration = For(parser);
+    } else if(match(parser, TOKEN_DO)) {
+        ast->type = AST_STATEMENT_ITERATION;
+        ast->as.iteration = DoWhile(parser);
     } else {
         ast->type = AST_STATEMENT_EXPRESSION;
         ast->as.expression = Expression(parser);
@@ -435,7 +514,7 @@ ASTFN(FnCompoundStatement)
         if(parser->current.type == TOKEN_RIGHT_BRACE) break;
     }
 
-    consume(parser, TOKEN_RIGHT_BRACE, "Expected '}");
+    consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
     SymbolTableExit(&parser->locals);
 ASTFN_END()
 
