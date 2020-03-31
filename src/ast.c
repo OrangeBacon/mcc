@@ -26,6 +26,11 @@ static char* ASTConstantExpressionTypeNames[] = {
 
 static void ASTExpressionPrint(ASTExpression* ast, int depth) {
     PrintTabs(depth);
+    if(ast == NULL) {
+        printf("ASTExpression NULL\n");
+        return;
+    }
+
     printf("ASTExpression %s:\n", ASTExpressionTypeNames[ast->type]);
 
     switch(ast->type) {
@@ -192,6 +197,19 @@ static void ASTIterationStatementPrint(ASTIterationStatement* ast, int depth) {
     }
 }
 
+static char* ASTJumpStatementTypeNames[] = {
+    FOREACH_JUMPSTATEMENT(ASTSTRARRAY, 0)
+};
+
+static void ASTJumpStatementPrint(ASTJumpStatement* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTJumpStatement %s:\n", ASTJumpStatementTypeNames[ast->type]);
+
+    if(ast->type == AST_JUMP_STATEMENT_RETURN) {
+        ASTExpressionPrint(ast->expr, depth + 1);
+    }
+}
+
 static void ASTCompoundStatementPrint(ASTCompoundStatement* ast, int depth);
 
 static char* ASTStatementTypeNames[] = {
@@ -203,8 +221,8 @@ static void ASTStatementPrint(ASTStatement* ast, int depth) {
     printf("ASTStatement %s:\n", ASTStatementTypeNames[ast->type]);
 
     switch(ast->type) {
-        case AST_STATEMENT_RETURN:
-            ASTExpressionPrint(ast->as.return_, depth + 1);
+        case AST_STATEMENT_JUMP:
+            ASTJumpStatementPrint(ast->as.jump, depth + 1);
             break;
         case AST_STATEMENT_EXPRESSION:
             ASTExpressionPrint(ast->as.expression, depth + 1);

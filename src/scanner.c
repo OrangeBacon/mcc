@@ -144,6 +144,8 @@ static TokenType identiferType(Scanner* scanner) {
         case 'f': return checkKeyword(scanner, 1, 2, "or", TOKEN_FOR);
         case 'w': return checkKeyword(scanner, 1, 4, "hile", TOKEN_WHILE);
         case 'd': return checkKeyword(scanner, 1, 1, "o", TOKEN_DO);
+        case 'c': return checkKeyword(scanner, 1, 7, "ontinue", TOKEN_CONTINUE);
+        case 'b': return checkKeyword(scanner, 1, 4, "reak", TOKEN_BREAK);
     }
 
     return TOKEN_IDENTIFIER;

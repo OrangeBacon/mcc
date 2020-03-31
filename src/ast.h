@@ -110,8 +110,19 @@ typedef struct ASTIterationStatement {
     int freeCount;
 } ASTIterationStatement;
 
+#define FOREACH_JUMPSTATEMENT(x, ns) \
+    x(ns, RETURN) x(ns, CONTINUE) x(ns, BREAK)
+typedef enum ASTJumpStatementType {
+    FOREACH_JUMPSTATEMENT(ASTENUM, AST_JUMP_STATEMENT)
+} ASTJumpStatementType;
+
+typedef struct ASTJumpStatement {
+    ASTJumpStatementType type;
+    ASTExpression* expr;
+} ASTJumpStatement;
+
 #define FOREACH_STATEMENT(x, ns) \
-    x(ns, RETURN) x(ns, EXPRESSION) x(ns, SELECTION) \
+    x(ns, EXPRESSION) x(ns, SELECTION) x(ns, JUMP) \
     x(ns, COMPOUND) x(ns, ITERATION) x(ns, NULL)
 typedef enum ASTStatementType {
     FOREACH_STATEMENT(ASTENUM, AST_STATEMENT)
@@ -121,11 +132,11 @@ typedef struct ASTStatement {
     ASTStatementType type;
 
     union {
-        ASTExpression* return_;
         ASTExpression* expression;
         ASTSelectionStatement* selection;
         ASTIterationStatement* iteration;
         struct ASTCompoundStatement* compound;
+        ASTJumpStatement* jump;
     } as;
 } ASTStatement;
 

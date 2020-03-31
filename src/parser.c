@@ -8,6 +8,7 @@ void ParserInit(Parser* parser, Scanner* scanner) {
     parser->scanner = scanner;
     parser->panicMode = false;
     parser->hadError = false;
+    parser->inLoop = false;
     SymbolTableInit(&parser->locals);
 }
 
@@ -321,6 +322,8 @@ ParseRule rules[] = {
     [TOKEN_FOR] =               { NULL,      NULL,       PREC_NONE           },
     [TOKEN_WHILE] =             { NULL,      NULL,       PREC_NONE           },
     [TOKEN_DO] =                { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_CONTINUE] =          { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_BREAK] =             { NULL,      NULL,       PREC_NONE           },
     [TOKEN_ERROR] =             { NULL,      NULL,       PREC_NONE           },
     [TOKEN_EOF] =               { NULL,      NULL,       PREC_NONE           },
 };
@@ -401,12 +404,13 @@ ASTFN_END()
 ASTIterationStatement* While(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_ITERATION_STATEMENT_WHILE;
-
+    bool oldLoop = parser->inLoop;
+    parser->inLoop = true;
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     ast->control = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     ast->body = Statement(parser);
-
+    parser->inLoop = oldLoop;
     return ast;
 }
 
@@ -414,6 +418,9 @@ ASTIterationStatement* For(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
 
     SymbolTableEnter(&parser->locals);
+
+    bool oldLoop = parser->inLoop;
+    parser->inLoop = true;
 
     consume(parser, TOKEN_LEFT_PAREN, "Expected '(");
     if(match(parser, TOKEN_INT)) {
@@ -447,6 +454,8 @@ ASTIterationStatement* For(Parser* parser) {
     ast->freeCount = SymbolTableExit(&parser->locals);
     parser->stackIndex += 8 * ast->freeCount;
 
+    parser->inLoop = oldLoop;
+
     return ast;
 }
 
@@ -454,21 +463,50 @@ ASTIterationStatement* DoWhile(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_ITERATION_STATEMENT_DO;
 
+    bool oldLoop = parser->inLoop;
+    parser->inLoop = true;
+
     ast->body = Statement(parser);
 
     consume(parser, TOKEN_WHILE, "Expected 'while'");
     consume(parser, TOKEN_LEFT_PAREN, "Expected '(");
     ast->control = Expression(parser);
-    consume(parser, TOKEN_RIGHT_PAREN, "Expectedd ')'");
+    consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     consume(parser, TOKEN_SEMICOLON, "Expected ';'");
 
+    parser->inLoop = oldLoop;
+
+    return ast;
+}
+
+ASTJumpStatement* Break(Parser* parser) {
+    ASTJumpStatement* ast = ArenaAlloc(sizeof(*ast));
+    if(!parser->inLoop) {
+        error(parser, "Cannot break outside of loop");
+    }
+    ast->type = AST_JUMP_STATEMENT_BREAK;
+
+    consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    return ast;
+}
+
+ASTJumpStatement* Continue(Parser* parser) {
+    ASTJumpStatement* ast = ArenaAlloc(sizeof(*ast));
+    if(!parser->inLoop) {
+        error(parser, "Cannot continue outside of loop");
+    }
+    ast->type = AST_JUMP_STATEMENT_CONTINUE;
+
+    consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     return ast;
 }
 
 ASTFN(Statement)
     if(match(parser, TOKEN_RETURN)) {
-        ast->type = AST_STATEMENT_RETURN;
-        ast->as.return_ = Expression(parser);
+        ast->type = AST_STATEMENT_JUMP;
+        ast->as.jump = ArenaAlloc(sizeof(*ast->as.jump));
+        ast->as.jump->type = AST_JUMP_STATEMENT_RETURN;
+        ast->as.jump->expr = Expression(parser);
         consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     } else if(match(parser, TOKEN_IF)) {
         ast->type = AST_STATEMENT_SELECTION;
@@ -487,6 +525,12 @@ ASTFN(Statement)
     } else if(match(parser, TOKEN_DO)) {
         ast->type = AST_STATEMENT_ITERATION;
         ast->as.iteration = DoWhile(parser);
+    } else if(match(parser, TOKEN_BREAK)) {
+        ast->type = AST_STATEMENT_JUMP;
+        ast->as.jump = Break(parser);
+    } else if(match(parser, TOKEN_CONTINUE)) {
+        ast->type = AST_STATEMENT_JUMP;
+        ast->as.jump = Continue(parser);
     } else {
         ast->type = AST_STATEMENT_EXPRESSION;
         ast->as.expression = Expression(parser);

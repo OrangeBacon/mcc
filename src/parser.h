@@ -18,6 +18,7 @@ typedef struct Parser {
 
     SymbolTable locals;
     int stackIndex;
+    bool inLoop;
 } Parser;
 
 void ParserInit(Parser* parser, Scanner* scanner);
