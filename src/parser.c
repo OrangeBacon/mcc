@@ -4,15 +4,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void ParserInit(Parser* parser, Scanner* scanner) {
+void ParserInit(Parser* parser, char* fileName) {
+    Scanner* scanner = ArenaAlloc(sizeof(*scanner));
+    ScannerInit(scanner, fileName);
     parser->scanner = scanner;
     parser->panicMode = false;
     parser->hadError = false;
-    parser->inLoop = false;
     SymbolTableInit(&parser->locals);
 }
 
-static void errorAt(Parser* parser, Token* loc, const char* message) {
+void errorAt(Parser* parser, Token* loc, const char* message) {
     if(parser->panicMode) return;
     parser->panicMode = true;
 
@@ -404,13 +405,10 @@ ASTFN_END()
 ASTIterationStatement* While(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_ITERATION_STATEMENT_WHILE;
-    bool oldLoop = parser->inLoop;
-    parser->inLoop = true;
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     ast->control = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     ast->body = Statement(parser);
-    parser->inLoop = oldLoop;
     return ast;
 }
 
@@ -418,9 +416,6 @@ ASTIterationStatement* For(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
 
     SymbolTableEnter(&parser->locals);
-
-    bool oldLoop = parser->inLoop;
-    parser->inLoop = true;
 
     consume(parser, TOKEN_LEFT_PAREN, "Expected '(");
     if(match(parser, TOKEN_INT)) {
@@ -454,17 +449,12 @@ ASTIterationStatement* For(Parser* parser) {
     ast->freeCount = SymbolTableExit(&parser->locals);
     parser->stackIndex += 8 * ast->freeCount;
 
-    parser->inLoop = oldLoop;
-
     return ast;
 }
 
 ASTIterationStatement* DoWhile(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_ITERATION_STATEMENT_DO;
-
-    bool oldLoop = parser->inLoop;
-    parser->inLoop = true;
 
     ast->body = Statement(parser);
 
@@ -474,29 +464,21 @@ ASTIterationStatement* DoWhile(Parser* parser) {
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     consume(parser, TOKEN_SEMICOLON, "Expected ';'");
 
-    parser->inLoop = oldLoop;
-
     return ast;
 }
 
 ASTJumpStatement* Break(Parser* parser) {
     ASTJumpStatement* ast = ArenaAlloc(sizeof(*ast));
-    if(!parser->inLoop) {
-        error(parser, "Cannot break outside of loop");
-    }
     ast->type = AST_JUMP_STATEMENT_BREAK;
-
+    ast->statement = parser->previous;
     consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     return ast;
 }
 
 ASTJumpStatement* Continue(Parser* parser) {
     ASTJumpStatement* ast = ArenaAlloc(sizeof(*ast));
-    if(!parser->inLoop) {
-        error(parser, "Cannot continue outside of loop");
-    }
     ast->type = AST_JUMP_STATEMENT_CONTINUE;
-
+    ast->statement = parser->previous;
     consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     return ast;
 }
@@ -506,6 +488,7 @@ ASTFN(Statement)
         ast->type = AST_STATEMENT_JUMP;
         ast->as.jump = ArenaAlloc(sizeof(*ast->as.jump));
         ast->as.jump->type = AST_JUMP_STATEMENT_RETURN;
+        ast->as.jump->statement = parser->previous;
         ast->as.jump->expr = Expression(parser);
         consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     } else if(match(parser, TOKEN_IF)) {

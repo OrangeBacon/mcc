@@ -1,9 +1,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#include "scanner.h"
-#include "token.h"
 #include "parser.h"
+#include "analysis.h"
 #include "memory.h"
 #include "x64.h"
 
@@ -17,13 +16,10 @@ int main(int argc, char** argv) {
 
     printf("Compiling: %s\n", argv[1]);
 
-    Scanner scanner;
-    ScannerInit(&scanner, argv[1]);
-
     Parser parser;
-    ParserInit(&parser, &scanner);
-
+    ParserInit(&parser, argv[1]);
     ParserRun(&parser);
+    Analyse(&parser);
 
     if(!parser.hadError) {
         ASTPrint(parser.ast);

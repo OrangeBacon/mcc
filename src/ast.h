@@ -118,6 +118,7 @@ typedef enum ASTJumpStatementType {
 
 typedef struct ASTJumpStatement {
     ASTJumpStatementType type;
+    Token statement;
     ASTExpression* expr;
 } ASTJumpStatement;
 

@@ -18,10 +18,11 @@ typedef struct Parser {
 
     SymbolTable locals;
     int stackIndex;
-    bool inLoop;
 } Parser;
 
-void ParserInit(Parser* parser, Scanner* scanner);
+void ParserInit(Parser* parser, char* fileName);
+
+void errorAt(Parser* parser, Token* loc, const char* message);
 
 bool ParserRun(Parser* parser);
 
