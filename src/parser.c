@@ -138,7 +138,7 @@ static ASTExpression* Variable(Parser* parser) {
         error(parser, "Variable name not declared");
         return ast;
     }
-    ast->as.constant.stackDepth = local->stackOffset;
+    ast->as.constant.local = local;
 
     return ast;
 }
@@ -189,7 +189,7 @@ static ASTExpression* PreIncDec(Parser* parser) {
     }
 
     ast->as.unary.operand = exp;
-    ast->as.unary.stackOffset = local->stackOffset;
+    ast->as.unary.local = local;
 
     return ast;
 }
@@ -228,7 +228,7 @@ static ASTExpression* Assign(Parser* parser, ASTExpression* prev) {
         return ast;
     }
 
-    ast->as.assign.stackOffset = local->stackOffset;
+    ast->as.assign.target = local;
 
     return ast;
 }
@@ -254,7 +254,7 @@ static ASTExpression* PostIncDec(Parser* parser, ASTExpression* prev) {
     ast->type = AST_EXPRESSION_POSTFIX;
     ast->as.postfix.operator = parser->previous;
     ast->as.postfix.operand = prev;
-    ast->as.postfix.stackOffset = local->stackOffset;
+    ast->as.postfix.local = local;
 
     return ast;
 }
@@ -341,15 +341,14 @@ static ParseRule* getRule(TokenType type) {
 
 ASTFN(InitDeclarator)
     consume(parser, TOKEN_IDENTIFIER, "Expected variable name");
-    ast->declarator = parser->previous;
+
     SymbolLocal* local = SymbolTableAddLocal(&parser->locals,
-        ast->declarator.start, ast->declarator.length);
+        parser->previous.start, parser->previous.length);
     if(local == NULL) {
         error(parser, "Cannot re-declare variable in same scope");
         return NULL;
     }
-    local->stackOffset = parser->stackIndex;
-    parser->stackIndex -= 8;
+    ast->declarator = local;
 
     if(match(parser, TOKEN_EQUAL)) {
         ast->type = AST_INIT_DECLARATOR_INITIALIZE;
@@ -399,7 +398,6 @@ ASTFN(CompoundStatement)
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
     ast->popCount = SymbolTableExit(&parser->locals);
-    parser->stackIndex += 8 * ast->popCount->localCount;
 ASTFN_END()
 
 ASTIterationStatement* While(Parser* parser) {
@@ -447,7 +445,6 @@ ASTIterationStatement* For(Parser* parser) {
     ast->body = Statement(parser);
 
     ast->freeCount = SymbolTableExit(&parser->locals);
-    parser->stackIndex += 8 * ast->freeCount->localCount;
 
     return ast;
 }
@@ -550,7 +547,7 @@ ASTFN(FunctionDefinition)
     ast->name = parser->previous;
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
-    parser->stackIndex = -8;
+
     ast->statement = FnCompoundStatement(parser);
 ASTFN_END()
 

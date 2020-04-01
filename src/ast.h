@@ -31,13 +31,13 @@ typedef struct ASTTernaryExpression {
 typedef struct ASTUnaryExpression {
     Token operator;
     struct ASTExpression* operand;
-    int stackOffset;
+    SymbolLocal* local;
 } ASTUnaryExpression;
 
 typedef struct ASTPostfixExpression {
     Token operator;
     struct ASTExpression* operand;
-    int stackOffset;
+    SymbolLocal* local;
 } ASTPostfixExpression;
 
 #define FOREACH_CONSTANTEXPRESSION(x, ns) \
@@ -49,11 +49,11 @@ typedef enum ASTConstantExpressionType {
 typedef struct ASTConstantExpression {
     ASTConstantExpressionType type;
     Token tok;
-    int stackDepth;
+    SymbolLocal* local;
 } ASTConstantExpression;
 
 typedef struct ASTAssignExpression {
-    int stackOffset;
+    SymbolLocal* target;
     struct ASTExpression* value;
     Token operator;
 } ASTAssignExpression;
@@ -151,7 +151,7 @@ typedef enum ASTInitDeclaratorType {
 typedef struct ASTInitDeclarator {
     ASTInitDeclaratorType type;
 
-    Token declarator;
+    SymbolLocal* declarator;
     ASTExpression* initializer;
 } ASTInitDeclarator;
 

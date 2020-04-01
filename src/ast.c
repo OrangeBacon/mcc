@@ -39,10 +39,6 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             printf("%s: ", ASTConstantExpressionTypeNames[ast->as.constant.type]);
             TokenPrint(&ast->as.constant.tok);
             printf("\n");
-            if(ast->as.constant.type == AST_CONSTANT_EXPRESSION_VARIABLE) {
-                PrintTabs(depth + 2);
-                printf("stack offset: %d\n", ast->as.constant.stackDepth);
-            }
             break;
         case AST_EXPRESSION_TERNARY:
             PrintTabs(depth + 1);
@@ -81,7 +77,8 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             break;
         case AST_EXPRESSION_ASSIGN:
             PrintTabs(depth + 1);
-            printf("Target: %d\n", ast->as.assign.stackOffset);
+            printf("Target: %.*s\n", ast->as.assign.target->length,
+                ast->as.assign.target->name);
             PrintTabs(depth + 1);
             printf("Operator: ");
             TokenPrint(&ast->as.assign.operator);
@@ -122,9 +119,7 @@ static void ASTInitDeclaratorPrint(ASTInitDeclarator* ast, int depth) {
     PrintTabs(depth);
     printf("ASTInitDeclarator %s:\n", ASTInitDeclaratorTypeNames[ast->type]);
     PrintTabs(depth + 1);
-    printf("Identifier: ");
-    TokenPrint(&ast->declarator);
-    printf("\n");
+    printf("Identifier: %.*s\n", ast->declarator->length, ast->declarator->name);
 
     if(ast->type == AST_INIT_DECLARATOR_INITIALIZE) {
         ASTExpressionPrint(ast->initializer, depth + 1);

@@ -17,7 +17,6 @@ typedef struct Parser {
     bool panicMode;
 
     SymbolTable locals;
-    int stackIndex;
 } Parser;
 
 void ParserInit(Parser* parser, char* fileName);

@@ -9,6 +9,8 @@ typedef struct SymbolLocal {
     unsigned int length;
     uint32_t hash;
     unsigned int scopeDepth;
+
+    // used only by the backend, not in creating the ast
     int stackOffset;
 } SymbolLocal;
 
