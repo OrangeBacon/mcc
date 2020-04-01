@@ -161,7 +161,7 @@ static void ASTIterationStatementPrint(ASTIterationStatement* ast, int depth) {
             printf("decl: \n");
             ASTDeclarationPrint(ast->preDecl, depth + 1);
             PrintTabs(depth + 1);
-            printf("freeCount: %d\n", ast->freeCount);
+            printf("freeCount: %d\n", ast->freeCount->localCount);
             PrintTabs(depth + 1);
             printf("control: \n");
             ASTExpressionPrint(ast->control, depth + 1);

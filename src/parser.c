@@ -399,7 +399,7 @@ ASTFN(CompoundStatement)
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
     ast->popCount = SymbolTableExit(&parser->locals);
-    parser->stackIndex += 8 * ast->popCount;
+    parser->stackIndex += 8 * ast->popCount->localCount;
 ASTFN_END()
 
 ASTIterationStatement* While(Parser* parser) {
@@ -447,7 +447,7 @@ ASTIterationStatement* For(Parser* parser) {
     ast->body = Statement(parser);
 
     ast->freeCount = SymbolTableExit(&parser->locals);
-    parser->stackIndex += 8 * ast->freeCount;
+    parser->stackIndex += 8 * ast->freeCount->localCount;
 
     return ast;
 }

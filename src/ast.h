@@ -3,6 +3,7 @@
 
 #include "token.h"
 #include "memory.h"
+#include "symbolTable.h"
 
 #define ASTARRAY(name, type, arr) \
     typedef struct AST##name { \
@@ -107,7 +108,7 @@ typedef struct ASTIterationStatement {
     struct ASTDeclaration* preDecl;
     ASTExpression* post;
     struct ASTStatement* body;
-    int freeCount;
+    SymbolExitList* freeCount;
 } ASTIterationStatement;
 
 #define FOREACH_JUMPSTATEMENT(x, ns) \
@@ -179,7 +180,7 @@ ASTARRAY(FnCompoundStatement, BlockItem, item);
 
 typedef struct ASTCompoundStatement {
     ARRAY_DEFINE(ASTBlockItem*, item);
-    int popCount;
+    SymbolExitList* popCount;
 } ASTCompoundStatement;
 
 typedef struct ASTFunctionDefinition {

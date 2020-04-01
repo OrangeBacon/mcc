@@ -12,7 +12,7 @@ static uint32_t stringHash(const char* str, unsigned int length) {
 }
 
 void SymbolTableInit(SymbolTable* table) {
-    ARRAY_ALLOC(SymbolLocal, *table, local);
+    ARRAY_ALLOC(SymbolLocal*, *table, local);
 }
 
 
@@ -27,15 +27,8 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned 
         return NULL;
     }
 
-    if(table->localCount == table->localCapacity) {
-        table->locals = ArenaReAlloc(table->locals,
-            table->localElementSize * table->localCapacity,
-            table->localElementSize * table->localCapacity * 2);
-        table->localCapacity *= 2;
-    }
-    table->localCount++;
-
-    SymbolLocal* ret = &table->locals[table->localCount - 1];
+    SymbolLocal* ret = ArenaAlloc(sizeof(*local));
+    ARRAY_PUSH(*table, local, ret);
     ret->scopeDepth = table->currentDepth;
     ret->hash = stringHash(name, length);
     ret->name = name;
@@ -48,8 +41,8 @@ SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned 
     uint32_t hash = stringHash(name, length);
 
     for(int i = table->localCount - 1; i >= 0; i--) {
-        if(table->locals[i].length == length && table->locals[i].hash == hash) {
-            return &table->locals[i];
+        if(table->locals[i]->length == length && table->locals[i]->hash == hash) {
+            return table->locals[i];
         }
     }
 
@@ -60,14 +53,16 @@ void SymbolTableEnter(SymbolTable* table) {
     table->currentDepth++;
 }
 
-int SymbolTableExit(SymbolTable* table) {
-    table->currentDepth--;
+SymbolExitList* SymbolTableExit(SymbolTable* table) {
+    SymbolExitList* ret = ArenaAlloc(sizeof(*ret));
+    ARRAY_ALLOC(SymbolLocal*, *ret, local);
 
-    int removed = 0;
+    table->currentDepth--;
     while(table->localCount > 0 &&
-          table->locals[table->localCount - 1].scopeDepth > table->currentDepth) {
-        removed++;
+          table->locals[table->localCount - 1]->scopeDepth > table->currentDepth) {
+        ARRAY_PUSH(*ret, local, table->locals[table->localCount - 1]);
         table->localCount--;
     }
-    return removed;
+
+    return ret;
 }

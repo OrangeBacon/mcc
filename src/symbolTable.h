@@ -13,9 +13,13 @@ typedef struct SymbolLocal {
 } SymbolLocal;
 
 typedef struct SymbolTable {
-    ARRAY_DEFINE(SymbolLocal, local);
+    ARRAY_DEFINE(SymbolLocal*, local);
     unsigned int currentDepth;
 } SymbolTable;
+
+typedef struct SymbolExitList {
+    ARRAY_DEFINE(SymbolLocal*, local);
+} SymbolExitList;
 
 void SymbolTableInit(SymbolTable* table);
 
@@ -25,6 +29,6 @@ SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned 
 
 void SymbolTableEnter(SymbolTable* table);
 
-int SymbolTableExit(SymbolTable* table);
+SymbolExitList* SymbolTableExit(SymbolTable* table);
 
 #endif

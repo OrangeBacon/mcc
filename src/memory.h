@@ -1,6 +1,8 @@
 #ifndef MEMORY_H
 #define MEMORY_H
 
+#define __USE_MINGW_ANSI_STDIO 1
+#include <stdio.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdarg.h>

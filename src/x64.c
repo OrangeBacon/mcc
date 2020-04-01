@@ -386,7 +386,7 @@ static void x64ASTGenCompoundStatement(ASTCompoundStatement* ast, x64Ctx* ctx) {
     for(unsigned int i = 0; i < ast->itemCount; i++) {
         x64ASTGenBlockItem(ast->items[i], ctx);
     }
-    fprintf(ctx->f, "\tadd $%u, %%rsp\n", ast->popCount * 8);
+    fprintf(ctx->f, "\tadd $%u, %%rsp\n", ast->popCount->localCount * 8);
 }
 
 
@@ -447,7 +447,7 @@ static void x64ASTGenIterationStatement(ASTIterationStatement* ast, x64Ctx* ctx)
             x64ASTGenExpression(ast->post, ctx->f);
             fprintf(ctx->f, "\tjmp _%u\n"
                        "_%u:\n"
-                       "\tadd $%u, %%rsp\n", cond, end, ast->freeCount * 8);
+                       "\tadd $%u, %%rsp\n", cond, end, ast->freeCount->localCount * 8);
         }; break;
     }
 
