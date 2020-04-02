@@ -573,12 +573,21 @@ ASTFN_END()
 ASTFN(FunctionDefinition)
     consume(parser, TOKEN_IDENTIFIER, "Expected function name");
     ast->name = parser->previous;
-    SymbolGlobal* global = SymbolTableAddGlobal(&parser->locals,
+    SymbolGlobal* global = SymbolTableGetGlobal(&parser->locals,
         parser->previous.start, parser->previous.length);
-    if(global == NULL) {
-        error(parser, "Cannot redeclare global symbol");
+    if(global != NULL) {
+        if(!global->isFunction) {
+            error(parser, "Cannot have function and global variable with the"
+                " same name");
+        }
+    } else {
+        global = SymbolTableAddGlobal(&parser->locals,
+            parser->previous.start, parser->previous.length);
+        global->isFunction = true;
+        ARRAY_ALLOC(ASTFunctionDefinition*, *global, define);
     }
-    global->isFunction = true;
+
+    ARRAY_PUSH(*global, define, ast);
 
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     SymbolTableEnter(&parser->locals);
@@ -609,7 +618,12 @@ ASTFN(FunctionDefinition)
         ARRAY_ZERO(*ast, param);
     }
 
-    ast->statement = FnCompoundStatement(parser);
+    if(check(parser, TOKEN_LEFT_BRACE)) {
+        ast->statement = FnCompoundStatement(parser);
+    } else {
+        ast->statement = NULL;
+        consume(parser, TOKEN_SEMICOLON, "Expected semicolon after forward definition");
+    }
     SymbolTableExit(&parser->locals);
 ASTFN_END()
 

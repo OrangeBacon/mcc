@@ -82,6 +82,7 @@ static void AnalyseFnCompoundStatement(ASTFnCompoundStatement* ast, ctx* ctx) {
 }
 
 static void AnalyseFunctionDefinition(ASTFunctionDefinition* ast, ctx* ctx) {
+    if(ast->statement == NULL) return;
     AnalyseFnCompoundStatement(ast->statement, ctx);
 }
 

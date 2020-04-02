@@ -276,6 +276,7 @@ static void ASTFunctionDefinitionPrint(ASTFunctionDefinition* ast, int depth) {
     printf("ASTFunctionDefinition ");
     TokenPrint(&ast->name);
     printf("\n");
+    if(ast->statement == NULL) return;
     for(unsigned int i = 0; i < ast->paramCount; i++) {
         ASTFunctionParameterPrint(ast->params[i], depth + 1);
     }

@@ -554,6 +554,8 @@ static void x64ASTGenFnCompoundStatement(ASTFnCompoundStatement* ast, x64Ctx* ct
 }
 
 static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx) {
+    if(ast->statement == NULL) return;
+
     fprintf(ctx->f, ".globl %.*s\n", ast->name.length, ast->name.start);
     fprintf(ctx->f, "%.*s:\n"
                     "\tpush %%rbp\n"
