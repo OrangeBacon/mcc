@@ -349,7 +349,7 @@ static void x64ASTGenCall(ASTCallExpression* ast, FILE* f) {
     }
     SymbolGlobal* fn = ast->target->as.constant.global;
     fprintf(f, "\tcall %.*s\n"
-               "\tadd %u, %%rsp\n",
+               "\tadd $%u, %%rsp\n",
                fn->length, fn->name,
                ast->paramCount * 8);
 }
@@ -561,6 +561,12 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
 
     ASTFnCompoundStatement* s = ast->statement;
     ctx->stackIndex = -8;
+
+    int paramOffset = 8;
+    for(unsigned int i = 0; i < ast->paramCount; i++) {
+        ast->params[i]->declarator->stackOffset = paramOffset;
+        paramOffset += 8;
+    }
     x64ASTGenFnCompoundStatement(s, ctx);
     if(s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT ||
        s->items[s->itemCount - 1]->as.statement->type != AST_STATEMENT_JUMP ||
