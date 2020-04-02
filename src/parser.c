@@ -131,18 +131,18 @@ static ASTExpression* Variable(Parser* parser) {
     ast->type = AST_EXPRESSION_CONSTANT;
     ast->as.constant.tok = parser->previous;
 
-    if(SymbolTableIsGlobal(&parser->locals, parser->previous.start, parser->previous.length)) {
+    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
+            parser->previous.start, parser->previous.length);
+    if(local == NULL) {
         SymbolGlobal* global = SymbolTableGetGlobal(&parser->locals,
             parser->previous.start, parser->previous.length);
-        ast->as.constant.type = AST_CONSTANT_EXPRESSION_GLOBAL;
-        ast->as.constant.global = global;
-    } else {
-        SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
-            parser->previous.start, parser->previous.length);
-        if(local == NULL) {
+        if(global == NULL) {
             error(parser, "Variable name not declared");
             return ast;
         }
+        ast->as.constant.type = AST_CONSTANT_EXPRESSION_GLOBAL;
+        ast->as.constant.global = global;
+    } else {
         ast->as.constant.type = AST_CONSTANT_EXPRESSION_LOCAL;
         ast->as.constant.local = local;
     }

@@ -67,8 +67,6 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned 
 
 SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned int length);
 
-bool SymbolTableIsGlobal(SymbolTable* table, const char* name, unsigned int length);
-
 SymbolGlobal* SymbolTableAddGlobal(SymbolTable* table, const char* name, unsigned int length);
 
 SymbolGlobal* SymbolTableGetGlobal(SymbolTable* table, const char* name, unsigned int length);

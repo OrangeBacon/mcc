@@ -53,11 +53,6 @@ SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned 
     return NULL;
 }
 
-bool SymbolTableIsGlobal(SymbolTable* table, const char* name, unsigned int length) {
-    SymbolGlobal* global = tableGet(&table->globals, name, length);
-    return global != NULL;
-}
-
 SymbolGlobal* SymbolTableAddGlobal(SymbolTable* table, const char* name, unsigned int length) {
     SymbolGlobal* global = SymbolTableGetGlobal(table, name, length);
     if(global != NULL) {

@@ -562,7 +562,7 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
     ASTFnCompoundStatement* s = ast->statement;
     ctx->stackIndex = -8;
 
-    int paramOffset = 8;
+    int paramOffset = 16;
     for(unsigned int i = 0; i < ast->paramCount; i++) {
         ast->params[i]->declarator->stackOffset = paramOffset;
         paramOffset += 8;
