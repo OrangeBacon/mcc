@@ -129,16 +129,23 @@ static ASTExpression* Expression(Parser* parser) {
 static ASTExpression* Variable(Parser* parser) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_CONSTANT;
-    ast->as.constant.type = AST_CONSTANT_EXPRESSION_VARIABLE;
     ast->as.constant.tok = parser->previous;
 
-    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
-        parser->previous.start, parser->previous.length);
-    if(local == NULL) {
-        error(parser, "Variable name not declared");
-        return ast;
+    if(SymbolTableIsGlobal(&parser->locals, parser->previous.start, parser->previous.length)) {
+        SymbolGlobal* global = SymbolTableGetGlobal(&parser->locals,
+            parser->previous.start, parser->previous.length);
+        ast->as.constant.type = AST_CONSTANT_EXPRESSION_GLOBAL;
+        ast->as.constant.global = global;
+    } else {
+        SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
+            parser->previous.start, parser->previous.length);
+        if(local == NULL) {
+            error(parser, "Variable name not declared");
+            return ast;
+        }
+        ast->as.constant.type = AST_CONSTANT_EXPRESSION_LOCAL;
+        ast->as.constant.local = local;
     }
-    ast->as.constant.local = local;
 
     return ast;
 }
@@ -176,7 +183,8 @@ static ASTExpression* PreIncDec(Parser* parser) {
         error(parser, "Expected constant before assignement");
         return NULL;
     }
-    if(exp->as.constant.type != AST_CONSTANT_EXPRESSION_VARIABLE) {
+    if(exp->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL &&
+        exp->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
         error(parser, "Cannot assign to non variable expression");
         return NULL;
     }
@@ -190,6 +198,24 @@ static ASTExpression* PreIncDec(Parser* parser) {
 
     ast->as.unary.operand = exp;
     ast->as.unary.local = local;
+
+    return ast;
+}
+
+static ASTExpression* Call(Parser* parser, ASTExpression* prev) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_CALL;
+
+    ARRAY_ZERO(ast->as.call, param);
+    ast->as.call.target = prev;
+    if(match(parser, TOKEN_RIGHT_PAREN)) return ast;
+
+    ARRAY_ALLOC(ASTExpression*, ast->as.call, param);
+    while(!match(parser, TOKEN_EOF)) {
+        ARRAY_PUSH(ast->as.call, param, parsePrecidence(parser, PREC_ASSIGN));
+        if(match(parser, TOKEN_RIGHT_PAREN)) break;
+        consume(parser, TOKEN_COMMA, "Expected ','");
+    }
 
     return ast;
 }
@@ -211,7 +237,8 @@ static ASTExpression* Assign(Parser* parser, ASTExpression* prev) {
         error(parser, "Expected constant before assignement");
         return NULL;
     }
-    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_VARIABLE) {
+    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL &&
+        prev->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
         error(parser, "Cannot assign to non variable expression");
         return NULL;
     }
@@ -238,7 +265,8 @@ static ASTExpression* PostIncDec(Parser* parser, ASTExpression* prev) {
         error(parser, "Expected constant before post inc/dec operator");
         return NULL;
     }
-    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_VARIABLE) {
+    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL &&
+        prev->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
         error(parser, "Cannot post inc/dec non variable expression");
         return NULL;
     }
@@ -274,7 +302,7 @@ static ASTExpression* Condition(Parser* parser, ASTExpression* prev) {
 
 ParseRule rules[] = {
     [TOKEN_IDENTIFIER] =        { Variable,  NULL,       PREC_NONE           },
-    [TOKEN_LEFT_PAREN] =        { Grouping,  NULL,       PREC_NONE           },
+    [TOKEN_LEFT_PAREN] =        { Grouping,  Call,       PREC_POSTFIX        },
     [TOKEN_RIGHT_PAREN] =       { NULL,      NULL,       PREC_NONE           },
     [TOKEN_LEFT_BRACE] =        { NULL,      NULL,       PREC_NONE           },
     [TOKEN_RIGHT_BRACE] =       { NULL,      NULL,       PREC_NONE           },
@@ -545,10 +573,44 @@ ASTFN_END()
 ASTFN(FunctionDefinition)
     consume(parser, TOKEN_IDENTIFIER, "Expected function name");
     ast->name = parser->previous;
+    SymbolGlobal* global = SymbolTableAddGlobal(&parser->locals,
+        parser->previous.start, parser->previous.length);
+    if(global == NULL) {
+        error(parser, "Cannot redeclare global symbol");
+    }
+    global->isFunction = true;
+
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
-    consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    SymbolTableEnter(&parser->locals);
+
+    if(!match(parser, TOKEN_RIGHT_PAREN)) {
+        ARRAY_ALLOC(ASTFunctionParameter, *ast, param);
+        while(!match(parser, TOKEN_EOF)) {
+            if(!match(parser, TOKEN_INT)) {
+                error(parser, "Expecting parameter type name");
+            }
+            if(!match(parser, TOKEN_IDENTIFIER)) {
+                error(parser, "Expecting parameter name");
+            }
+            ASTFunctionParameter* param = ArenaAlloc(sizeof(*param));
+            SymbolLocal* local = SymbolTableAddLocal(&parser->locals,
+                parser->previous.start, parser->previous.length);
+            if(local == NULL) {
+                error(parser, "Cannot duplicate function parameter names");
+            }
+
+            param->declarator = local;
+            ARRAY_PUSH(*ast, param, param);
+
+            if(!match(parser, PREC_COMMA)) break;
+        }
+        consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    } else {
+        ARRAY_ZERO(*ast, param);
+    }
 
     ast->statement = FnCompoundStatement(parser);
+    SymbolTableExit(&parser->locals);
 ASTFN_END()
 
 ASTFN(ExternalDeclaration)

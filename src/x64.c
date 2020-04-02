@@ -224,11 +224,14 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, FILE* f) {
 
 static void x64ASTGenConstant(ASTConstantExpression* ast, FILE* f) {
     switch(ast->type) {
-        case AST_CONSTANT_EXPRESSION_VARIABLE: {
+        case AST_CONSTANT_EXPRESSION_LOCAL: {
             fprintf(f, "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset);
         }; break;
         case AST_CONSTANT_EXPRESSION_INTEGER:
             fprintf(f, "\tmov $%i, %%rax\n", ast->tok.numberValue);
+            break;
+        case AST_CONSTANT_EXPRESSION_GLOBAL:
+            fprintf(f, "\tmov %.*s, %%rax\n", ast->global->length, ast->global->name);
             break;
     }
 }
@@ -339,6 +342,18 @@ static void x64ASTGenTernary(ASTTernaryExpression* ast, FILE* f) {
     fprintf(f, "_%u:\n", endExp);
 }
 
+static void x64ASTGenCall(ASTCallExpression* ast, FILE* f) {
+    for(int i = ast->paramCount - 1; i >= 0; i--) {
+        x64ASTGenExpression(ast->params[i], f);
+        fprintf(f, "\tpush %%rax\n");
+    }
+    SymbolGlobal* fn = ast->target->as.constant.global;
+    fprintf(f, "\tcall %.*s\n"
+               "\tadd %u, %%rsp\n",
+               fn->length, fn->name,
+               ast->paramCount * 8);
+}
+
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
     if(ast == NULL) {
         return;
@@ -361,6 +376,9 @@ static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
             break;
         case AST_EXPRESSION_TERNARY:
             x64ASTGenTernary(&ast->as.ternary, f);
+            break;
+        case AST_EXPRESSION_CALL:
+            x64ASTGenCall(&ast->as.call, f);
             break;
         default:
             printf("Output unspecified\n");

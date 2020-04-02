@@ -16,6 +16,7 @@ static uint32_t stringHash(const char* str, unsigned int length) {
 void SymbolTableInit(SymbolTable* table) {
     ARRAY_ALLOC(SymbolLocal*, *table, local);
     TABLE_INIT(table->globals, SymbolGlobal);
+    table->currentDepth = 0;
 }
 
 
@@ -107,7 +108,7 @@ static Entry* findEntry(Entry* entries, int capacity, Key* key) {
 
         // if run out of entries to check or the correct entry is found,
         // return current search item
-        if(entry->key.key == NULL || (entry->key.length == key->length && strcmp(entry->key.key, key->key) == 0)) {
+        if(entry->key.key == NULL || (entry->key.length == key->length && strncmp(entry->key.key, key->key, key->length) == 0)) {
             return entry;
         }
 

@@ -47,6 +47,8 @@ typedef struct SymbolGlobal {
     const char* name;
     unsigned int length;
     uint32_t hash;
+
+    bool isFunction;
 } SymbolGlobal;
 
 typedef struct SymbolTable {

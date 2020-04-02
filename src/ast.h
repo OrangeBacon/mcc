@@ -41,7 +41,7 @@ typedef struct ASTPostfixExpression {
 } ASTPostfixExpression;
 
 #define FOREACH_CONSTANTEXPRESSION(x, ns) \
-    x(ns, INTEGER) x(ns, VARIABLE)
+    x(ns, INTEGER) x(ns, LOCAL) x(ns, GLOBAL)
 typedef enum ASTConstantExpressionType {
     FOREACH_CONSTANTEXPRESSION(ASTENUM, AST_CONSTANT_EXPRESSION)
 } ASTConstantExpressionType;
@@ -50,6 +50,7 @@ typedef struct ASTConstantExpression {
     ASTConstantExpressionType type;
     Token tok;
     SymbolLocal* local;
+    SymbolGlobal* global;
 } ASTConstantExpression;
 
 typedef struct ASTAssignExpression {
@@ -58,9 +59,15 @@ typedef struct ASTAssignExpression {
     Token operator;
 } ASTAssignExpression;
 
+typedef struct ASTCallExpression {
+    struct ASTExpression* target;
+    ARRAY_DEFINE(struct ASTExpression*, param);
+} ASTCallExpression;
+
 #define FOREACH_EXPRESSION(x, ns) \
     x(ns, BINARY) x(ns, TERNARY) x(ns, UNARY) \
-    x(ns, POSTFIX) x(ns, CONSTANT) x(ns, ASSIGN)
+    x(ns, POSTFIX) x(ns, CONSTANT) x(ns, ASSIGN) \
+    x(ns, CALL)
 typedef enum ASTExpressionType {
     FOREACH_EXPRESSION(ASTENUM, AST_EXPRESSION)
 } ASTExpressionType;
@@ -75,6 +82,7 @@ typedef struct ASTExpression {
         ASTPostfixExpression postfix;
         ASTConstantExpression constant;
         ASTAssignExpression assign;
+        ASTCallExpression call;
     } as;
 } ASTExpression;
 
@@ -183,9 +191,14 @@ typedef struct ASTCompoundStatement {
     SymbolExitList* popCount;
 } ASTCompoundStatement;
 
+typedef struct ASTFunctionParameter {
+    SymbolLocal* declarator;
+} ASTFunctionParameter;
+
 typedef struct ASTFunctionDefinition {
     Token name;
     ASTFnCompoundStatement* statement;
+    ARRAY_DEFINE(ASTFunctionParameter*, param);
 } ASTFunctionDefinition;
 
 #define FOREACH_EXTERNALDECLARATION(x, ns) \

@@ -85,6 +85,14 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             printf("\n");
             ASTExpressionPrint(ast->as.assign.value, depth + 1);
             break;
+        case AST_EXPRESSION_CALL:
+            if(ast->as.call.paramCount == 0) {
+                PrintTabs(depth + 1);
+                printf("No parameters\n");
+            }
+            for(unsigned int i = 0; i < ast->as.call.paramCount; i++) {
+                ASTExpressionPrint(ast->as.call.params[i], depth + 1);
+            }
     }
 }
 
@@ -257,11 +265,20 @@ static void ASTBlockItemPrint(ASTBlockItem* ast, int depth) {
 ASTARRAY_PRINT(CompoundStatement, BlockItem, item)
 ASTARRAY_PRINT(FnCompoundStatement, BlockItem, item)
 
+static void ASTFunctionParameterPrint(ASTFunctionParameter* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTFunctionParameter: %.*s\n",
+        ast->declarator->length, ast->declarator->name);
+}
+
 static void ASTFunctionDefinitionPrint(ASTFunctionDefinition* ast, int depth) {
     PrintTabs(depth);
     printf("ASTFunctionDefinition ");
     TokenPrint(&ast->name);
     printf("\n");
+    for(unsigned int i = 0; i < ast->paramCount; i++) {
+        ASTFunctionParameterPrint(ast->params[i], depth + 1);
+    }
     ASTFnCompoundStatementPrint(ast->statement, depth + 1);
 }
 
