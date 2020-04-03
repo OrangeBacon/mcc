@@ -284,7 +284,7 @@ static void ASTFunctionDefinitionPrint(ASTFunctionDefinition* ast, int depth) {
 }
 
 static char* ASTExternalDeclarationTypeNames[] = {
-    FOREACH_BLOCKITEM(ASTSTRARRAY, 0)
+    FOREACH_EXTERNALDECLARATION(ASTSTRARRAY, 0)
 };
 
 static void ASTExternalDeclarationPrint(ASTExternalDeclaration* ast, int depth) {

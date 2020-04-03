@@ -420,8 +420,8 @@ ASTFN(CompoundStatement)
 
     ARRAY_ALLOC(ASTBlockItem*, *ast, item);
     while(!match(parser, TOKEN_EOF)) {
-        ARRAY_PUSH(*ast, item, BlockItem(parser));
         if(parser->current.type == TOKEN_RIGHT_BRACE) break;
+        ARRAY_PUSH(*ast, item, BlockItem(parser));
     }
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
@@ -562,8 +562,8 @@ ASTFN(FnCompoundStatement)
 
     ARRAY_ALLOC(ASTBlockItem*, *ast, item);
     while(!match(parser, TOKEN_EOF)) {
-        ARRAY_PUSH(*ast, item, BlockItem(parser));
         if(parser->current.type == TOKEN_RIGHT_BRACE) break;
+        ARRAY_PUSH(*ast, item, BlockItem(parser));
     }
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
@@ -611,7 +611,9 @@ ASTFN(FunctionDefinition)
             param->declarator = local;
             ARRAY_PUSH(*ast, param, param);
 
-            if(!match(parser, PREC_COMMA)) break;
+            if(!match(parser, TOKEN_COMMA)) {
+                break;
+            }
         }
         consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     } else {

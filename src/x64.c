@@ -342,16 +342,35 @@ static void x64ASTGenTernary(ASTTernaryExpression* ast, FILE* f) {
     fprintf(f, "_%u:\n", endExp);
 }
 
+static char* registers[] = {
+    "rcx", "rdx", "r8", "r9"
+};
+
 static void x64ASTGenCall(ASTCallExpression* ast, FILE* f) {
+    if(ast->paramCount > 4) {
+        printf("Stack call not implemented\n");
+        exit(0);
+    }
     for(int i = ast->paramCount - 1; i >= 0; i--) {
         x64ASTGenExpression(ast->params[i], f);
         fprintf(f, "\tpush %%rax\n");
     }
+    for(unsigned int i = 0; i < ast->paramCount; i++) {
+        fprintf(f, "\tpop %%%s\n", registers[i]);
+    }
     SymbolGlobal* fn = ast->target->as.constant.global;
-    fprintf(f, "\tcall %.*s\n"
-               "\tadd $%u, %%rsp\n",
-               fn->length, fn->name,
-               ast->paramCount * 8);
+    fprintf(f, "\tsub $0x20, %%rsp\n"
+               "\tcall %.*s\n"
+               "\tadd $0x20, %%rsp\n",
+               fn->length, fn->name);
+    // the above allocates 0x20 on the stack because windows
+    // - the stack has to be aligned to 16 bytes
+    // - call adds 8 bytes, push %rbp adds 8 bytes
+    // - this leaves stack aligned properly
+    // - All functions must allocate 32 == 0x20 bytes of shadow space adjacent
+    //   to the return address for the previous function, allocated by the
+    //   caller - i.e. all functions.
+    // - https://github.com/simon-whitehead/assembly-fun/tree/master/windows-x64
 }
 
 static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
@@ -556,6 +575,11 @@ static void x64ASTGenFnCompoundStatement(ASTFnCompoundStatement* ast, x64Ctx* ct
 static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx) {
     if(ast->statement == NULL) return;
 
+    if(ast->paramCount > 4) {
+        printf("Stack call not implemented\n");
+        exit(0);
+    }
+
     fprintf(ctx->f, ".globl %.*s\n", ast->name.length, ast->name.start);
     fprintf(ctx->f, "%.*s:\n"
                     "\tpush %%rbp\n"
@@ -564,13 +588,16 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
     ASTFnCompoundStatement* s = ast->statement;
     ctx->stackIndex = -8;
 
-    int paramOffset = 16;
     for(unsigned int i = 0; i < ast->paramCount; i++) {
-        ast->params[i]->declarator->stackOffset = paramOffset;
-        paramOffset += 8;
+        ast->params[i]->declarator->stackOffset = ctx->stackIndex;
+        ctx->stackIndex -= 8;
+        fprintf(ctx->f, "\tpush %%%s\n", registers[i]);
     }
+
     x64ASTGenFnCompoundStatement(s, ctx);
-    if(s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT ||
+
+    if(s->itemCount < 1 ||
+       s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT ||
        s->items[s->itemCount - 1]->as.statement->type != AST_STATEMENT_JUMP ||
        s->items[s->itemCount - 1]->as.statement->as.jump->type != AST_JUMP_STATEMENT_RETURN) {
         fprintf(ctx->f, "\tmov $0, %%rax\n"
