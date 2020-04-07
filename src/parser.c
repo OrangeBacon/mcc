@@ -205,6 +205,7 @@ static ASTExpression* PreIncDec(Parser* parser) {
 static ASTExpression* Call(Parser* parser, ASTExpression* prev) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_CALL;
+    ast->as.call.indirectErrorLoc = parser->previous;
 
     ARRAY_ZERO(ast->as.call, param);
     ast->as.call.target = prev;
@@ -557,7 +558,6 @@ ASTFN(BlockItem)
 ASTFN_END()
 
 ASTFN(FnCompoundStatement)
-    SymbolTableEnter(&parser->locals);
     consume(parser, TOKEN_LEFT_BRACE, "Expected '{'");
 
     ARRAY_ALLOC(ASTBlockItem*, *ast, item);
@@ -567,14 +567,13 @@ ASTFN(FnCompoundStatement)
     }
 
     consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
-    SymbolTableExit(&parser->locals);
 ASTFN_END()
 
 ASTFN(FunctionDefinition)
     consume(parser, TOKEN_IDENTIFIER, "Expected function name");
-    ast->name = parser->previous;
     SymbolGlobal* global = SymbolTableGetGlobal(&parser->locals,
         parser->previous.start, parser->previous.length);
+    ast->errorLoc = parser->previous;
     if(global != NULL) {
         if(!global->isFunction) {
             error(parser, "Cannot have function and global variable with the"
@@ -587,6 +586,7 @@ ASTFN(FunctionDefinition)
         ARRAY_ALLOC(ASTFunctionDefinition*, *global, define);
     }
 
+    ast->name = global;
     ARRAY_PUSH(*global, define, ast);
 
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");

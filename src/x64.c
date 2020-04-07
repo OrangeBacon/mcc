@@ -580,10 +580,10 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
         exit(0);
     }
 
-    fprintf(ctx->f, ".globl %.*s\n", ast->name.length, ast->name.start);
+    fprintf(ctx->f, ".globl %.*s\n", ast->name->length, ast->name->name);
     fprintf(ctx->f, "%.*s:\n"
                     "\tpush %%rbp\n"
-                    "\tmov %%rsp, %%rbp\n", ast->name.length, ast->name.start);
+                    "\tmov %%rsp, %%rbp\n", ast->name->length, ast->name->name);
 
     ASTFnCompoundStatement* s = ast->statement;
     ctx->stackIndex = -8;

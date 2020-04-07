@@ -61,6 +61,7 @@ typedef struct ASTAssignExpression {
 
 typedef struct ASTCallExpression {
     struct ASTExpression* target;
+    Token indirectErrorLoc;
     ARRAY_DEFINE(struct ASTExpression*, param);
 } ASTCallExpression;
 
@@ -196,7 +197,8 @@ typedef struct ASTFunctionParameter {
 } ASTFunctionParameter;
 
 typedef struct ASTFunctionDefinition {
-    Token name;
+    SymbolGlobal* name;
+    Token errorLoc;
     ASTFnCompoundStatement* statement;
     ARRAY_DEFINE(ASTFunctionParameter*, param);
 } ASTFunctionDefinition;

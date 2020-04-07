@@ -24,5 +24,7 @@ int main(int argc, char** argv) {
     if(!parser.hadError) {
         ASTPrint(parser.ast);
         x64ASTGen(parser.ast);
+    } else {
+        return 1;
     }
 }

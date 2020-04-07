@@ -49,6 +49,7 @@ typedef struct SymbolGlobal {
     uint32_t hash;
 
     bool isFunction;
+    bool functionAnalysed;
     ARRAY_DEFINE(struct ASTFunctionDefinition*, define);
 } SymbolGlobal;
 

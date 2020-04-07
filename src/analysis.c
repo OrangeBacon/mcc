@@ -5,15 +5,63 @@ typedef struct ctx {
     bool inLoop;
 } ctx;
 
+static void AnalyseCallExpression(ASTCallExpression* ast, ctx* ctx) {
+    if(ast->target->type != AST_EXPRESSION_CONSTANT ||
+            ast->target->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
+        errorAt(ctx->parser, &ast->indirectErrorLoc,
+            "Indirect calls not supported yet");
+    }
+    if(ast->target->as.constant.global->defines[0]->paramCount
+            != ast->paramCount) {
+        errorAt(ctx->parser, &ast->target->as.constant.tok,
+            "Incorrect number of parameters passed");
+    }
+}
+
+static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
+    if(ast == NULL) return;
+    switch(ast->type) {
+        case AST_EXPRESSION_ASSIGN:
+            AnalyseExpression(ast->as.assign.value, ctx);
+            break;
+        case AST_EXPRESSION_BINARY:
+            AnalyseExpression(ast->as.binary.left, ctx);
+            AnalyseExpression(ast->as.binary.right, ctx);
+            break;
+        case AST_EXPRESSION_CALL:
+            AnalyseCallExpression(&ast->as.call, ctx);
+            break;
+        case AST_EXPRESSION_CONSTANT:
+            break;
+        case AST_EXPRESSION_POSTFIX:
+            AnalyseExpression(ast->as.postfix.operand, ctx);
+            break;
+        case AST_EXPRESSION_TERNARY:
+            AnalyseExpression(ast->as.ternary.operand1, ctx);
+            AnalyseExpression(ast->as.ternary.operand2, ctx);
+            AnalyseExpression(ast->as.ternary.operand3, ctx);
+            break;
+        case AST_EXPRESSION_UNARY:
+            AnalyseExpression(ast->as.unary.operand, ctx);
+            break;
+    }
+}
+
 static void AnalyseStatement(ASTStatement* ast, ctx* ctx);
+static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx);
 static void AnalyseIterationStatement(ASTIterationStatement* ast, ctx* ctx) {
     bool oldLoop = ctx->inLoop;
     ctx->inLoop = true;
+    AnalyseExpression(ast->control, ctx);
+    AnalyseExpression(ast->post, ctx);
+    AnalyseExpression(ast->preExpr, ctx);
+    AnalyseDeclaration(ast->preDecl, ctx);
     AnalyseStatement(ast->body, ctx);
     ctx->inLoop = oldLoop;
 }
 
 static void AnalyseSelectionStatement(ASTSelectionStatement* ast, ctx* ctx) {
+    AnalyseExpression(ast->condition, ctx);
     switch(ast->type) {
         case AST_SELECTION_STATEMENT_IF:
             AnalyseStatement(ast->block, ctx);
@@ -40,7 +88,9 @@ static void AnalyseJumpStatement(ASTJumpStatement* ast, ctx* ctx) {
                 errorAt(ctx->parser, &ast->statement, "Cannot break or continue"
                     " outside of a loop");
             }
+            break;
         case AST_JUMP_STATEMENT_RETURN:
+            AnalyseExpression(ast->expr, ctx);
             break;
     }
 }
@@ -60,8 +110,17 @@ static void AnalyseStatement(ASTStatement* ast, ctx* ctx) {
             AnalyseJumpStatement(ast->as.jump, ctx);
             break;
         case AST_STATEMENT_EXPRESSION:
+            AnalyseExpression(ast->as.expression, ctx);
         case AST_STATEMENT_NULL:
             break;
+    }
+}
+
+static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
+    if(ast == NULL) return;
+    for(unsigned int i = 0; i < ast->declarators.declaratorCount; i++) {
+        ASTInitDeclarator* decl = ast->declarators.declarators[i];
+        AnalyseExpression(decl->initializer, ctx);
     }
 }
 
@@ -71,6 +130,7 @@ static void AnalyseBlockItem(ASTBlockItem* ast, ctx* ctx) {
             AnalyseStatement(ast->as.statement, ctx);
             break;
         case AST_BLOCK_ITEM_DECLARATION:
+            AnalyseDeclaration(ast->as.declaration, ctx);
             break;
     }
 }
@@ -82,6 +142,29 @@ static void AnalyseFnCompoundStatement(ASTFnCompoundStatement* ast, ctx* ctx) {
 }
 
 static void AnalyseFunctionDefinition(ASTFunctionDefinition* ast, ctx* ctx) {
+    if(!ast->name->functionAnalysed) {
+        bool defined = false;
+        int paramCount = -1;
+        for(unsigned int i = 0; i < ast->name->defineCount; i++) {
+            ASTFunctionDefinition* fn = ast->name->defines[i];
+            if(fn->statement != NULL) {
+                if(defined) {
+                    errorAt(ctx->parser, &fn->errorLoc,
+                        "Cannot re-define function");
+                }
+                defined = true;
+            }
+            if(paramCount == -1) {
+                paramCount = fn->paramCount;
+            } else {
+                if(paramCount != (int)fn->paramCount) {
+                    errorAt(ctx->parser, &fn->errorLoc,
+                        "Mismatch in function parameter count");
+                }
+            }
+        }
+        ast->name->functionAnalysed = true;
+    }
     if(ast->statement == NULL) return;
     AnalyseFnCompoundStatement(ast->statement, ctx);
 }
