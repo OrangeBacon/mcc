@@ -382,30 +382,34 @@ static char* registers[] = {
 };
 
 static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
-    if(ast->paramCount > 4) {
-        printf("Stack call not implemented\n");
-        exit(0);
+    bool usedAlign = false;
+    if((ast->paramCount - 4 > 0 && (ctx->stackAlignment + (ast->paramCount - 4)) % 16 != 0) || ctx->stackAlignment % 16 != 0) {
+        usedAlign = true;
+        fprintf(ctx->f, "\tsub $8, %%rsp\n");
+        ctx->stackAlignment += 8;
     }
-    for(int i = ast->paramCount - 1; i >= 0; i--) {
+    for(unsigned int i = 4; i < ast->paramCount; i++) {
         x64ASTGenExpression(ast->params[i], ctx);
         fprintf(ctx->f, "\tpush %%rax\n");
         ctx->stackAlignment += 8;
     }
-    for(unsigned int i = 0; i < ast->paramCount; i++) {
+    for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
+        x64ASTGenExpression(ast->params[i], ctx);
+        fprintf(ctx->f, "\tpush %%rax\n");
+        ctx->stackAlignment += 8;
+    }
+    for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
         fprintf(ctx->f, "\tpop %%%s\n", registers[i]);
         ctx->stackAlignment -= 8;
     }
     SymbolGlobal* fn = ast->target->as.constant.global;
-    if(ctx->stackAlignment % 16 != 0) {
-        fprintf(ctx->f, "\tsub $0x28, %%rsp\n");
-    } else {
-        fprintf(ctx->f, "\tsub $0x20, %%rsp\n");
-    }
-    fprintf(ctx->f, "\tcall %.*s\n", fn->length, fn->name);
-    if(ctx->stackAlignment % 16 != 0) {
-        fprintf(ctx->f, "\tadd $0x28, %%rsp\n");
-    } else {
-        fprintf(ctx->f, "\tadd $0x20, %%rsp\n");
+
+    fprintf(ctx->f, "\tsub $0x20, %%rsp\n"
+                    "\tcall %.*s\n"
+                    "\tadd $0x20, %%rsp\n", fn->length, fn->name);
+    if(((int)ast->paramCount - 4) > 0) {
+        ctx->stackAlignment -= 8 * (ast->paramCount + usedAlign - 4);
+        fprintf(ctx->f, "\tadd $%d, %%rsp\n", 8 * ((ast->paramCount - 4)+ usedAlign));
     }
     // the above allocates 0x20 on the stack because windows
     // - the stack has to be aligned to 16 bytes
@@ -415,7 +419,7 @@ static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
     //   to the return address for the previous function, allocated by the
     //   caller - i.e. all functions.
     // - Uses variable ammount of stackalloc, depending on the stack alignment
-    //   to ensure 16byte alignment for function calls
+    //   to ensure 16 byte alignment for function calls
     // - https://github.com/simon-whitehead/assembly-fun/tree/master/windows-x64
 }
 
@@ -624,11 +628,6 @@ static void x64ASTGenFnCompoundStatement(ASTFnCompoundStatement* ast, x64Ctx* ct
 static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx) {
     if(ast->statement == NULL) return;
 
-    if(ast->paramCount > 4) {
-        printf("Stack call not implemented\n");
-        exit(0);
-    }
-
     fprintf(ctx->f, ".globl %.*s\n", ast->name->length, ast->name->name);
     fprintf(ctx->f, "%.*s:\n"
                     "\tpush %%rbp\n"
@@ -638,11 +637,16 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
     ASTFnCompoundStatement* s = ast->statement;
     ctx->stackIndex = -8;
 
-    for(unsigned int i = 0; i < ast->paramCount; i++) {
+    for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
         ast->params[i]->declarator->stackOffset = ctx->stackIndex;
         ctx->stackIndex -= 8;
         fprintf(ctx->f, "\tpush %%%s\n", registers[i]);
         ctx->stackAlignment += 8;
+    }
+    int stackParamIndex = 48;
+    for(int i = ast->paramCount - 1; i > 3; i--) {
+        ast->params[i]->declarator->stackOffset = stackParamIndex;
+        stackParamIndex += 8;
     }
 
     x64ASTGenFnCompoundStatement(s, ctx);
