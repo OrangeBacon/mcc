@@ -13,8 +13,11 @@ typedef struct x64Ctx {
     // location continue statements should jump to
     unsigned int loopContinue;
 
-    // distance to top of stack
+    // distance to top of stack - used in variable allocation
     int stackIndex;
+
+    // stack alignment - used to align before function calls
+    int stackAlignment;
 } x64Ctx;
 
 static unsigned int getID() {
@@ -22,169 +25,201 @@ static unsigned int getID() {
     return i++;
 }
 
-static void x64ASTGenExpression(ASTExpression* ast, FILE* f);
+static void x64ASTGenExpression(ASTExpression* ast, x64Ctx* ctx);
 
-static void x64ASTGenBinary(ASTBinaryExpression* ast, FILE* f) {
+static void x64ASTGenBinary(ASTBinaryExpression* ast, x64Ctx* ctx) {
     switch(ast->operator.type) {
         case TOKEN_PLUS:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tadd %%rcx, %%rax\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tadd %%rcx, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_NEGATE:
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tsub %%rcx, %%rax\n");
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tsub %%rcx, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_STAR:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\timul %%rcx, %%rax\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\timul %%rcx, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_SLASH:
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcqo\n"
-                       "\tidiv %%rcx\n");
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcqo\n"
+                            "\tidiv %%rcx\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_EQUAL_EQUAL:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcmp %%rax, %%rcx\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsete %%al\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcmp %%rax, %%rcx\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsete %%al\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_NOT_EQUAL:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcmp %%rax, %%rcx\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsetne %%al\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcmp %%rax, %%rcx\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsetne %%al\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_LESS:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcmp %%rax, %%rcx\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsetl %%al\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcmp %%rax, %%rcx\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsetl %%al\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_LESS_EQUAL:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcmp %%rax, %%rcx\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsetle %%al\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcmp %%rax, %%rcx\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsetle %%al\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_GREATER:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcmp %%rax, %%rcx\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsetg %%al\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcmp %%rax, %%rcx\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsetg %%al\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_GREATER_EQUAL:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcmp %%rax, %%rcx\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsetge %%al\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcmp %%rax, %%rcx\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsetge %%al\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_OR_OR: {
             unsigned int clause2 = getID();
             unsigned int end = getID();
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tcmp $0, %%rax\n"
-                       "\tje _%u\n"
-                       "\tmov $1, %%rax\n"
-                       "\tjmp _%u\n"
-                       "_%u:\n", clause2, end, clause2);
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tcmp $0, %%rax\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsetne %%al\n"
-                       "_%u:\n", end);
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tcmp $0, %%rax\n"
+                            "\tje _%u\n"
+                            "\tmov $1, %%rax\n"
+                            "\tjmp _%u\n"
+                            "_%u:\n", clause2, end, clause2);
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tcmp $0, %%rax\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsetne %%al\n"
+                            "_%u:\n", end);
         }; break;
         case TOKEN_AND_AND: {
             unsigned int clause2 = getID();
             unsigned int end = getID();
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tcmp $0, %%rax\n"
-                       "\tjne _%u\n"
-                       "\tjmp _%u\n"
-                       "_%u:\n", clause2, end, clause2);
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tcmp $0, %%rax\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsetne %%al\n"
-                       "_%u:\n", end);
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tcmp $0, %%rax\n"
+                            "\tjne _%u\n"
+                            "\tjmp _%u\n"
+                            "_%u:\n", clause2, end, clause2);
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tcmp $0, %%rax\n"
+                            "\tmov $0, %%rax\n"
+                            "\tsetne %%al\n"
+                            "_%u:\n", end);
         }; break;
         case TOKEN_OR:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tor %%rcx, %%rax\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tor %%rcx, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_AND:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tand %%rcx, %%rax\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tand %%rcx, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_PERCENT:
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tcqo\n"
-                       "\tidiv %%rcx\n"
-                       "\tmov %%rdx, %%rax\n");
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tcqo\n"
+                            "\tidiv %%rcx\n"
+                            "\tmov %%rdx, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_XOR:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\txor %%rcx, %%rax\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\txor %%rcx, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_SHIFT_LEFT:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tsal %%cl, %%rax\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tsal %%cl, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_SHIFT_RIGHT:
-            x64ASTGenExpression(ast->left, f);
-            fprintf(f, "\tpush %%rax\n");
-            x64ASTGenExpression(ast->right, f);
-            fprintf(f, "\tpop %%rcx\n"
-                       "\tsar %%cl, %%rax\n");
+            x64ASTGenExpression(ast->left, ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+            x64ASTGenExpression(ast->right, ctx);
+            fprintf(ctx->f, "\tpop %%rcx\n"
+                            "\tsar %%cl, %%rax\n");
+            ctx->stackAlignment -= 8;
             break;
         case TOKEN_COMMA:
-            x64ASTGenExpression(ast->left, f);
-            x64ASTGenExpression(ast->right, f);
+            x64ASTGenExpression(ast->left, ctx);
+            x64ASTGenExpression(ast->right, ctx);
             break;
         default:
             printf("x64 unreachable binary\n");
@@ -192,29 +227,29 @@ static void x64ASTGenBinary(ASTBinaryExpression* ast, FILE* f) {
     }
 }
 
-static void x64ASTGenUnary(ASTUnaryExpression* ast, FILE* f) {
+static void x64ASTGenUnary(ASTUnaryExpression* ast, x64Ctx* ctx) {
     switch(ast->operator.type) {
         case TOKEN_NOT:
-            x64ASTGenExpression(ast->operand, f);
-            fprintf(f, "\tcmp $0, %%rax\n"
+            x64ASTGenExpression(ast->operand, ctx);
+            fprintf(ctx->f, "\tcmp $0, %%rax\n"
                        "\tmov $0, %%rax\n"
                        "\tsete %%al\n");
             break;
         case TOKEN_NEGATE:
-            x64ASTGenExpression(ast->operand, f);
-            fprintf(f, "\tneg %%rax\n");
+            x64ASTGenExpression(ast->operand, ctx);
+            fprintf(ctx->f, "\tneg %%rax\n");
             break;
         case TOKEN_COMPLIMENT:
-            x64ASTGenExpression(ast->operand, f);
-            fprintf(f, "\tnot %%rax\n");
+            x64ASTGenExpression(ast->operand, ctx);
+            fprintf(ctx->f, "\tnot %%rax\n");
             break;
         case TOKEN_PLUS_PLUS:
-            fprintf(f, "\tincq %d(%%rbp)\n"
-                       "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset, ast->local->stackOffset);
+            fprintf(ctx->f, "\tincq %d(%%rbp)\n"
+                            "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset, ast->local->stackOffset);
             break;
         case TOKEN_MINUS_MINUS:
-        fprintf(f, "\tdecq %d(%%rbp)\n"
-                       "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset, ast->local->stackOffset);
+        fprintf(ctx->f, "\tdecq %d(%%rbp)\n"
+                        "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset, ast->local->stackOffset);
             break;
         default:
             printf("x64 unreachable unary\n");
@@ -236,74 +271,74 @@ static void x64ASTGenConstant(ASTConstantExpression* ast, FILE* f) {
     }
 }
 
-static void x64ASTGenAssign(ASTAssignExpression* ast, FILE* f) {
-    x64ASTGenExpression(ast->value, f);
+static void x64ASTGenAssign(ASTAssignExpression* ast, x64Ctx* ctx) {
+    x64ASTGenExpression(ast->value, ctx);
     switch(ast->operator.type) {
         case TOKEN_EQUAL:
-            fprintf(f, "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset);
             break;
         case TOKEN_PLUS_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tadd %%rcx, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tadd %%rcx, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_MINUS_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tsub %%rcx, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tsub %%rcx, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_SLASH_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tcqo\n"
-                       "\tidiv %%rcx\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tcqo\n"
+                            "\tidiv %%rcx\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_STAR_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\timul %%rcx, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\timul %%rcx, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_PERCENT_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tcqo\n"
-                       "\tidiv %%rcx\n"
-                       "\tmov %%rdx, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tcqo\n"
+                            "\tidiv %%rcx\n"
+                            "\tmov %%rdx, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_LEFT_SHIFT_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tsal %%cl, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tsal %%cl, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_RIGHT_SHIFT_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tsar %%cl, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tsar %%cl, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_AND_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tand %%rcx, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tand %%rcx, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_OR_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\tor %%rcx, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\tor %%rcx, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         case TOKEN_XOR_EQUAL:
-            fprintf(f, "\tmov %%rax, %%rcx\n"
-                       "\tmov %d(%%rbp), %%rax\n"
-                       "\txor %%rcx, %%rax\n"
-                       "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
+            fprintf(ctx->f, "\tmov %%rax, %%rcx\n"
+                            "\tmov %d(%%rbp), %%rax\n"
+                            "\txor %%rcx, %%rax\n"
+                            "\tmov %%rax, %d(%%rbp)\n", ast->target->stackOffset, ast->target->stackOffset);
             break;
         default:
             printf("Unknown assignment\n");
@@ -329,40 +364,49 @@ static void x64ASTGenPostfix(ASTPostfixExpression* ast, FILE* f) {
     }
 }
 
-static void x64ASTGenTernary(ASTTernaryExpression* ast, FILE* f) {
+static void x64ASTGenTernary(ASTTernaryExpression* ast, x64Ctx* ctx) {
     unsigned int elseExp = getID();
     unsigned int endExp = getID();
-    x64ASTGenExpression(ast->operand1, f);
-    fprintf(f, "\tcmp $0, %%rax\n"
-               "\tje _%u\n", elseExp);
-    x64ASTGenExpression(ast->operand2, f);
-    fprintf(f, "\tjmp _%u\n"
-               "_%u:\n", endExp, elseExp);
-    x64ASTGenExpression(ast->operand3, f);
-    fprintf(f, "_%u:\n", endExp);
+    x64ASTGenExpression(ast->operand1, ctx);
+    fprintf(ctx->f, "\tcmp $0, %%rax\n"
+                    "\tje _%u\n", elseExp);
+    x64ASTGenExpression(ast->operand2, ctx);
+    fprintf(ctx->f, "\tjmp _%u\n"
+                    "_%u:\n", endExp, elseExp);
+    x64ASTGenExpression(ast->operand3, ctx);
+    fprintf(ctx->f, "_%u:\n", endExp);
 }
 
 static char* registers[] = {
     "rcx", "rdx", "r8", "r9"
 };
 
-static void x64ASTGenCall(ASTCallExpression* ast, FILE* f) {
+static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
     if(ast->paramCount > 4) {
         printf("Stack call not implemented\n");
         exit(0);
     }
     for(int i = ast->paramCount - 1; i >= 0; i--) {
-        x64ASTGenExpression(ast->params[i], f);
-        fprintf(f, "\tpush %%rax\n");
+        x64ASTGenExpression(ast->params[i], ctx);
+        fprintf(ctx->f, "\tpush %%rax\n");
+        ctx->stackAlignment += 8;
     }
     for(unsigned int i = 0; i < ast->paramCount; i++) {
-        fprintf(f, "\tpop %%%s\n", registers[i]);
+        fprintf(ctx->f, "\tpop %%%s\n", registers[i]);
+        ctx->stackAlignment -= 8;
     }
     SymbolGlobal* fn = ast->target->as.constant.global;
-    fprintf(f, "\tsub $0x20, %%rsp\n"
-               "\tcall %.*s\n"
-               "\tadd $0x20, %%rsp\n",
-               fn->length, fn->name);
+    if(ctx->stackAlignment % 16 != 0) {
+        fprintf(ctx->f, "\tsub $0x28, %%rsp\n");
+    } else {
+        fprintf(ctx->f, "\tsub $0x20, %%rsp\n");
+    }
+    fprintf(ctx->f, "\tcall %.*s\n", fn->length, fn->name);
+    if(ctx->stackAlignment % 16 != 0) {
+        fprintf(ctx->f, "\tadd $0x28, %%rsp\n");
+    } else {
+        fprintf(ctx->f, "\tadd $0x20, %%rsp\n");
+    }
     // the above allocates 0x20 on the stack because windows
     // - the stack has to be aligned to 16 bytes
     // - call adds 8 bytes, push %rbp adds 8 bytes
@@ -370,34 +414,36 @@ static void x64ASTGenCall(ASTCallExpression* ast, FILE* f) {
     // - All functions must allocate 32 == 0x20 bytes of shadow space adjacent
     //   to the return address for the previous function, allocated by the
     //   caller - i.e. all functions.
+    // - Uses variable ammount of stackalloc, depending on the stack alignment
+    //   to ensure 16byte alignment for function calls
     // - https://github.com/simon-whitehead/assembly-fun/tree/master/windows-x64
 }
 
-static void x64ASTGenExpression(ASTExpression* ast, FILE* f) {
+static void x64ASTGenExpression(ASTExpression* ast, x64Ctx* ctx) {
     if(ast == NULL) {
         return;
     }
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
-            x64ASTGenConstant(&ast->as.constant, f);
+            x64ASTGenConstant(&ast->as.constant, ctx->f);
             break;
         case AST_EXPRESSION_UNARY:
-            x64ASTGenUnary(&ast->as.unary, f);
+            x64ASTGenUnary(&ast->as.unary, ctx);
             break;
         case AST_EXPRESSION_BINARY:
-            x64ASTGenBinary(&ast->as.binary, f);
+            x64ASTGenBinary(&ast->as.binary, ctx);
             break;
         case AST_EXPRESSION_ASSIGN:
-            x64ASTGenAssign(&ast->as.assign, f);
+            x64ASTGenAssign(&ast->as.assign, ctx);
             break;
         case AST_EXPRESSION_POSTFIX:
-            x64ASTGenPostfix(&ast->as.postfix, f);
+            x64ASTGenPostfix(&ast->as.postfix, ctx->f);
             break;
         case AST_EXPRESSION_TERNARY:
-            x64ASTGenTernary(&ast->as.ternary, f);
+            x64ASTGenTernary(&ast->as.ternary, ctx);
             break;
         case AST_EXPRESSION_CALL:
-            x64ASTGenCall(&ast->as.call, f);
+            x64ASTGenCall(&ast->as.call, ctx);
             break;
         default:
             printf("Output unspecified\n");
@@ -410,7 +456,7 @@ static void x64ASTGenStatement(ASTStatement* ast, x64Ctx* f);
 static void x64ASTGenSelectionStatement(ASTSelectionStatement* ast, x64Ctx* ctx) {
     unsigned int elseExp = getID();
     unsigned int endExp = getID();
-    x64ASTGenExpression(ast->condition, ctx->f);
+    x64ASTGenExpression(ast->condition, ctx);
     fprintf(ctx->f, "\tcmp $0, %%rax\n");
     if(ast->type == AST_SELECTION_STATEMENT_IF) {
         fprintf(ctx->f, "\tje _%u\n", endExp);
@@ -433,6 +479,7 @@ static void x64ASTGenCompoundStatement(ASTCompoundStatement* ast, x64Ctx* ctx) {
     }
     fprintf(ctx->f, "\tadd $%u, %%rsp\n", ast->popCount->localCount * 8);
     ctx->stackIndex += 8 * ast->popCount->localCount;
+    ctx->stackAlignment -= 8 * ast->popCount->localCount;
 }
 
 
@@ -451,7 +498,7 @@ static void x64ASTGenIterationStatement(ASTIterationStatement* ast, x64Ctx* ctx)
     switch(ast->type) {
         case AST_ITERATION_STATEMENT_WHILE: {
             fprintf(ctx->f, "_%u:\n", cont);
-            x64ASTGenExpression(ast->control, ctx->f);
+            x64ASTGenExpression(ast->control, ctx);
             fprintf(ctx->f, "\tcmp $0, %%rax\n"
                             "\tje _%u\n", end);
             x64ASTGenStatement(ast->body, ctx);
@@ -463,21 +510,21 @@ static void x64ASTGenIterationStatement(ASTIterationStatement* ast, x64Ctx* ctx)
             fprintf(ctx->f, "_%u:\n", start);
             x64ASTGenStatement(ast->body, ctx);
             fprintf(ctx->f, "_%u:\n", cont);
-            x64ASTGenExpression(ast->control, ctx->f);
+            x64ASTGenExpression(ast->control, ctx);
             fprintf(ctx->f, "\tcmp $0, %%rax\n"
                             "\tjne _%u\n"
                             "_%u:\n", start, end);
         }; break;
         case AST_ITERATION_STATEMENT_FOR_EXPR: {
             unsigned int cond = getID();
-            x64ASTGenExpression(ast->preExpr, ctx->f);
+            x64ASTGenExpression(ast->preExpr, ctx);
             fprintf(ctx->f, "_%u:\n", cond);
-            x64ASTGenExpression(ast->control, ctx->f);
+            x64ASTGenExpression(ast->control, ctx);
             fprintf(ctx->f, "\tcmp $0, %%rax\n"
                             "\tje _%u\n", end);
             x64ASTGenStatement(ast->body, ctx);
             fprintf(ctx->f, "_%u:\n", cont);
-            x64ASTGenExpression(ast->post, ctx->f);
+            x64ASTGenExpression(ast->post, ctx);
             fprintf(ctx->f, "\tjmp _%u\n"
                             "_%u:\n", cond, end);
         }; break;
@@ -485,12 +532,12 @@ static void x64ASTGenIterationStatement(ASTIterationStatement* ast, x64Ctx* ctx)
             unsigned int cond = getID();
             x64ASTGenDeclaration(ast->preDecl, ctx);
             fprintf(ctx->f, "_%u:\n", cond);
-            x64ASTGenExpression(ast->control, ctx->f);
+            x64ASTGenExpression(ast->control, ctx);
             fprintf(ctx->f, "\tcmp $0, %%rax\n"
                        "\tje _%u\n", end);
             x64ASTGenStatement(ast->body, ctx);
             fprintf(ctx->f, "_%u:\n", cont);
-            x64ASTGenExpression(ast->post, ctx->f);
+            x64ASTGenExpression(ast->post, ctx);
             fprintf(ctx->f, "\tjmp _%u\n"
                        "_%u:\n"
                        "\tadd $%u, %%rsp\n", cond, end, ast->freeCount->localCount * 8);
@@ -505,10 +552,11 @@ static void x64ASTGenIterationStatement(ASTIterationStatement* ast, x64Ctx* ctx)
 static void x64ASTGenJumpStatement(ASTJumpStatement* ast, x64Ctx* ctx) {
     switch(ast->type) {
         case AST_JUMP_STATEMENT_RETURN:
-            x64ASTGenExpression(ast->expr, ctx->f);
+            x64ASTGenExpression(ast->expr, ctx);
             fprintf(ctx->f, "\tmov %%rbp, %%rsp\n"
                             "\tpop %%rbp\n"
                             "\tret\n\n");
+            ctx->stackAlignment -= 8;
             break;
         case AST_JUMP_STATEMENT_BREAK:
             fprintf(ctx->f, "\tjmp _%u # break\n", ctx->loopBreak);
@@ -525,7 +573,7 @@ static void x64ASTGenStatement(ASTStatement* ast, x64Ctx* ctx) {
             x64ASTGenJumpStatement(ast->as.jump, ctx);
             break;
         case AST_STATEMENT_EXPRESSION:
-            x64ASTGenExpression(ast->as.expression, ctx->f);
+            x64ASTGenExpression(ast->as.expression, ctx);
             break;
         case AST_STATEMENT_SELECTION:
             x64ASTGenSelectionStatement(ast->as.selection, ctx);
@@ -545,13 +593,14 @@ static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx) {
     for(unsigned int i = 0; i < ast->declarators.declaratorCount; i++) {
         ASTInitDeclarator* a = ast->declarators.declarators[i];
         if(a->type == AST_INIT_DECLARATOR_INITIALIZE) {
-            x64ASTGenExpression(a->initializer, ctx->f);
+            x64ASTGenExpression(a->initializer, ctx);
         } else {
             fprintf(ctx->f, "\tmov $0xcafebabe, %%rax\n");
         }
         fprintf(ctx->f, "\tpush %%rax\n");
         a->declarator->stackOffset = ctx->stackIndex;
         ctx->stackIndex -= 8;
+        ctx->stackAlignment += 8;
     }
 }
 
@@ -584,6 +633,7 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
     fprintf(ctx->f, "%.*s:\n"
                     "\tpush %%rbp\n"
                     "\tmov %%rsp, %%rbp\n", ast->name->length, ast->name->name);
+    ctx->stackAlignment = 0;
 
     ASTFnCompoundStatement* s = ast->statement;
     ctx->stackIndex = -8;
@@ -592,6 +642,7 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
         ast->params[i]->declarator->stackOffset = ctx->stackIndex;
         ctx->stackIndex -= 8;
         fprintf(ctx->f, "\tpush %%%s\n", registers[i]);
+        ctx->stackAlignment += 8;
     }
 
     x64ASTGenFnCompoundStatement(s, ctx);
