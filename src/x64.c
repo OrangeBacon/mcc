@@ -407,11 +407,30 @@ static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
     SymbolGlobal* fn = ast->target->as.constant.global;
 
     fprintf(ctx->f, "\tsub $0x20, %%rsp\n"
-                    "\tcall %.*s\n"
-                    "\tadd $0x20, %%rsp\n", fn->length, fn->name);
-    if(((int)ast->paramCount - 4) > 0) {
-        ctx->stackAlignment -= 8 * (ast->paramCount + usedAlign - 4);
-        fprintf(ctx->f, "\tadd $%d, %%rsp\n", 8 * ((ast->paramCount - 4)+ usedAlign));
+                    "\tcall %.*s\n", fn->length, fn->name);
+    // shadow space does not affect ctx->stackAlignment as it is a multiple of 16
+
+    // if extra padding used for alignment needs cleaning up
+    if(usedAlign) {
+        if(ast->paramCount > 4) {
+            // number of parameters passed on the stack + alignment + shadow
+            ctx->stackAlignment -= 8 * (ast->paramCount - 4 + 1);
+            fprintf(ctx->f, "\tadd $%d, %%rsp\n", 8 * (ast->paramCount - 4 + 1) + 0x20);
+        } else {
+            // only used register call
+            // shadow + alignment = 32 + 8 = 40 = 0x28
+            ctx->stackAlignment -= 8;
+            fprintf(ctx->f, "\tadd $0x28, %%rsp\n");
+        }
+    } else {
+        if(ast->paramCount > 4) {
+            // number of parameters passed on the stack + shadow
+            ctx->stackAlignment -= 8 * (ast->paramCount - 4);
+            fprintf(ctx->f, "\tadd $%d, %%rsp\n", 8 * (ast->paramCount - 4) + 0x20);
+        } else {
+            // only used register call
+            fprintf(ctx->f, "\tadd $0x20, %%rsp\n");
+        }
     }
     // the above allocates 0x20 on the stack because windows
     // - the stack has to be aligned to 16 bytes
