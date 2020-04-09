@@ -383,7 +383,7 @@ static char* registers[] = {
 
 static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
     bool usedAlign = false;
-    if((ast->paramCount - 4 > 0 && (ctx->stackAlignment + (ast->paramCount - 4)) % 16 != 0) || ctx->stackAlignment % 16 != 0) {
+    if(((int)ast->paramCount - 4 > 0 && (ctx->stackAlignment + (ast->paramCount - 4)) % 16 != 0) || ctx->stackAlignment % 16 != 0) {
         usedAlign = true;
         fprintf(ctx->f, "\tsub $8, %%rsp\n");
         ctx->stackAlignment += 8;
@@ -393,10 +393,12 @@ static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
         fprintf(ctx->f, "\tpush %%rax\n");
         ctx->stackAlignment += 8;
     }
-    for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
-        x64ASTGenExpression(ast->params[i], ctx);
-        fprintf(ctx->f, "\tpush %%rax\n");
-        ctx->stackAlignment += 8;
+    for(int i = ast->paramCount - 1; i >= 0; i--) {
+        if(i < 4) {
+            x64ASTGenExpression(ast->params[i], ctx);
+            fprintf(ctx->f, "\tpush %%rax\n");
+            ctx->stackAlignment += 8;
+        }
     }
     for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
         fprintf(ctx->f, "\tpop %%%s\n", registers[i]);
