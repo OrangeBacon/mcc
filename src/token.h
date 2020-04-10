@@ -28,8 +28,6 @@ typedef enum TokenType {
 } TokenType;
 #undef ENUM_TOKEN
 
-const char* TokenTypeToString(TokenType type);
-
 typedef struct Token {
     TokenType type;
     const char* start;

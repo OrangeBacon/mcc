@@ -12,6 +12,22 @@
 
 #define ASTENUM(ns, name) ns##_##name,
 
+#define FOREACH_ASTVARIABLETYPE(x,ns) \
+    x(ns, INT) x(ns, POINTER)
+typedef enum ASTVariableTypeType {
+    FOREACH_ASTVARIABLETYPE(ASTENUM, AST_VARIABLE_TYPE)
+} ASTVariableTypeType;
+
+typedef struct ASTVariableType {
+    ASTVariableTypeType type;
+
+    Token token;
+
+    union {
+        struct ASTVariableType* pointer;
+    } as;
+} ASTVariableType;
+
 struct ASTExpression;
 
 typedef struct ASTBinaryExpression {
@@ -159,6 +175,8 @@ typedef enum ASTInitDeclaratorType {
 
 typedef struct ASTInitDeclarator {
     ASTInitDeclaratorType type;
+
+    ASTVariableType* variableType;
 
     Token initializerStart;
 

@@ -39,6 +39,8 @@ typedef struct SymbolLocal {
     uint32_t hash;
     unsigned int scopeDepth;
 
+    struct ASTVariableType* type;
+
     // used only by the backend, not in creating the ast
     int stackOffset;
 } SymbolLocal;

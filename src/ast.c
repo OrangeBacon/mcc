@@ -17,6 +17,18 @@ static void PrintTabs(int depth) {
     for(int i = 0; i < depth; i++) putchar('\t');
 }
 
+static void ASTVariableTypePrint(ASTVariableType* ast, int depth) {
+    switch(ast->type) {
+        case AST_VARIABLE_TYPE_POINTER:
+            printf("pointer to ");
+            ASTVariableTypePrint(ast->as.pointer, depth);
+            break;
+        case AST_VARIABLE_TYPE_INT:
+            printf("int\n");
+            break;
+    }
+}
+
 static char* ASTExpressionTypeNames[] = {
     FOREACH_EXPRESSION(ASTSTRARRAY, 0)
 };
@@ -128,6 +140,9 @@ static void ASTInitDeclaratorPrint(ASTInitDeclarator* ast, int depth) {
     printf("ASTInitDeclarator %s:\n", ASTInitDeclaratorTypeNames[ast->type]);
     PrintTabs(depth + 1);
     printf("Identifier: %.*s\n", ast->declarator->length, ast->declarator->name);
+    PrintTabs(depth + 1);
+    printf("Type: ");
+    ASTVariableTypePrint(ast->variableType, depth + 1);
 
     if(ast->type == AST_INIT_DECLARATOR_INITIALIZE) {
         ASTExpressionPrint(ast->initializer, depth + 1);

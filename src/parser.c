@@ -113,6 +113,13 @@ static ASTExpression* parsePrecidence(Parser* parser, Precidence precidence) {
     }
 
     ASTExpression* exp = prefixRule(parser);
+
+    // will probably crash if a bad prefix expression was parsed and null
+    // passed into an infix rule
+    if(exp == NULL) {
+        return NULL;
+    }
+
     while(precidence <= getRule(parser->current.type)->precidence) {
         advance(parser);
         InfixFn infixRule = getRule(parser->previous.type)->infix;
@@ -368,8 +375,32 @@ static ParseRule* getRule(TokenType type) {
 #define ASTFN_END() \
     return ast; }
 
+typedef struct TokenStack {
+    ARRAY_DEFINE(Token, token);
+} TokenStack;
+
 ASTFN(InitDeclarator)
-    consume(parser, TOKEN_IDENTIFIER, "Expected variable name");
+
+    // create store for tokens to deal with later
+    TokenStack stack;
+    ARRAY_ALLOC(Token, stack, token);
+
+    // store all valid tokens before an identifier (will add const, etc)
+    // nesting depth used so when parsing a function prototype the last
+    // argument does not consume the closing ')'
+    int nestingDepth = 0;
+    while(match(parser, TOKEN_LEFT_PAREN) || match(parser, TOKEN_STAR)) {
+        if(parser->previous.type == TOKEN_LEFT_PAREN) {
+            nestingDepth++;
+        }
+        ARRAY_PUSH(stack, token, parser->previous);
+    }
+
+    // variable name, here is where anonymous type definitions would apear
+    // e.g. in casts and prototypes - still todo
+    if(!match(parser, TOKEN_IDENTIFIER)) {
+        error(parser, "Expected variable name");
+    }
 
     SymbolLocal* local = SymbolTableAddLocal(&parser->locals,
         parser->previous.start, parser->previous.length);
@@ -379,12 +410,77 @@ ASTFN(InitDeclarator)
     }
     ast->declarator = local;
 
+    // current type, will possibly be replaced with updated version
+    ASTVariableType* type = ArenaAlloc(sizeof*type);
+    type->type = AST_VARIABLE_TYPE_INT;
+    type->token = parser->previous;
+
+    // if seekforward, check new tokens after the name, otherwise check the
+    // stack of tokens already read.
+    bool seekForward = true;
+
+    // true when the next new token is something that can come after an
+    // init declaration
+    bool reachedForwardEnd = false;
+
+    // check all tokens on the stack
+    while(stack.tokenCount > 0) {
+
+        // if next new token is a right paren and one is needed in the type
+        if(seekForward && nestingDepth > 0 && match(parser, TOKEN_RIGHT_PAREN)) {
+
+            // start checking the stack
+            seekForward = false;
+            nestingDepth--;
+        } else if(seekForward) {
+
+            // not a right paren or right paren not required
+            // here would be where function pointers and arrays would be
+            // added to the parser
+            reachedForwardEnd = true;
+            seekForward = false;
+        } else {
+
+            // not going forwards so check stack - take newest token off
+            // the top and return it
+            Token next = ARRAY_POP(stack, token);
+
+            if(next.type == TOKEN_LEFT_PAREN) {
+                // cannot use more from the stack, resume with new tokens
+                seekForward = true;
+                if(reachedForwardEnd) {
+                    error(parser, "Unexpected end of type definition");
+                    break;
+                }
+
+            } else if(next.type == TOKEN_STAR) {
+
+                // add a level of pointer to the type
+                ASTVariableType* ptr = ArenaAlloc(sizeof*type);
+                ptr->type = AST_VARIABLE_TYPE_POINTER;
+                ptr->token = next;
+                ptr->as.pointer = type;
+                type = ptr;
+            } else {
+                // something else unknown - const, volatile, _Atomic, restrict
+                // are all technically valid, but unsupported here
+                errorAt(parser, &next, "Expected '(' or '*' in type");
+                break;
+            }
+        }
+    }
+
+    ast->variableType = type;
+
     if(match(parser, TOKEN_EQUAL)) {
         ast->type = AST_INIT_DECLARATOR_INITIALIZE;
         ast->initializerStart = parser->previous;
         ast->initializer = parsePrecidence(parser, PREC_ASSIGN);
     } else {
         ast->type = AST_INIT_DECLARATOR_NO_INITIALIZE;
+
+        // if not set to null, ast print occasionaly crashed
+        ast->initializer = NULL;
     }
 ASTFN_END()
 
@@ -392,7 +488,11 @@ ASTFN(Declaration)
     ARRAY_ALLOC(ASTInitDeclarator*, ast->declarators, declarator);
 
     while(!match(parser, TOKEN_EOF)) {
-        if(!check(parser, TOKEN_IDENTIFIER)) break;
+        // parse an init declarator if any of the starting tokens
+        // for an init declarator come next, otherwise exit
+        if(!(check(parser, TOKEN_IDENTIFIER)
+            || check(parser, TOKEN_STAR)
+            || check(parser, TOKEN_LEFT_PAREN))) break;
         ARRAY_PUSH(ast->declarators, declarator, InitDeclarator(parser));
         if(!match(parser, TOKEN_COMMA)) break;
     }
