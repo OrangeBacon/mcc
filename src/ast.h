@@ -160,6 +160,8 @@ typedef enum ASTInitDeclaratorType {
 typedef struct ASTInitDeclarator {
     ASTInitDeclaratorType type;
 
+    Token initializerStart;
+
     SymbolLocal* declarator;
     ASTExpression* initializer;
 } ASTInitDeclarator;
@@ -192,15 +194,11 @@ typedef struct ASTCompoundStatement {
     SymbolExitList* popCount;
 } ASTCompoundStatement;
 
-typedef struct ASTFunctionParameter {
-    SymbolLocal* declarator;
-} ASTFunctionParameter;
-
 typedef struct ASTFunctionDefinition {
     SymbolGlobal* name;
     Token errorLoc;
     ASTFnCompoundStatement* statement;
-    ARRAY_DEFINE(ASTFunctionParameter*, param);
+    ARRAY_DEFINE(ASTInitDeclarator*, param);
 } ASTFunctionDefinition;
 
 #define FOREACH_EXTERNALDECLARATION(x, ns) \

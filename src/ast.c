@@ -265,18 +265,12 @@ static void ASTBlockItemPrint(ASTBlockItem* ast, int depth) {
 ASTARRAY_PRINT(CompoundStatement, BlockItem, item)
 ASTARRAY_PRINT(FnCompoundStatement, BlockItem, item)
 
-static void ASTFunctionParameterPrint(ASTFunctionParameter* ast, int depth) {
-    PrintTabs(depth);
-    printf("ASTFunctionParameter: %.*s\n",
-        ast->declarator->length, ast->declarator->name);
-}
-
 static void ASTFunctionDefinitionPrint(ASTFunctionDefinition* ast, int depth) {
     PrintTabs(depth);
     printf("ASTFunctionDefinition %.*s:\n", ast->name->length, ast->name->name);
     if(ast->statement == NULL) return;
     for(unsigned int i = 0; i < ast->paramCount; i++) {
-        ASTFunctionParameterPrint(ast->params[i], depth + 1);
+        ASTInitDeclaratorPrint(ast->params[i], depth + 1);
     }
     ASTFnCompoundStatementPrint(ast->statement, depth + 1);
 }

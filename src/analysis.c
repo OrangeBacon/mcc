@@ -147,6 +147,15 @@ static void AnalyseFunctionDefinition(ASTFunctionDefinition* ast, ctx* ctx) {
         int paramCount = -1;
         for(unsigned int i = 0; i < ast->name->defineCount; i++) {
             ASTFunctionDefinition* fn = ast->name->defines[i];
+
+            for(unsigned int j = 0; j < fn->paramCount; j++) {
+                ASTInitDeclarator* initDecl = fn->params[j];
+                if(initDecl->type == AST_INIT_DECLARATOR_INITIALIZE) {
+                    errorAt(ctx->parser, &initDecl->initializerStart,
+                        "Cannot have an initializer inside a function definition");
+                }
+            }
+
             if(fn->statement != NULL) {
                 if(defined) {
                     errorAt(ctx->parser, &fn->errorLoc,

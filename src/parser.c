@@ -381,6 +381,7 @@ ASTFN(InitDeclarator)
 
     if(match(parser, TOKEN_EQUAL)) {
         ast->type = AST_INIT_DECLARATOR_INITIALIZE;
+        ast->initializerStart = parser->previous;
         ast->initializer = parsePrecidence(parser, PREC_ASSIGN);
     } else {
         ast->type = AST_INIT_DECLARATOR_NO_INITIALIZE;
@@ -593,23 +594,12 @@ ASTFN(FunctionDefinition)
     SymbolTableEnter(&parser->locals);
 
     if(!match(parser, TOKEN_RIGHT_PAREN)) {
-        ARRAY_ALLOC(ASTFunctionParameter, *ast, param);
+        ARRAY_ALLOC(ASTInitDeclarator*, *ast, param);
         while(!match(parser, TOKEN_EOF)) {
             if(!match(parser, TOKEN_INT)) {
                 error(parser, "Expecting parameter type name");
             }
-            if(!match(parser, TOKEN_IDENTIFIER)) {
-                error(parser, "Expecting parameter name");
-            }
-            ASTFunctionParameter* param = ArenaAlloc(sizeof(*param));
-            SymbolLocal* local = SymbolTableAddLocal(&parser->locals,
-                parser->previous.start, parser->previous.length);
-            if(local == NULL) {
-                error(parser, "Cannot duplicate function parameter names");
-            }
-
-            param->declarator = local;
-            ARRAY_PUSH(*ast, param, param);
+            ARRAY_PUSH(*ast, param, InitDeclarator(parser));
 
             if(!match(parser, TOKEN_COMMA)) {
                 break;
