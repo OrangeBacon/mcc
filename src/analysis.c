@@ -5,6 +5,8 @@ typedef struct ctx {
     bool inLoop;
 } ctx;
 
+static void AnalyseExpression(ASTExpression* ast, ctx* ctx);
+
 static void AnalyseCallExpression(ASTCallExpression* ast, ctx* ctx) {
     if(ast->target->type != AST_EXPRESSION_CONSTANT ||
             ast->target->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
@@ -15,6 +17,17 @@ static void AnalyseCallExpression(ASTCallExpression* ast, ctx* ctx) {
             != ast->paramCount) {
         errorAt(ctx->parser, &ast->target->as.constant.tok,
             "Incorrect number of parameters passed");
+    }
+}
+
+static void AnalyseUnaryExpression(ASTUnaryExpression* ast, ctx* ctx) {
+    if(ast->operator.type == TOKEN_AND || ast->operator.type == TOKEN_STAR) {
+        if(ast->operand->type != AST_EXPRESSION_CONSTANT ||
+           ast->operand->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL) {
+            errorAt(ctx->parser, &ast->operator, "Cannot take address of not variable");
+        }
+    } else {
+        AnalyseExpression(ast->operand, ctx);
     }
 }
 
@@ -42,7 +55,7 @@ static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
             AnalyseExpression(ast->as.ternary.operand3, ctx);
             break;
         case AST_EXPRESSION_UNARY:
-            AnalyseExpression(ast->as.unary.operand, ctx);
+            AnalyseUnaryExpression(&ast->as.unary, ctx);
             break;
     }
 }

@@ -248,8 +248,17 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, x64Ctx* ctx) {
                             "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset, ast->local->stackOffset);
             break;
         case TOKEN_MINUS_MINUS:
-        fprintf(ctx->f, "\tdecq %d(%%rbp)\n"
-                        "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset, ast->local->stackOffset);
+            fprintf(ctx->f, "\tdecq %d(%%rbp)\n"
+                            "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset, ast->local->stackOffset);
+            break;
+        case TOKEN_AND:
+            fprintf(ctx->f, "\tlea %d(%%rbp), %%rax\n",
+                ast->operand->as.constant.local->stackOffset);
+            break;
+        case TOKEN_STAR:
+            fprintf(ctx->f, "\tmov %d(%%rbp), %%rax\n"
+                            "\tmov (%%rax), %%rax\n",
+                            ast->operand->as.constant.local->stackOffset);
             break;
         default:
             printf("x64 unreachable unary\n");
