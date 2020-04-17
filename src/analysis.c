@@ -21,13 +21,20 @@ static void AnalyseCallExpression(ASTCallExpression* ast, ctx* ctx) {
 }
 
 static void AnalyseUnaryExpression(ASTUnaryExpression* ast, ctx* ctx) {
-    if(ast->operator.type == TOKEN_AND || ast->operator.type == TOKEN_STAR) {
+    AnalyseExpression(ast->operand, ctx);
+    if(ast->operator.type == TOKEN_AND) {
+        if(ast->operand->type == AST_EXPRESSION_UNARY &&
+        ast->operand->as.unary.operator.type == TOKEN_STAR &&
+        !ast->operand->as.unary.elide) {
+            ast->elide = true;
+            ast->operand->as.unary.elide = true;
+            return;
+        }
+
         if(ast->operand->type != AST_EXPRESSION_CONSTANT ||
            ast->operand->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL) {
             errorAt(ctx->parser, &ast->operator, "Cannot take address of not variable");
         }
-    } else {
-        AnalyseExpression(ast->operand, ctx);
     }
 }
 
@@ -36,6 +43,7 @@ static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
     switch(ast->type) {
         case AST_EXPRESSION_ASSIGN:
             AnalyseExpression(ast->as.assign.value, ctx);
+            AnalyseExpression(ast->as.assign.target, ctx);
             break;
         case AST_EXPRESSION_BINARY:
             AnalyseExpression(ast->as.binary.left, ctx);

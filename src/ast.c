@@ -82,15 +82,15 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             break;
         case AST_EXPRESSION_UNARY:
             PrintTabs(depth + 1);
+            printf("Elided: %s\n", ast->as.unary.elide ? "true" : "false");
+            PrintTabs(depth + 1);
             printf("Operator: ");
             TokenPrint(&ast->as.postfix.operator);
             printf("\n");
             ASTExpressionPrint(ast->as.postfix.operand, depth + 1);
             break;
         case AST_EXPRESSION_ASSIGN:
-            PrintTabs(depth + 1);
-            printf("Target: %.*s\n", ast->as.assign.target->length,
-                ast->as.assign.target->name);
+            ASTExpressionPrint(ast->as.assign.target, depth + 1);
             PrintTabs(depth + 1);
             printf("Operator: ");
             TokenPrint(&ast->as.assign.operator);

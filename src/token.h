@@ -39,4 +39,6 @@ typedef struct Token {
 
 void TokenPrint(Token* token);
 
+Token TokenMake(TokenType type);
+
 #endif

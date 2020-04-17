@@ -47,13 +47,12 @@ typedef struct ASTTernaryExpression {
 typedef struct ASTUnaryExpression {
     Token operator;
     struct ASTExpression* operand;
-    SymbolLocal* local;
+    bool elide;
 } ASTUnaryExpression;
 
 typedef struct ASTPostfixExpression {
     Token operator;
     struct ASTExpression* operand;
-    SymbolLocal* local;
 } ASTPostfixExpression;
 
 #define FOREACH_CONSTANTEXPRESSION(x, ns) \
@@ -70,7 +69,7 @@ typedef struct ASTConstantExpression {
 } ASTConstantExpression;
 
 typedef struct ASTAssignExpression {
-    SymbolLocal* target;
+    struct ASTExpression* target;
     struct ASTExpression* value;
     Token operator;
 } ASTAssignExpression;
@@ -91,6 +90,7 @@ typedef enum ASTExpressionType {
 
 typedef struct ASTExpression {
     ASTExpressionType type;
+    bool isLvalue;
 
     union {
         ASTBinaryExpression binary;

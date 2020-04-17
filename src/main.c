@@ -19,12 +19,17 @@ int main(int argc, char** argv) {
     Parser parser;
     ParserInit(&parser, argv[1]);
     ParserRun(&parser);
-    Analyse(&parser);
+
+    if(!parser.hadError) {
+        Analyse(&parser);
+    } else {
+        return 1;
+    }
 
     if(!parser.hadError) {
         ASTPrint(parser.ast);
         x64ASTGen(parser.ast);
     } else {
-        return 1;
+        return 2;
     }
 }

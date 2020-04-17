@@ -149,9 +149,11 @@ static ASTExpression* Variable(Parser* parser) {
         }
         ast->as.constant.type = AST_CONSTANT_EXPRESSION_GLOBAL;
         ast->as.constant.global = global;
+        ast->isLvalue = false;
     } else {
         ast->as.constant.type = AST_CONSTANT_EXPRESSION_LOCAL;
         ast->as.constant.local = local;
+        ast->isLvalue = true;
     }
 
     return ast;
@@ -166,6 +168,7 @@ static ASTExpression* Grouping(Parser* parser) {
 static ASTExpression* Constant(Parser* parser) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_CONSTANT;
+    ast->isLvalue = false;
     ast->as.constant.type = AST_CONSTANT_EXPRESSION_INTEGER;
     ast->as.constant.tok = parser->previous;
     ast->as.constant.tok.numberValue = strtod(parser->previous.start, NULL);
@@ -177,34 +180,41 @@ static ASTExpression* Unary(Parser* parser) {
     ast->type = AST_EXPRESSION_UNARY;
     ast->as.unary.operator = parser->previous;
     ast->as.unary.operand = parsePrecidence(parser, PREC_UNARY);
+    ast->as.unary.elide = false;
+
+    if(ast->as.unary.operator.type == TOKEN_STAR) {
+        ast->isLvalue = true;
+    } else {
+        ast->isLvalue = false;
+    }
     return ast;
 }
 
 static ASTExpression* PreIncDec(Parser* parser) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
-    ast->type = AST_EXPRESSION_UNARY;
-    ast->as.unary.operator = parser->previous;
+    ast->type = AST_EXPRESSION_ASSIGN;
+    ast->isLvalue = false;
+    if(parser->previous.type == TOKEN_PLUS_PLUS) {
+        ast->as.assign.operator = TokenMake(TOKEN_PLUS_EQUAL);
+    } else {
+        ast->as.assign.operator = TokenMake(TOKEN_MINUS_EQUAL);
+    }
+
+    ASTExpression* one = ArenaAlloc(sizeof(*one));
+    one->type = AST_EXPRESSION_CONSTANT;
+    one->isLvalue = false;
+    one->as.constant.tok = TokenMake(TOKEN_INTEGER);
+    one->as.constant.tok.numberValue = 1;
+    one->as.constant.type = AST_CONSTANT_EXPRESSION_INTEGER;
+
+    ast->as.assign.value = one;
 
     ASTExpression* exp = parsePrecidence(parser, PREC_UNARY);
-    if(exp->type != AST_EXPRESSION_CONSTANT) {
-        error(parser, "Expected constant before assignement");
-        return NULL;
-    }
-    if(exp->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL &&
-        exp->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
-        error(parser, "Cannot assign to non variable expression");
-        return NULL;
+    if(!exp->isLvalue) {
+        errorAt(parser, &ast->as.unary.operator, "Operator requires an lvalue");
     }
 
-    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
-        exp->as.constant.tok.start, exp->as.constant.tok.length);
-    if(local == NULL) {
-        error(parser, "Variable name not declared");
-        return ast;
-    }
-
-    ast->as.unary.operand = exp;
-    ast->as.unary.local = local;
+    ast->as.assign.target = exp;
 
     return ast;
 }
@@ -212,6 +222,7 @@ static ASTExpression* PreIncDec(Parser* parser) {
 static ASTExpression* Call(Parser* parser, ASTExpression* prev) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_CALL;
+    ast->isLvalue = false;
     ast->as.call.indirectErrorLoc = parser->previous;
 
     ARRAY_ZERO(ast->as.call, param);
@@ -231,6 +242,7 @@ static ASTExpression* Call(Parser* parser, ASTExpression* prev) {
 static ASTExpression* Binary(Parser* parser, ASTExpression* prev) {
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_BINARY;
+    ast->isLvalue = false;
     ast->as.binary.operator = parser->previous;
     ast->as.binary.left = prev;
 
@@ -241,56 +253,32 @@ static ASTExpression* Binary(Parser* parser, ASTExpression* prev) {
 }
 
 static ASTExpression* Assign(Parser* parser, ASTExpression* prev) {
-    if(prev->type != AST_EXPRESSION_CONSTANT) {
-        error(parser, "Expected constant before assignement");
-        return NULL;
-    }
-    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL &&
-        prev->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
-        error(parser, "Cannot assign to non variable expression");
+    if(!prev->isLvalue) {
+        error(parser, "Expected lvalue before assignement");
         return NULL;
     }
 
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_ASSIGN;
+    ast->isLvalue = false;
     ast->as.assign.operator = parser->previous;
     ast->as.assign.value = parsePrecidence(parser, PREC_ASSIGN);
-
-    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
-        prev->as.constant.tok.start, prev->as.constant.tok.length);
-    if(local == NULL) {
-        error(parser, "Variable name not declared");
-        return ast;
-    }
-
-    ast->as.assign.target = local;
+    ast->as.assign.target = prev;
 
     return ast;
 }
 
 static ASTExpression* PostIncDec(Parser* parser, ASTExpression* prev) {
-    if(prev->type != AST_EXPRESSION_CONSTANT) {
-        error(parser, "Expected constant before post inc/dec operator");
-        return NULL;
-    }
-    if(prev->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL &&
-        prev->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
-        error(parser, "Cannot post inc/dec non variable expression");
-        return NULL;
-    }
-
-    SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
-        prev->as.constant.tok.start, prev->as.constant.tok.length);
-    if(local == NULL) {
-        error(parser, "Variable name not declared");
+    if(!prev->isLvalue) {
+        error(parser, "Expected lvalue before post inc/dec operator");
         return NULL;
     }
 
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_POSTFIX;
+    ast->isLvalue = false;
     ast->as.postfix.operator = parser->previous;
     ast->as.postfix.operand = prev;
-    ast->as.postfix.local = local;
 
     return ast;
 }
