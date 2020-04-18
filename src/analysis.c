@@ -7,6 +7,14 @@ typedef struct ctx {
 
 static void AnalyseExpression(ASTExpression* ast, ctx* ctx);
 
+static void AnalyseAssignExpression(ASTAssignExpression* ast, ctx* ctx) {
+    if(!ast->target->isLvalue) {
+        errorAt(ctx->parser, &ast->operator, "Operand must be an lvalue");
+    }
+    AnalyseExpression(ast->target, ctx);
+    AnalyseExpression(ast->value, ctx);
+}
+
 static void AnalyseCallExpression(ASTCallExpression* ast, ctx* ctx) {
     if(ast->target->type != AST_EXPRESSION_CONSTANT ||
             ast->target->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
@@ -18,6 +26,14 @@ static void AnalyseCallExpression(ASTCallExpression* ast, ctx* ctx) {
         errorAt(ctx->parser, &ast->target->as.constant.tok,
             "Incorrect number of parameters passed");
     }
+}
+
+static void AnalysePostfixExpression(ASTPostfixExpression* ast, ctx* ctx) {
+    if(!ast->operand->isLvalue) {
+        errorAt(ctx->parser, &ast->operator, "Operand must be an lvalue");
+    }
+
+    AnalyseExpression(ast->operand, ctx);
 }
 
 static void AnalyseUnaryExpression(ASTUnaryExpression* ast, ctx* ctx) {
@@ -42,8 +58,7 @@ static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
     if(ast == NULL) return;
     switch(ast->type) {
         case AST_EXPRESSION_ASSIGN:
-            AnalyseExpression(ast->as.assign.value, ctx);
-            AnalyseExpression(ast->as.assign.target, ctx);
+            AnalyseAssignExpression(&ast->as.assign, ctx);
             break;
         case AST_EXPRESSION_BINARY:
             AnalyseExpression(ast->as.binary.left, ctx);
@@ -55,7 +70,7 @@ static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
         case AST_EXPRESSION_CONSTANT:
             break;
         case AST_EXPRESSION_POSTFIX:
-            AnalyseExpression(ast->as.postfix.operand, ctx);
+            AnalysePostfixExpression(&ast->as.postfix, ctx);
             break;
         case AST_EXPRESSION_TERNARY:
             AnalyseExpression(ast->as.ternary.operand1, ctx);

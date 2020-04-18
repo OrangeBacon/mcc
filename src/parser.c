@@ -210,10 +210,6 @@ static ASTExpression* PreIncDec(Parser* parser) {
     ast->as.assign.value = one;
 
     ASTExpression* exp = parsePrecidence(parser, PREC_UNARY);
-    if(!exp->isLvalue) {
-        errorAt(parser, &ast->as.unary.operator, "Operator requires an lvalue");
-    }
-
     ast->as.assign.target = exp;
 
     return ast;
@@ -253,11 +249,6 @@ static ASTExpression* Binary(Parser* parser, ASTExpression* prev) {
 }
 
 static ASTExpression* Assign(Parser* parser, ASTExpression* prev) {
-    if(!prev->isLvalue) {
-        error(parser, "Expected lvalue before assignement");
-        return NULL;
-    }
-
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_ASSIGN;
     ast->isLvalue = false;
@@ -269,11 +260,6 @@ static ASTExpression* Assign(Parser* parser, ASTExpression* prev) {
 }
 
 static ASTExpression* PostIncDec(Parser* parser, ASTExpression* prev) {
-    if(!prev->isLvalue) {
-        error(parser, "Expected lvalue before post inc/dec operator");
-        return NULL;
-    }
-
     ASTExpression* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_EXPRESSION_POSTFIX;
     ast->isLvalue = false;
