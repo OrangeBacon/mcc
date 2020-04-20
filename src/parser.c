@@ -3,6 +3,7 @@
 #define __USE_MINGW_ANSI_STDIO 1
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 void ParserInit(Parser* parser, char* fileName) {
     Scanner* scanner = ArenaAlloc(sizeof(*scanner));
@@ -63,6 +64,17 @@ static void consume(Parser* parser, TokenType type, const char* message) {
 
 static bool check(Parser* parser, TokenType type) {
     return parser->current.type == type;
+}
+
+static bool checks(Parser* parser, int count, ...) {
+    va_list args;
+    va_start(args, count);
+
+    bool ret = false;
+    while(count-- && !ret) ret |= check(parser, va_arg(args, TokenType));
+
+    va_end(args);
+    return ret;
 }
 
 static bool match(Parser* parser, TokenType type) {
@@ -353,8 +365,7 @@ typedef struct TokenStack {
     ARRAY_DEFINE(Token, token);
 } TokenStack;
 
-ASTFN(InitDeclarator)
-
+ASTFN(Declarator)
     // create store for tokens to deal with later
     TokenStack stack;
     ARRAY_ALLOC(Token, stack, token);
@@ -384,10 +395,11 @@ ASTFN(InitDeclarator)
     }
     ast->declarator = local;
 
-    // current type, will possibly be replaced with updated version
-    ASTVariableType* type = ArenaAlloc(sizeof*type);
-    type->type = AST_VARIABLE_TYPE_INT;
-    type->token = parser->previous;
+    // the variable has this type
+    ASTVariableType* type = NULL;
+
+    // where changes are applied
+    ASTVariableType** hole = &type;
 
     // if seekforward, check new tokens after the name, otherwise check the
     // stack of tokens already read.
@@ -398,23 +410,40 @@ ASTFN(InitDeclarator)
     bool reachedForwardEnd = false;
 
     // check all tokens on the stack
-    while(stack.tokenCount > 0) {
+    while(stack.tokenCount > 0 || parser->current.type == TOKEN_LEFT_PAREN) {
 
-        // if next new token is a right paren and one is needed in the type
         if(seekForward && nestingDepth > 0 && match(parser, TOKEN_RIGHT_PAREN)) {
-
+            // if next new token is a right paren and one is needed in the type
             // start checking the stack
             seekForward = false;
             nestingDepth--;
+        } else if(seekForward && match(parser, TOKEN_LEFT_PAREN)) {
+            ASTVariableType* fn = ArenaAlloc(sizeof(*fn));
+            fn->type = AST_VARIABLE_TYPE_FUNCTION;
+            ARRAY_ALLOC(ASTVariableType*, fn->as.function, param);
+
+            SymbolTableEnter(&parser->locals);
+
+            while(!match(parser, TOKEN_EOF)) {
+                consume(parser, TOKEN_INT, "Expected int");
+                ARRAY_PUSH(fn->as.function, param, Declarator(parser));
+                if(!match(parser, TOKEN_COMMA)) break;
+            }
+
+            SymbolTableExit(&parser->locals);
+
+            consume(parser, TOKEN_RIGHT_PAREN, "Expected ')' after function type");
+
+            *hole = fn;
+            hole = &fn->as.function.ret;
         } else if(seekForward) {
 
             // not a right paren or right paren not required
-            // here would be where function pointers and arrays would be
+            // here would be where arrays would be
             // added to the parser
             reachedForwardEnd = true;
             seekForward = false;
         } else {
-
             // not going forwards so check stack - take newest token off
             // the top and return it
             Token next = ARRAY_POP(stack, token);
@@ -433,8 +462,8 @@ ASTFN(InitDeclarator)
                 ASTVariableType* ptr = ArenaAlloc(sizeof*type);
                 ptr->type = AST_VARIABLE_TYPE_POINTER;
                 ptr->token = next;
-                ptr->as.pointer = type;
-                type = ptr;
+                *hole = ptr;
+                hole = &ptr->as.pointer;
             } else {
                 // something else unknown - const, volatile, _Atomic, restrict
                 // are all technically valid, but unsupported here
@@ -444,7 +473,14 @@ ASTFN(InitDeclarator)
         }
     }
 
+    *hole = ArenaAlloc(sizeof(ASTVariableType));
+    (*hole)->type = AST_VARIABLE_TYPE_INT;
+
     ast->variableType = type;
+ASTFN_END()
+
+ASTFN(InitDeclarator)
+    ast->declarator = Declarator(parser);
 
     if(match(parser, TOKEN_EQUAL)) {
         ast->type = AST_INIT_DECLARATOR_INITIALIZE;
@@ -464,9 +500,7 @@ ASTFN(Declaration)
     while(!match(parser, TOKEN_EOF)) {
         // parse an init declarator if any of the starting tokens
         // for an init declarator come next, otherwise exit
-        if(!(check(parser, TOKEN_IDENTIFIER)
-            || check(parser, TOKEN_STAR)
-            || check(parser, TOKEN_LEFT_PAREN))) break;
+        if(!checks(parser, 3, TOKEN_IDENTIFIER, TOKEN_STAR, TOKEN_LEFT_PAREN)) break;
         ARRAY_PUSH(ast->declarators, declarator, InitDeclarator(parser));
         if(!match(parser, TOKEN_COMMA)) break;
     }

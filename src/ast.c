@@ -17,15 +17,27 @@ static void PrintTabs(int depth) {
     for(int i = 0; i < depth; i++) putchar('\t');
 }
 
-static void ASTVariableTypePrint(ASTVariableType* ast, int depth) {
+static void ASTVariableTypePrint(ASTVariableType* ast) {
     switch(ast->type) {
         case AST_VARIABLE_TYPE_POINTER:
             printf("pointer to ");
-            ASTVariableTypePrint(ast->as.pointer, depth);
+            ASTVariableTypePrint(ast->as.pointer);
             break;
         case AST_VARIABLE_TYPE_INT:
-            printf("int\n");
+            printf("int");
             break;
+        case AST_VARIABLE_TYPE_FUNCTION:
+            printf("function (");
+            for(unsigned int i = 0; i < ast->as.function.paramCount; i++) {
+                ASTDeclarator* decl = ast->as.function.params[i];
+                ASTVariableTypePrint(decl->variableType);
+                printf(" '%.*s'", decl->declarator->length, decl->declarator->name);
+                if(i != ast->as.function.paramCount - 1) {
+                    printf(", ");
+                }
+            }
+            printf(") returning ");
+            ASTVariableTypePrint(ast->as.function.ret);
     }
 }
 
@@ -131,6 +143,17 @@ static void ASTSelectionStatementPrint(ASTSelectionStatement* ast, int depth) {
     }
 }
 
+static void ASTDeclaratorPrint(ASTDeclarator* ast, int depth) {
+    PrintTabs(depth);
+    printf("ASTDeclarator:\n");
+    PrintTabs(depth + 1);
+    printf("Identifier: %.*s\n", ast->declarator->length, ast->declarator->name);
+    PrintTabs(depth + 1);
+    printf("Type: ");
+    ASTVariableTypePrint(ast->variableType);
+    printf("\n");
+}
+
 static char* ASTInitDeclaratorTypeNames[] = {
     FOREACH_INITDECLARATOR(ASTSTRARRAY, 0)
 };
@@ -138,11 +161,7 @@ static char* ASTInitDeclaratorTypeNames[] = {
 static void ASTInitDeclaratorPrint(ASTInitDeclarator* ast, int depth) {
     PrintTabs(depth);
     printf("ASTInitDeclarator %s:\n", ASTInitDeclaratorTypeNames[ast->type]);
-    PrintTabs(depth + 1);
-    printf("Identifier: %.*s\n", ast->declarator->length, ast->declarator->name);
-    PrintTabs(depth + 1);
-    printf("Type: ");
-    ASTVariableTypePrint(ast->variableType, depth + 1);
+    ASTDeclaratorPrint(ast->declarator, depth + 1);
 
     if(ast->type == AST_INIT_DECLARATOR_INITIALIZE) {
         ASTExpressionPrint(ast->initializer, depth + 1);
@@ -283,9 +302,13 @@ ASTARRAY_PRINT(FnCompoundStatement, BlockItem, item)
 static void ASTFunctionDefinitionPrint(ASTFunctionDefinition* ast, int depth) {
     PrintTabs(depth);
     printf("ASTFunctionDefinition %.*s:\n", ast->name->length, ast->name->name);
-    if(ast->statement == NULL) return;
     for(unsigned int i = 0; i < ast->paramCount; i++) {
         ASTInitDeclaratorPrint(ast->params[i], depth + 1);
+    }
+    if(ast->statement == NULL) {
+        PrintTabs(depth + 1);
+        printf("no body\n");
+        return;
     }
     ASTFnCompoundStatementPrint(ast->statement, depth + 1);
 }

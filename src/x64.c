@@ -645,7 +645,7 @@ static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx) {
             fprintf(ctx->f, "\tmov $0xcafebabe, %%rax\n");
         }
         fprintf(ctx->f, "\tpush %%rax\n");
-        a->declarator->stackOffset = ctx->stackIndex;
+        a->declarator->declarator->stackOffset = ctx->stackIndex;
         ctx->stackIndex -= 8;
         ctx->stackAlignment += 8;
     }
@@ -681,14 +681,14 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
     ctx->stackIndex = -8;
 
     for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
-        ast->params[i]->declarator->stackOffset = ctx->stackIndex;
+        ast->params[i]->declarator->declarator->stackOffset = ctx->stackIndex;
         ctx->stackIndex -= 8;
         fprintf(ctx->f, "\tpush %%%s\n", registers[i]);
         ctx->stackAlignment += 8;
     }
     int stackParamIndex = 48;
     for(int i = ast->paramCount - 1; i > 3; i--) {
-        ast->params[i]->declarator->stackOffset = stackParamIndex;
+        ast->params[i]->declarator->declarator->stackOffset = stackParamIndex;
         stackParamIndex += 8;
     }
 
