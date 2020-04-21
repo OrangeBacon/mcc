@@ -269,9 +269,6 @@ static void x64ASTGenConstant(ASTConstantExpression* ast, FILE* f) {
         case AST_CONSTANT_EXPRESSION_INTEGER:
             fprintf(f, "\tmov $%i, %%rax\n", ast->tok.numberValue);
             break;
-        case AST_CONSTANT_EXPRESSION_GLOBAL:
-            fprintf(f, "\tmov %.*s, %%rax\n", ast->global->length, ast->global->name);
-            break;
     }
 }
 
@@ -426,7 +423,7 @@ static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
         fprintf(ctx->f, "\tpop %%%s\n", registers[i]);
         ctx->stackAlignment -= 8;
     }
-    SymbolGlobal* fn = ast->target->as.constant.global;
+    SymbolLocal* fn = ast->target->as.constant.local;
 
     fprintf(ctx->f, "\tsub $0x20, %%rsp\n"
                     "\tcall %.*s\n", fn->length, fn->name);
@@ -636,9 +633,15 @@ static void x64ASTGenStatement(ASTStatement* ast, x64Ctx* ctx) {
     }
 }
 
+static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx);
+
 static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx) {
     for(unsigned int i = 0; i < ast->declarators.declaratorCount; i++) {
         ASTInitDeclarator* a = ast->declarators.declarators[i];
+        if(a->type == AST_INIT_DECLARATOR_FUNCTION) {
+            x64ASTGenFunctionDefinition(a, ctx);
+            return;
+        }
         if(a->type == AST_INIT_DECLARATOR_INITIALIZE) {
             x64ASTGenExpression(a->initializer, ctx);
         } else {
@@ -668,27 +671,29 @@ static void x64ASTGenFnCompoundStatement(ASTFnCompoundStatement* ast, x64Ctx* ct
     }
 }
 
-static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx) {
-    if(ast->statement == NULL) return;
+static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx) {
+    if(ast->fn == NULL) return;
 
-    fprintf(ctx->f, ".globl %.*s\n", ast->name->length, ast->name->name);
+    SymbolLocal* symbol = ast->declarator->declarator;
+    fprintf(ctx->f, ".globl %.*s\n", symbol->length, symbol->name);
     fprintf(ctx->f, "%.*s:\n"
                     "\tpush %%rbp\n"
-                    "\tmov %%rsp, %%rbp\n", ast->name->length, ast->name->name);
+                    "\tmov %%rsp, %%rbp\n", symbol->length, symbol->name);
     ctx->stackAlignment = 0;
 
-    ASTFnCompoundStatement* s = ast->statement;
+    ASTFnCompoundStatement* s = ast->fn;
     ctx->stackIndex = -8;
 
-    for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
-        ast->params[i]->declarator->declarator->stackOffset = ctx->stackIndex;
+    ASTVariableTypeFunction* fnType = &ast->declarator->variableType->as.function;
+    for(unsigned int i = 0; i < fnType->paramCount && i < 4; i++) {
+        fnType->params[i]->declarator->stackOffset = ctx->stackIndex;
         ctx->stackIndex -= 8;
         fprintf(ctx->f, "\tpush %%%s\n", registers[i]);
         ctx->stackAlignment += 8;
     }
     int stackParamIndex = 48;
-    for(int i = ast->paramCount - 1; i > 3; i--) {
-        ast->params[i]->declarator->declarator->stackOffset = stackParamIndex;
+    for(int i = fnType->paramCount - 1; i > 3; i--) {
+        fnType->params[i]->declarator->stackOffset = stackParamIndex;
         stackParamIndex += 8;
     }
 
@@ -705,16 +710,9 @@ static void x64ASTGenFunctionDefinition(ASTFunctionDefinition* ast, x64Ctx* ctx)
     }
 }
 
-static void x64ASTGenExternalDeclaration(ASTExternalDeclaration* ast, x64Ctx* ctx) {
-    switch(ast->type) {
-        case AST_EXTERNAL_DECLARATION_FUNCTION_DEFINITION:
-            x64ASTGenFunctionDefinition(ast->as.functionDefinition, ctx);
-    }
-}
-
 static void x64ASTGenTranslationUnit(ASTTranslationUnit* ast, x64Ctx* ctx) {
     for(unsigned int i = 0; i < ast->declarationCount; i++) {
-        x64ASTGenExternalDeclaration(ast->declarations[i], ctx);
+        x64ASTGenDeclaration(ast->declarations[i], ctx);
     }
 }
 

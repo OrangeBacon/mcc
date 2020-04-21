@@ -5,6 +5,9 @@ typedef struct ctx {
     bool inLoop;
 } ctx;
 
+// TODO - majoor saftey improvements - this allows far too much through
+// treats c as an untyped language!
+
 static void AnalyseExpression(ASTExpression* ast, ctx* ctx);
 
 static void AnalyseAssignExpression(ASTAssignExpression* ast, ctx* ctx) {
@@ -16,16 +19,9 @@ static void AnalyseAssignExpression(ASTAssignExpression* ast, ctx* ctx) {
 }
 
 static void AnalyseCallExpression(ASTCallExpression* ast, ctx* ctx) {
-    if(ast->target->type != AST_EXPRESSION_CONSTANT ||
-            ast->target->as.constant.type != AST_CONSTANT_EXPRESSION_GLOBAL) {
-        errorAt(ctx->parser, &ast->indirectErrorLoc,
-            "Indirect calls not supported yet");
-    }
-    if(ast->target->as.constant.global->defines[0]->paramCount
-            != ast->paramCount) {
-        errorAt(ctx->parser, &ast->target->as.constant.tok,
-            "Incorrect number of parameters passed");
-    }
+    // indirect call check
+    (void)ast;
+    (void)ctx;
 }
 
 static void AnalysePostfixExpression(ASTPostfixExpression* ast, ctx* ctx) {
@@ -152,9 +148,15 @@ static void AnalyseStatement(ASTStatement* ast, ctx* ctx) {
     }
 }
 
+static void AnalyseFnCompoundStatement(ASTFnCompoundStatement* ast, ctx* ctx);
+
 static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
     if(ast == NULL) return;
     for(unsigned int i = 0; i < ast->declarators.declaratorCount; i++) {
+        if(ast->declarators.declarators[i]->type == AST_INIT_DECLARATOR_FUNCTION) {
+            AnalyseFnCompoundStatement(ast->declarators.declarators[i]->fn, ctx);
+            continue;
+        }
         ASTInitDeclarator* decl = ast->declarators.declarators[i];
         AnalyseExpression(decl->initializer, ctx);
     }
@@ -172,58 +174,15 @@ static void AnalyseBlockItem(ASTBlockItem* ast, ctx* ctx) {
 }
 
 static void AnalyseFnCompoundStatement(ASTFnCompoundStatement* ast, ctx* ctx) {
+    if(ast == NULL) return;
     for(unsigned int i = 0; i < ast->itemCount; i++) {
         AnalyseBlockItem(ast->items[i], ctx);
     }
 }
 
-static void AnalyseFunctionDefinition(ASTFunctionDefinition* ast, ctx* ctx) {
-    if(!ast->name->functionAnalysed) {
-        bool defined = false;
-        int paramCount = -1;
-        for(unsigned int i = 0; i < ast->name->defineCount; i++) {
-            ASTFunctionDefinition* fn = ast->name->defines[i];
-
-            for(unsigned int j = 0; j < fn->paramCount; j++) {
-                ASTInitDeclarator* initDecl = fn->params[j];
-                if(initDecl->type == AST_INIT_DECLARATOR_INITIALIZE) {
-                    errorAt(ctx->parser, &initDecl->initializerStart,
-                        "Cannot have an initializer inside a function definition");
-                }
-            }
-
-            if(fn->statement != NULL) {
-                if(defined) {
-                    errorAt(ctx->parser, &fn->errorLoc,
-                        "Cannot re-define function");
-                }
-                defined = true;
-            }
-            if(paramCount == -1) {
-                paramCount = fn->paramCount;
-            } else {
-                if(paramCount != (int)fn->paramCount) {
-                    errorAt(ctx->parser, &fn->errorLoc,
-                        "Mismatch in function parameter count");
-                }
-            }
-        }
-        ast->name->functionAnalysed = true;
-    }
-    if(ast->statement == NULL) return;
-    AnalyseFnCompoundStatement(ast->statement, ctx);
-}
-
-static void AnalyseExternalDeclaration(ASTExternalDeclaration* ast, ctx* ctx) {
-    switch(ast->type) {
-        case AST_EXTERNAL_DECLARATION_FUNCTION_DEFINITION:
-            AnalyseFunctionDefinition(ast->as.functionDefinition, ctx);
-    }
-}
-
 static void AnalyseTranslationUnit(ASTTranslationUnit* ast, ctx* ctx) {
     for(unsigned int i = 0; i < ast->declarationCount; i++) {
-        AnalyseExternalDeclaration(ast->declarations[i], ctx);
+        AnalyseDeclaration(ast->declarations[i], ctx);
     }
 }
 

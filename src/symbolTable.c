@@ -15,7 +15,6 @@ static uint32_t stringHash(const char* str, unsigned int length) {
 
 void SymbolTableInit(SymbolTable* table) {
     ARRAY_ALLOC(SymbolLocal*, *table, local);
-    TABLE_INIT(table->globals, SymbolGlobal);
     table->currentDepth = 0;
 }
 
@@ -37,6 +36,10 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned 
     ret->hash = stringHash(name, length);
     ret->name = name;
     ret->length = length;
+    ARRAY_ZERO(*ret, define);
+    ret->functionAnalysed = false;
+    ret->stackOffset = 0xDEAD;
+    ret->type = NULL;
 
     return ret;
 }
@@ -51,26 +54,6 @@ SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned 
     }
 
     return NULL;
-}
-
-SymbolGlobal* SymbolTableAddGlobal(SymbolTable* table, const char* name, unsigned int length) {
-    SymbolGlobal* global = SymbolTableGetGlobal(table, name, length);
-    if(global != NULL) {
-        return NULL;
-    }
-
-    SymbolGlobal* ret = ArenaAlloc(sizeof(*global));
-    ret->name = name;
-    ret->length = length;
-    ret->hash = stringHash(name, length);
-
-    TABLE_SET(table->globals, name, length, ret);
-
-    return ret;
-}
-
-SymbolGlobal* SymbolTableGetGlobal(SymbolTable* table, const char* name, unsigned int length) {
-    return tableGet(&table->globals, name, length);
 }
 
 void SymbolTableEnter(SymbolTable* table) {

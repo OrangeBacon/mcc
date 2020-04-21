@@ -62,7 +62,7 @@ typedef struct ASTPostfixExpression {
 } ASTPostfixExpression;
 
 #define FOREACH_CONSTANTEXPRESSION(x, ns) \
-    x(ns, INTEGER) x(ns, LOCAL) x(ns, GLOBAL)
+    x(ns, INTEGER) x(ns, LOCAL)
 typedef enum ASTConstantExpressionType {
     FOREACH_CONSTANTEXPRESSION(ASTENUM, AST_CONSTANT_EXPRESSION)
 } ASTConstantExpressionType;
@@ -71,7 +71,6 @@ typedef struct ASTConstantExpression {
     ASTConstantExpressionType type;
     Token tok;
     SymbolLocal* local;
-    SymbolGlobal* global;
 } ASTConstantExpression;
 
 typedef struct ASTAssignExpression {
@@ -179,7 +178,7 @@ typedef struct ASTDeclarator {
 } ASTDeclarator;
 
 #define FOREACH_INITDECLARATOR(x, ns) \
-    x(ns, INITIALIZE) x(ns, NO_INITIALIZE)
+    x(ns, INITIALIZE) x(ns, NO_INITIALIZE) x(ns, FUNCTION)
 typedef enum ASTInitDeclaratorType {
     FOREACH_INITDECLARATOR(ASTENUM, AST_INIT_DECLARATOR)
 } ASTInitDeclaratorType;
@@ -191,6 +190,7 @@ typedef struct ASTInitDeclarator {
 
     Token initializerStart;
     ASTExpression* initializer;
+    struct ASTFnCompoundStatement* fn;
 } ASTInitDeclarator;
 
 ASTARRAY(InitDeclaratorList, InitDeclarator, declarator);
@@ -221,28 +221,13 @@ typedef struct ASTCompoundStatement {
     SymbolExitList* popCount;
 } ASTCompoundStatement;
 
-typedef struct ASTFunctionDefinition {
-    SymbolGlobal* name;
-    Token errorLoc;
-    ASTFnCompoundStatement* statement;
-    ARRAY_DEFINE(ASTInitDeclarator*, param);
-} ASTFunctionDefinition;
-
 #define FOREACH_EXTERNALDECLARATION(x, ns) \
     x(ns, FUNCTION_DEFINITION)
 typedef enum ASTExternalDeclarationType {
     FOREACH_EXTERNALDECLARATION(ASTENUM, AST_EXTERNAL_DECLARATION)
 } ASTExternalDeclarationType;
 
-typedef struct ASTExternalDeclaration {
-    ASTExternalDeclarationType type;
-
-    union {
-        ASTFunctionDefinition* functionDefinition;
-    } as;
-} ASTExternalDeclaration;
-
-ASTARRAY(TranslationUnit, ExternalDeclaration, declaration);
+ASTARRAY(TranslationUnit, Declaration, declaration);
 
 void ASTPrint(ASTTranslationUnit* ast);
 

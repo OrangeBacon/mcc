@@ -40,24 +40,15 @@ typedef struct SymbolLocal {
     unsigned int scopeDepth;
 
     struct ASTVariableType* type;
+    bool functionAnalysed;
+    ARRAY_DEFINE(struct ASTFunctionDefinition*, define);
 
     // used only by the backend, not in creating the ast
     int stackOffset;
 } SymbolLocal;
 
-typedef struct SymbolGlobal {
-    const char* name;
-    unsigned int length;
-    uint32_t hash;
-
-    bool isFunction;
-    bool functionAnalysed;
-    ARRAY_DEFINE(struct ASTFunctionDefinition*, define);
-} SymbolGlobal;
-
 typedef struct SymbolTable {
     ARRAY_DEFINE(SymbolLocal*, local);
-    Table globals;
     unsigned int currentDepth;
 } SymbolTable;
 
@@ -70,10 +61,6 @@ void SymbolTableInit(SymbolTable* table);
 SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned int length);
 
 SymbolLocal* SymbolTableGetLocal(SymbolTable* table, const char* name, unsigned int length);
-
-SymbolGlobal* SymbolTableAddGlobal(SymbolTable* table, const char* name, unsigned int length);
-
-SymbolGlobal* SymbolTableGetGlobal(SymbolTable* table, const char* name, unsigned int length);
 
 void SymbolTableEnter(SymbolTable* table);
 

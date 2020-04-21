@@ -4,6 +4,7 @@
 
 #define ASTARRAY_PRINT(name, type, arr) \
     static void AST##name##Print(AST##name* ast, int depth) { \
+        if(ast == NULL) return; \
         PrintTabs(depth); \
         printf("AST"#name": size = %u\n", ast->arr##Count); \
         for(unsigned int i = 0; i < ast->arr##Count; i++) { \
@@ -154,6 +155,9 @@ static void ASTDeclaratorPrint(ASTDeclarator* ast, int depth) {
     printf("\n");
 }
 
+static void ASTBlockItemPrint(ASTBlockItem* ast, int depth);
+ASTARRAY_PRINT(FnCompoundStatement, BlockItem, item)
+
 static char* ASTInitDeclaratorTypeNames[] = {
     FOREACH_INITDECLARATOR(ASTSTRARRAY, 0)
 };
@@ -165,6 +169,8 @@ static void ASTInitDeclaratorPrint(ASTInitDeclarator* ast, int depth) {
 
     if(ast->type == AST_INIT_DECLARATOR_INITIALIZE) {
         ASTExpressionPrint(ast->initializer, depth + 1);
+    } else if(ast->type == AST_INIT_DECLARATOR_FUNCTION) {
+        ASTFnCompoundStatementPrint(ast->fn, depth + 1);
     }
 }
 
@@ -297,37 +303,7 @@ static void ASTBlockItemPrint(ASTBlockItem* ast, int depth) {
 }
 
 ASTARRAY_PRINT(CompoundStatement, BlockItem, item)
-ASTARRAY_PRINT(FnCompoundStatement, BlockItem, item)
-
-static void ASTFunctionDefinitionPrint(ASTFunctionDefinition* ast, int depth) {
-    PrintTabs(depth);
-    printf("ASTFunctionDefinition %.*s:\n", ast->name->length, ast->name->name);
-    for(unsigned int i = 0; i < ast->paramCount; i++) {
-        ASTInitDeclaratorPrint(ast->params[i], depth + 1);
-    }
-    if(ast->statement == NULL) {
-        PrintTabs(depth + 1);
-        printf("no body\n");
-        return;
-    }
-    ASTFnCompoundStatementPrint(ast->statement, depth + 1);
-}
-
-static char* ASTExternalDeclarationTypeNames[] = {
-    FOREACH_EXTERNALDECLARATION(ASTSTRARRAY, 0)
-};
-
-static void ASTExternalDeclarationPrint(ASTExternalDeclaration* ast, int depth) {
-    PrintTabs(depth);
-    printf("ASTExternalDeclaration %s:\n", ASTExternalDeclarationTypeNames[ast->type]);
-
-    switch(ast->type) {
-        case AST_EXTERNAL_DECLARATION_FUNCTION_DEFINITION:
-            ASTFunctionDefinitionPrint(ast->as.functionDefinition, depth + 1);
-    }
-}
-
-ASTARRAY_PRINT(TranslationUnit, ExternalDeclaration, declaration)
+ASTARRAY_PRINT(TranslationUnit, Declaration, declaration)
 
 void ASTPrint(ASTTranslationUnit* ast) {
     ASTTranslationUnitPrint(ast, 0);

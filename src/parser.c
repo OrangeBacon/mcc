@@ -31,6 +31,10 @@ void errorAt(Parser* parser, Token* loc, const char* message) {
     fprintf(stderr, ": %s\n", message);
     parser->hadError = true;
 
+    // prevent infinite loops
+    // todo - error syncronisation + recovery
+    printf("PANIC\n");
+    exit(1);
 }
 
 static void error(Parser* parser, const char* message) {
@@ -153,15 +157,8 @@ static ASTExpression* Variable(Parser* parser) {
     SymbolLocal* local = SymbolTableGetLocal(&parser->locals,
             parser->previous.start, parser->previous.length);
     if(local == NULL) {
-        SymbolGlobal* global = SymbolTableGetGlobal(&parser->locals,
-            parser->previous.start, parser->previous.length);
-        if(global == NULL) {
-            error(parser, "Variable name not declared");
-            return ast;
-        }
-        ast->as.constant.type = AST_CONSTANT_EXPRESSION_GLOBAL;
-        ast->as.constant.global = global;
-        ast->isLvalue = false;
+        error(parser, "Variable name not declared");
+        return ast;
     } else {
         ast->as.constant.type = AST_CONSTANT_EXPRESSION_LOCAL;
         ast->as.constant.local = local;
@@ -389,6 +386,13 @@ ASTFN(Declarator)
 
     SymbolLocal* local = SymbolTableAddLocal(&parser->locals,
         parser->previous.start, parser->previous.length);
+
+    // work around for top level prototype redeclaration
+    // multiple definitions will be caught by analysis
+    if(local == NULL && parser->locals.currentDepth == 0) {
+        local = SymbolTableGetLocal(&parser->locals,
+            parser->previous.start, parser->previous.length);
+    }
     if(local == NULL) {
         error(parser, "Cannot re-declare variable in same scope");
         return NULL;
@@ -419,20 +423,31 @@ ASTFN(Declarator)
             nestingDepth--;
         } else if(seekForward && match(parser, TOKEN_LEFT_PAREN)) {
             ASTVariableType* fn = ArenaAlloc(sizeof(*fn));
+            fn->token = parser->previous;
             fn->type = AST_VARIABLE_TYPE_FUNCTION;
             ARRAY_ALLOC(ASTVariableType*, fn->as.function, param);
 
+            // for symbol table management - increase depth, then record it
+            // at the end of the arguments, remove all new levels of depth
+            // other than one, which will be removed in initdecl
+            // allows functions to refer to the correct symbols
             SymbolTableEnter(&parser->locals);
 
+            unsigned int tableCount = parser->locals.currentDepth;
+
+            if(!check(parser, TOKEN_RIGHT_PAREN))
             while(!match(parser, TOKEN_EOF)) {
                 consume(parser, TOKEN_INT, "Expected int");
                 ARRAY_PUSH(fn->as.function, param, Declarator(parser));
                 if(!match(parser, TOKEN_COMMA)) break;
             }
 
-            SymbolTableExit(&parser->locals);
-
             consume(parser, TOKEN_RIGHT_PAREN, "Expected ')' after function type");
+
+            // remove scope levels
+            while(parser->locals.currentDepth > tableCount) {
+                SymbolTableExit(&parser->locals);
+            }
 
             *hole = fn;
             hole = &fn->as.function.ret;
@@ -479,33 +494,82 @@ ASTFN(Declarator)
     ast->variableType = type;
 ASTFN_END()
 
-ASTFN(InitDeclarator)
+static ASTBlockItem* BlockItem(Parser*);
+ASTFN(FnCompoundStatement)
+    ARRAY_ALLOC(ASTBlockItem*, *ast, item);
+    while(!match(parser, TOKEN_EOF)) {
+        if(parser->current.type == TOKEN_RIGHT_BRACE) break;
+        ARRAY_PUSH(*ast, item, BlockItem(parser));
+    }
+
+    consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
+ASTFN_END()
+
+static ASTInitDeclarator* InitDeclarator(Parser* parser, bool* foundFnDef) {
+    ASTInitDeclarator* ast = ArenaAlloc(sizeof(*ast));
+
+    unsigned int tableCount = parser->locals.currentDepth;
+
     ast->declarator = Declarator(parser);
+
+    *foundFnDef = false;
 
     if(match(parser, TOKEN_EQUAL)) {
         ast->type = AST_INIT_DECLARATOR_INITIALIZE;
         ast->initializerStart = parser->previous;
         ast->initializer = parsePrecidence(parser, PREC_ASSIGN);
+        ast->fn = NULL;
+    } else if(match(parser, TOKEN_LEFT_BRACE)) {
+        ast->type = AST_INIT_DECLARATOR_FUNCTION;
+        ast->initializerStart = parser->previous;
+        ast->fn = FnCompoundStatement(parser);
+        ast->initializer = NULL;
+        *foundFnDef = true;
     } else {
-        ast->type = AST_INIT_DECLARATOR_NO_INITIALIZE;
+
+        // function prototypes different from variables
+        // TODO - deal with global variables and their prototypes
+        // the vaiables would be dynamic on the stack, not in bss, etc.
+        if(ast->declarator->variableType->type == AST_VARIABLE_TYPE_FUNCTION) {
+            ast->type = AST_INIT_DECLARATOR_FUNCTION;
+        } else {
+            ast->type = AST_INIT_DECLARATOR_NO_INITIALIZE;
+        }
 
         // if not set to null, ast print occasionaly crashed
         ast->initializer = NULL;
+        ast->fn = NULL;
+        ast->initializer = NULL;
     }
-ASTFN_END()
+
+    // unknown scope exit
+    while(parser->locals.currentDepth > tableCount) {
+        SymbolTableExit(&parser->locals);
+    }
+
+    return ast;
+}
 
 ASTFN(Declaration)
     ARRAY_ALLOC(ASTInitDeclarator*, ast->declarators, declarator);
+
+    bool foundFnDef;
 
     while(!match(parser, TOKEN_EOF)) {
         // parse an init declarator if any of the starting tokens
         // for an init declarator come next, otherwise exit
         if(!checks(parser, 3, TOKEN_IDENTIFIER, TOKEN_STAR, TOKEN_LEFT_PAREN)) break;
-        ARRAY_PUSH(ast->declarators, declarator, InitDeclarator(parser));
+
+        // cannot have any more initdeclarators after function, do not accept
+        // semicolon after either.
+        ARRAY_PUSH(ast->declarators, declarator, InitDeclarator(parser, &foundFnDef));
         if(!match(parser, TOKEN_COMMA)) break;
+        if(foundFnDef) break;
     }
 
-    consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    if(!foundFnDef) {
+        consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+    }
 ASTFN_END()
 
 static ASTStatement* Statement(Parser*);
@@ -545,6 +609,13 @@ ASTIterationStatement* While(Parser* parser) {
     ast->control = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     ast->body = Statement(parser);
+
+    // maybe i wrote analysis badly?
+    ast->freeCount = NULL;
+    ast->post = NULL;
+    ast->preDecl = NULL;
+    ast->preExpr = NULL;
+
     return ast;
 }
 
@@ -557,12 +628,15 @@ ASTIterationStatement* For(Parser* parser) {
     if(match(parser, TOKEN_INT)) {
         ast->type = AST_ITERATION_STATEMENT_FOR_DECL;
         ast->preDecl = Declaration(parser);
+        ast->preExpr = NULL;
     } else if(match(parser, TOKEN_SEMICOLON)) {
         ast->type = AST_ITERATION_STATEMENT_FOR_EXPR;
         ast->preExpr = NULL;
+        ast->preDecl = NULL;
     } else {
         ast->type = AST_ITERATION_STATEMENT_FOR_EXPR;
         ast->preExpr = Expression(parser);
+        ast->preDecl = NULL;
         consume(parser, TOKEN_SEMICOLON, "Expected ';'");
     }
 
@@ -598,6 +672,12 @@ ASTIterationStatement* DoWhile(Parser* parser) {
     ast->control = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
     consume(parser, TOKEN_SEMICOLON, "Expected ';'");
+
+    // windows is fine without this, gdb shows segfault?!
+    ast->freeCount = NULL;
+    ast->post = NULL;
+    ast->preDecl = NULL;
+    ast->preExpr = NULL;
 
     return ast;
 }
@@ -666,79 +746,11 @@ ASTFN(BlockItem)
     }
 ASTFN_END()
 
-ASTFN(FnCompoundStatement)
-    consume(parser, TOKEN_LEFT_BRACE, "Expected '{'");
-
-    ARRAY_ALLOC(ASTBlockItem*, *ast, item);
-    while(!match(parser, TOKEN_EOF)) {
-        if(parser->current.type == TOKEN_RIGHT_BRACE) break;
-        ARRAY_PUSH(*ast, item, BlockItem(parser));
-    }
-
-    consume(parser, TOKEN_RIGHT_BRACE, "Expected '}'");
-ASTFN_END()
-
-ASTFN(FunctionDefinition)
-    consume(parser, TOKEN_IDENTIFIER, "Expected function name");
-    SymbolGlobal* global = SymbolTableGetGlobal(&parser->locals,
-        parser->previous.start, parser->previous.length);
-    ast->errorLoc = parser->previous;
-    if(global != NULL) {
-        if(!global->isFunction) {
-            error(parser, "Cannot have function and global variable with the"
-                " same name");
-        }
-    } else {
-        global = SymbolTableAddGlobal(&parser->locals,
-            parser->previous.start, parser->previous.length);
-        global->isFunction = true;
-        ARRAY_ALLOC(ASTFunctionDefinition*, *global, define);
-    }
-
-    ast->name = global;
-    ARRAY_PUSH(*global, define, ast);
-
-    consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
-    SymbolTableEnter(&parser->locals);
-
-    if(!match(parser, TOKEN_RIGHT_PAREN)) {
-        ARRAY_ALLOC(ASTInitDeclarator*, *ast, param);
-        while(!match(parser, TOKEN_EOF)) {
-            if(!match(parser, TOKEN_INT)) {
-                error(parser, "Expecting parameter type name");
-            }
-            ARRAY_PUSH(*ast, param, InitDeclarator(parser));
-
-            if(!match(parser, TOKEN_COMMA)) {
-                break;
-            }
-        }
-        consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
-    } else {
-        ARRAY_ZERO(*ast, param);
-    }
-
-    if(check(parser, TOKEN_LEFT_BRACE)) {
-        ast->statement = FnCompoundStatement(parser);
-    } else {
-        ast->statement = NULL;
-        consume(parser, TOKEN_SEMICOLON, "Expected semicolon after forward definition");
-    }
-    SymbolTableExit(&parser->locals);
-ASTFN_END()
-
-ASTFN(ExternalDeclaration)
-    ast->type = AST_EXTERNAL_DECLARATION_FUNCTION_DEFINITION;
-    consume(parser, TOKEN_INT, "Expected 'int'");
-
-    ast->as.functionDefinition = FunctionDefinition(parser);
-
-ASTFN_END()
-
 ASTFN(TranslationUnit)
-    ARRAY_ALLOC(ASTExternalDeclaration*, *ast, declaration);
+    ARRAY_ALLOC(ASTDeclaration*, *ast, declaration);
     while(!match(parser, TOKEN_EOF)) {
-        ARRAY_PUSH(*ast, declaration, ExternalDeclaration(parser));
+        consume(parser, TOKEN_INT, "Expected 'int'");
+        ARRAY_PUSH(*ast, declaration, Declaration(parser));
     }
 ASTFN_END()
 
