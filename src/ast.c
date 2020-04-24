@@ -18,7 +18,7 @@ static void PrintTabs(int depth) {
     for(int i = 0; i < depth; i++) putchar('\t');
 }
 
-static void ASTVariableTypePrint(ASTVariableType* ast) {
+static void ASTVariableTypePrint(const ASTVariableType* ast) {
     switch(ast->type) {
         case AST_VARIABLE_TYPE_POINTER:
             printf("pointer to ");

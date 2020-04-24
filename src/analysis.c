@@ -4,16 +4,18 @@
 typedef struct ctx {
     Parser* parser;
     bool inLoop;
+
+    const ASTVariableType* currentFn;
 } ctx;
 
 // TODO - major saftey improvements - this allows far too much through
 // treats c as an untyped language!
 
-static ASTVariableType defaultInt = {
+static const ASTVariableType defaultInt = {
     .type = AST_VARIABLE_TYPE_INT,
 };
 
-static bool TypeEqual(ASTVariableType* a, ASTVariableType* b) {
+static bool TypeEqual(const ASTVariableType* a, const ASTVariableType* b) {
     if(a->type != b->type) return false;
 
     switch(a->type) {
@@ -228,16 +230,32 @@ static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx);
 static void AnalyseIterationStatement(ASTIterationStatement* ast, ctx* ctx) {
     bool oldLoop = ctx->inLoop;
     ctx->inLoop = true;
+
     AnalyseExpression(ast->control, ctx);
-    AnalyseExpression(ast->post, ctx);
-    AnalyseExpression(ast->preExpr, ctx);
-    AnalyseDeclaration(ast->preDecl, ctx);
+    if(!TypeEqual(ast->control->exprType, &defaultInt)) {
+        errorAt(ctx->parser, &ast->keyword, "Loop condition must be of arithmetic type");
+    }
+
+    if(ast->type == AST_ITERATION_STATEMENT_FOR_DECL) {
+        AnalyseDeclaration(ast->preDecl, ctx);
+    } else if(ast->type == AST_ITERATION_STATEMENT_FOR_EXPR) {
+        AnalyseExpression(ast->preExpr, ctx);
+    }
+    if(ast->type == AST_ITERATION_STATEMENT_FOR_DECL ||
+       ast->type == AST_ITERATION_STATEMENT_FOR_EXPR) {
+        AnalyseExpression(ast->post, ctx);
+    }
+
     AnalyseStatement(ast->body, ctx);
     ctx->inLoop = oldLoop;
 }
 
 static void AnalyseSelectionStatement(ASTSelectionStatement* ast, ctx* ctx) {
     AnalyseExpression(ast->condition, ctx);
+    if(!TypeEqual(ast->condition->exprType, &defaultInt)) {
+        errorAt(ctx->parser, &ast->keyword, "Condition must have scalar type");
+    }
+
     switch(ast->type) {
         case AST_SELECTION_STATEMENT_IF:
             AnalyseStatement(ast->block, ctx);
@@ -267,6 +285,9 @@ static void AnalyseJumpStatement(ASTJumpStatement* ast, ctx* ctx) {
             break;
         case AST_JUMP_STATEMENT_RETURN:
             AnalyseExpression(ast->expr, ctx);
+            if(!TypeEqual(ast->expr->exprType, ctx->currentFn->as.function.ret)) {
+                errorAt(ctx->parser, &ast->statement, "Cannot return wrong type");
+            }
             break;
     }
 }
@@ -298,7 +319,10 @@ static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
     if(ast == NULL) return;
     for(unsigned int i = 0; i < ast->declarators.declaratorCount; i++) {
         if(ast->declarators.declarators[i]->type == AST_INIT_DECLARATOR_FUNCTION) {
+            const ASTVariableType* old = ctx->currentFn;
+            ctx->currentFn = ast->declarators.declarators[i]->declarator->variableType;
             AnalyseFnCompoundStatement(ast->declarators.declarators[i]->fn, ctx);
+            ctx->currentFn = old;
             continue;
         }
         ASTInitDeclarator* decl = ast->declarators.declarators[i];

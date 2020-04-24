@@ -13,7 +13,7 @@
 #define ASTENUM(ns, name) ns##_##name,
 
 typedef struct ASTVariableTypeFunction {
-    struct ASTVariableType* ret;
+    const struct ASTVariableType* ret;
     ARRAY_DEFINE(struct ASTDeclarator*, param);
 } ASTVariableTypeFunction;
 
@@ -29,7 +29,7 @@ typedef struct ASTVariableType {
     Token token;
 
     union {
-        struct ASTVariableType* pointer;
+        const struct ASTVariableType* pointer;
         ASTVariableTypeFunction function;
     } as;
 } ASTVariableType;
@@ -97,7 +97,7 @@ typedef struct ASTExpression {
     ASTExpressionType type;
     bool isLvalue;
 
-    ASTVariableType* exprType;
+    const ASTVariableType* exprType;
 
     union {
         ASTBinaryExpression binary;
@@ -123,6 +123,8 @@ typedef struct ASTSelectionStatement {
     ASTExpression* condition;
     struct ASTStatement* block;
     struct ASTStatement* elseBlock;
+
+    Token keyword;
 } ASTSelectionStatement;
 
 #define FOREACH_ITERATIONSTATEMENT(x, ns) \
@@ -134,6 +136,8 @@ typedef enum ASTIterationStatementType {
 
 typedef struct ASTIterationStatement {
     ASTIterationStatementType type;
+
+    Token keyword;
 
     ASTExpression* control;
     ASTExpression* preExpr;
@@ -176,7 +180,7 @@ typedef struct ASTStatement {
 
 typedef struct ASTDeclarator {
     SymbolLocal* declarator;
-    ASTVariableType* variableType;
+    const ASTVariableType* variableType;
 } ASTDeclarator;
 
 #define FOREACH_INITDECLARATOR(x, ns) \

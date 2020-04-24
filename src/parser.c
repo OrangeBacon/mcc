@@ -400,10 +400,10 @@ ASTFN(Declarator)
     ast->declarator = local;
 
     // the variable has this type
-    ASTVariableType* type = NULL;
+    const ASTVariableType* type = NULL;
 
     // where changes are applied
-    ASTVariableType** hole = &type;
+    const ASTVariableType** hole = &type;
 
     // if seekforward, check new tokens after the name, otherwise check the
     // stack of tokens already read.
@@ -488,8 +488,9 @@ ASTFN(Declarator)
         }
     }
 
-    *hole = ArenaAlloc(sizeof(ASTVariableType));
-    (*hole)->type = AST_VARIABLE_TYPE_INT;
+    ASTVariableType* base = ArenaAlloc(sizeof(ASTVariableType));
+    base->type = AST_VARIABLE_TYPE_INT;
+    *hole = base;
 
     local->type = type;
     ast->variableType = type;
@@ -576,6 +577,7 @@ ASTFN_END()
 static ASTStatement* Statement(Parser*);
 
 ASTFN(SelectionStatement)
+    ast->keyword = parser->previous;
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     ast->condition = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
@@ -606,6 +608,7 @@ ASTFN_END()
 ASTIterationStatement* While(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
     ast->type = AST_ITERATION_STATEMENT_WHILE;
+    ast->keyword = parser->previous;
     consume(parser, TOKEN_LEFT_PAREN, "Expected '('");
     ast->control = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
@@ -622,6 +625,7 @@ ASTIterationStatement* While(Parser* parser) {
 
 ASTIterationStatement* For(Parser* parser) {
     ASTIterationStatement* ast = ArenaAlloc(sizeof(*ast));
+    ast->keyword = parser->previous;
 
     SymbolTableEnter(&parser->locals);
 
@@ -642,7 +646,12 @@ ASTIterationStatement* For(Parser* parser) {
     }
 
     if(match(parser, TOKEN_SEMICOLON)) {
-        ast->control = NULL;
+        ASTExpression* one = ArenaAlloc(sizeof*one);
+        one->type = AST_EXPRESSION_CONSTANT;
+        one->as.constant.tok = TokenMake(TOKEN_INTEGER);
+        one->as.constant.tok.numberValue = 1;
+        one->as.constant.type = AST_CONSTANT_EXPRESSION_INTEGER;
+        ast->control = one;
     } else {
         ast->control = Expression(parser);
         consume(parser, TOKEN_SEMICOLON, "Expected ';'");
@@ -669,6 +678,7 @@ ASTIterationStatement* DoWhile(Parser* parser) {
     ast->body = Statement(parser);
 
     consume(parser, TOKEN_WHILE, "Expected 'while'");
+    ast->keyword = parser->previous;
     consume(parser, TOKEN_LEFT_PAREN, "Expected '(");
     ast->control = Expression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");

@@ -39,9 +39,7 @@ typedef struct SymbolLocal {
     uint32_t hash;
     unsigned int scopeDepth;
 
-    struct ASTVariableType* type;
-    bool functionAnalysed;
-    ARRAY_DEFINE(struct ASTFunctionDefinition*, define);
+    const struct ASTVariableType* type;
 
     // used only by the backend, not in creating the ast
     int stackOffset;

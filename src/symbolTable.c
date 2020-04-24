@@ -36,8 +36,6 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned 
     ret->hash = stringHash(name, length);
     ret->name = name;
     ret->length = length;
-    ARRAY_ZERO(*ret, define);
-    ret->functionAnalysed = false;
     ret->stackOffset = 0xDEAD;
     ret->type = NULL;
 

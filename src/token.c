@@ -1,6 +1,7 @@
 #include "token.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #define STRING_TOKEN(x) #x,
 static const char* TokenNames[] = {
@@ -16,7 +17,7 @@ Token TokenMake(TokenType type) {
     Token t;
     t.type = type;
     t.start = "internal";
-    t.length = 0;
+    t.length = strlen(t.start);
     t.column = -1;
     t.line = -1;
 

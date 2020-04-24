@@ -684,7 +684,7 @@ static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx) {
     ASTFnCompoundStatement* s = ast->fn;
     ctx->stackIndex = -8;
 
-    ASTVariableTypeFunction* fnType = &ast->declarator->variableType->as.function;
+    const ASTVariableTypeFunction* fnType = &ast->declarator->variableType->as.function;
     for(unsigned int i = 0; i < fnType->paramCount && i < 4; i++) {
         fnType->params[i]->declarator->stackOffset = ctx->stackIndex;
         ctx->stackIndex -= 8;
