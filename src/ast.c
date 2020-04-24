@@ -57,6 +57,10 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
     }
 
     printf("ASTExpression %s:\n", ASTExpressionTypeNames[ast->type]);
+    PrintTabs(depth + 1);
+    printf("type: ");
+    ASTVariableTypePrint(ast->exprType);
+    printf("\n");
 
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:

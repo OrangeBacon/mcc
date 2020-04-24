@@ -97,6 +97,8 @@ typedef struct ASTExpression {
     ASTExpressionType type;
     bool isLvalue;
 
+    ASTVariableType* exprType;
+
     union {
         ASTBinaryExpression binary;
         ASTTernaryExpression ternary;

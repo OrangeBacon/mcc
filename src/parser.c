@@ -491,6 +491,7 @@ ASTFN(Declarator)
     *hole = ArenaAlloc(sizeof(ASTVariableType));
     (*hole)->type = AST_VARIABLE_TYPE_INT;
 
+    local->type = type;
     ast->variableType = type;
 ASTFN_END()
 
