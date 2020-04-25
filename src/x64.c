@@ -636,8 +636,8 @@ static void x64ASTGenStatement(ASTStatement* ast, x64Ctx* ctx) {
 static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx);
 
 static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx) {
-    for(unsigned int i = 0; i < ast->declarators.declaratorCount; i++) {
-        ASTInitDeclarator* a = ast->declarators.declarators[i];
+    for(unsigned int i = 0; i < ast->declaratorCount; i++) {
+        ASTInitDeclarator* a = ast->declarators[i];
         if(a->type == AST_INIT_DECLARATOR_FUNCTION) {
             x64ASTGenFunctionDefinition(a, ctx);
             return;

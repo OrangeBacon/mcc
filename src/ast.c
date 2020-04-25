@@ -178,12 +178,12 @@ static void ASTInitDeclaratorPrint(ASTInitDeclarator* ast, int depth) {
     }
 }
 
-ASTARRAY_PRINT(InitDeclaratorList, InitDeclarator, declarator)
-
 static void ASTDeclarationPrint(ASTDeclaration* ast, int depth) {
     PrintTabs(depth);
     printf("ASTDeclaration:\n");
-    ASTInitDeclaratorListPrint(&ast->declarators, depth + 1);
+    for(unsigned int i = 0; i < ast->declaratorCount; i++) {
+        ASTInitDeclaratorPrint(ast->declarators[i], depth + 1);
+    }
 }
 
 static char* ASTIterationStatementTypeNames[] = {

@@ -15,6 +15,7 @@
 typedef struct ASTVariableTypeFunction {
     const struct ASTVariableType* ret;
     ARRAY_DEFINE(struct ASTDeclarator*, param);
+    bool isFromDefinition;
 } ASTVariableTypeFunction;
 
 #define FOREACH_ASTVARIABLETYPE(x,ns) \
@@ -181,6 +182,8 @@ typedef struct ASTStatement {
 typedef struct ASTDeclarator {
     SymbolLocal* declarator;
     const ASTVariableType* variableType;
+    Token declToken;
+    bool redeclared;
 } ASTDeclarator;
 
 #define FOREACH_INITDECLARATOR(x, ns) \
@@ -199,10 +202,8 @@ typedef struct ASTInitDeclarator {
     struct ASTFnCompoundStatement* fn;
 } ASTInitDeclarator;
 
-ASTARRAY(InitDeclaratorList, InitDeclarator, declarator);
-
 typedef struct ASTDeclaration {
-    ASTInitDeclaratorList declarators;
+    ARRAY_DEFINE(ASTInitDeclarator*, declarator);
 } ASTDeclaration;
 
 #define FOREACH_BLOCKITEM(x, ns) \

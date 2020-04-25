@@ -389,15 +389,15 @@ ASTFN(Declarator)
 
     // work around for top level prototype redeclaration
     // multiple definitions will be caught by analysis
-    if(local == NULL && parser->locals.currentDepth == 0) {
+    if(local == NULL) {
         local = SymbolTableGetLocal(&parser->locals,
             parser->previous.start, parser->previous.length);
-    }
-    if(local == NULL) {
-        error(parser, "Cannot re-declare variable in same scope");
-        return NULL;
+        ast->redeclared = true;
+    } else {
+        ast->redeclared = false;
     }
     ast->declarator = local;
+    ast->declToken = parser->previous;
 
     // the variable has this type
     const ASTVariableType* type = NULL;
@@ -425,6 +425,7 @@ ASTFN(Declarator)
             ASTVariableType* fn = ArenaAlloc(sizeof(*fn));
             fn->token = parser->previous;
             fn->type = AST_VARIABLE_TYPE_FUNCTION;
+            fn->as.function.isFromDefinition = false;
             ARRAY_ALLOC(ASTVariableType*, fn->as.function, param);
 
             // for symbol table management - increase depth, then record it
@@ -492,7 +493,6 @@ ASTFN(Declarator)
     base->type = AST_VARIABLE_TYPE_INT;
     *hole = base;
 
-    local->type = type;
     ast->variableType = type;
 ASTFN_END()
 
@@ -524,14 +524,20 @@ static ASTInitDeclarator* InitDeclarator(Parser* parser, bool* foundFnDef) {
     } else if(match(parser, TOKEN_LEFT_BRACE)) {
         ast->type = AST_INIT_DECLARATOR_FUNCTION;
         ast->initializerStart = parser->previous;
+
+        if(ast->declarator->variableType->type != AST_VARIABLE_TYPE_FUNCTION) {
+            errorAt(parser, &parser->previous, "Cannot define function after non function type");
+        } else {
+            ((ASTVariableType*)ast->declarator->variableType)->as.function.isFromDefinition = true;
+        }
+
         ast->fn = FnCompoundStatement(parser);
         ast->initializer = NULL;
+
         *foundFnDef = true;
     } else {
 
         // function prototypes different from variables
-        // TODO - deal with global variables and their prototypes
-        // the vaiables would be dynamic on the stack, not in bss, etc.
         if(ast->declarator->variableType->type == AST_VARIABLE_TYPE_FUNCTION) {
             ast->type = AST_INIT_DECLARATOR_FUNCTION;
         } else {
@@ -553,7 +559,7 @@ static ASTInitDeclarator* InitDeclarator(Parser* parser, bool* foundFnDef) {
 }
 
 ASTFN(Declaration)
-    ARRAY_ALLOC(ASTInitDeclarator*, ast->declarators, declarator);
+    ARRAY_ALLOC(ASTInitDeclarator*, *ast, declarator);
 
     bool foundFnDef;
 
@@ -564,7 +570,7 @@ ASTFN(Declaration)
 
         // cannot have any more initdeclarators after function, do not accept
         // semicolon after either.
-        ARRAY_PUSH(ast->declarators, declarator, InitDeclarator(parser, &foundFnDef));
+        ARRAY_PUSH(*ast, declarator, InitDeclarator(parser, &foundFnDef));
         if(!match(parser, TOKEN_COMMA)) break;
         if(foundFnDef) break;
     }
