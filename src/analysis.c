@@ -395,6 +395,11 @@ static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
         ASTInitDeclarator* decl = ast->declarators[i];
         const ASTVariableType* decltype = decl->declarator->variableType;
 
+        if(decl->declarator->anonymous) {
+            errorAt(ctx->parser, &decl->declarator->declToken,
+                "Cannot have anonymous declaration, expected identifier");
+        }
+
         if(decl->type == AST_INIT_DECLARATOR_FUNCTION) {
             if(i != 0) {
                 errorAt(ctx->parser, &decl->initializerStart,
@@ -405,6 +410,11 @@ static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
                 errorAt(ctx->parser, &decl->initializerStart,
                     "Function definition not allowed in inner scope");
             }
+
+            // whether function parameters are anonymous or not is not checked
+            // although it is invalid c11, it is likley to become valid in c2x
+            // and i dont really want to add more code to prevent it.
+            // clang --std=c2x accepts the syntax
 
             for(unsigned int j = 0; j < decltype->as.function.paramCount; j++) {
                 decltype->as.function.params[j]->declarator->type =

@@ -115,6 +115,10 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             ASTExpressionPrint(ast->as.assign.value, depth + 1);
             break;
         case AST_EXPRESSION_CALL:
+            PrintTabs(depth + 1);
+            printf("target type: ");
+            ASTVariableTypePrint(ast->as.call.target->exprType);
+            printf("\n");
             if(ast->as.call.paramCount == 0) {
                 PrintTabs(depth + 1);
                 printf("No parameters\n");

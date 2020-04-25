@@ -381,7 +381,9 @@ ASTFN(Declarator)
     // variable name, here is where anonymous type definitions would apear
     // e.g. in casts and prototypes - still todo
     if(!match(parser, TOKEN_IDENTIFIER)) {
-        error(parser, "Expected variable name");
+        ast->anonymous = true;
+    } else {
+        ast->anonymous = false;
     }
 
     SymbolLocal* local = SymbolTableAddLocal(&parser->locals,

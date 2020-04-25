@@ -184,6 +184,7 @@ typedef struct ASTDeclarator {
     const ASTVariableType* variableType;
     Token declToken;
     bool redeclared;
+    bool anonymous;
 } ASTDeclarator;
 
 #define FOREACH_INITDECLARATOR(x, ns) \
