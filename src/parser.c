@@ -168,10 +168,22 @@ static ASTExpression* Variable(Parser* parser) {
     return ast;
 }
 
+static ASTDeclarator* Declarator(Parser*);
 static ASTExpression* Grouping(Parser* parser) {
-    ASTExpression* ast = Expression(parser);
-    consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
-    return ast;
+    if(match(parser, TOKEN_INT)) {
+        ASTDeclarator*  decl = Declarator(parser);
+        consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+
+        ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+        ast->type = AST_EXPRESSION_CAST;
+        ast->as.cast.type = decl;
+        ast->as.cast.expression = parsePrecidence(parser, PREC_CAST);
+        return ast;
+    } else {
+        ASTExpression* ast = Expression(parser);
+        consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+        return ast;
+    }
 }
 
 static ASTExpression* Constant(Parser* parser) {

@@ -271,6 +271,17 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
     }
 }
 
+static void AnalyseCastExpression(ASTExpression* ast, ctx* ctx) {
+    ASTCastExpression* cast = &ast->as.cast;
+
+    if(!cast->type->anonymous) {
+        errorAt(ctx->parser, &cast->type->declToken, "Unexpected identifier");
+    }
+
+    AnalyseExpression(cast->expression, ctx);
+    ast->exprType = cast->type->variableType;
+}
+
 static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
     if(ast == NULL) return;
     switch(ast->type) {
@@ -295,6 +306,8 @@ static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
         case AST_EXPRESSION_UNARY:
             AnalyseUnaryExpression(ast, ctx);
             break;
+        case AST_EXPRESSION_CAST:
+            AnalyseCastExpression(ast, ctx);
     }
 }
 

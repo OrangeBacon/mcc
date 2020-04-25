@@ -489,6 +489,9 @@ static void x64ASTGenExpression(ASTExpression* ast, x64Ctx* ctx) {
         case AST_EXPRESSION_CALL:
             x64ASTGenCall(&ast->as.call, ctx);
             break;
+        case AST_EXPRESSION_CAST:
+            x64ASTGenExpression(ast->as.cast.expression, ctx);
+            break;
         default:
             printf("Output unspecified\n");
             exit(0);

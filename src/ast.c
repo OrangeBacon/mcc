@@ -126,6 +126,9 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             for(unsigned int i = 0; i < ast->as.call.paramCount; i++) {
                 ASTExpressionPrint(ast->as.call.params[i], depth + 1);
             }
+            break;
+        case AST_EXPRESSION_CAST:
+           ASTExpressionPrint(ast->as.cast.expression, depth + 1);
     }
 }
 

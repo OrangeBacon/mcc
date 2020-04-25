@@ -86,10 +86,15 @@ typedef struct ASTCallExpression {
     ARRAY_DEFINE(struct ASTExpression*, param);
 } ASTCallExpression;
 
+typedef struct ASTCastExpression {
+    struct ASTDeclarator* type;
+    struct ASTExpression* expression;
+} ASTCastExpression;
+
 #define FOREACH_EXPRESSION(x, ns) \
     x(ns, BINARY) x(ns, TERNARY) x(ns, UNARY) \
     x(ns, POSTFIX) x(ns, CONSTANT) x(ns, ASSIGN) \
-    x(ns, CALL)
+    x(ns, CALL) x(ns, CAST)
 typedef enum ASTExpressionType {
     FOREACH_EXPRESSION(ASTENUM, AST_EXPRESSION)
 } ASTExpressionType;
@@ -108,6 +113,7 @@ typedef struct ASTExpression {
         ASTConstantExpression constant;
         ASTAssignExpression assign;
         ASTCallExpression call;
+        ASTCastExpression cast;
     } as;
 } ASTExpression;
 
