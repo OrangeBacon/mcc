@@ -41,6 +41,7 @@ typedef struct ASTBinaryExpression {
     Token operator;
     struct ASTExpression* left;
     struct ASTExpression* right;
+    bool pointerShift;
 } ASTBinaryExpression;
 
 typedef struct ASTTernaryExpression {
@@ -78,6 +79,7 @@ typedef struct ASTAssignExpression {
     struct ASTExpression* target;
     struct ASTExpression* value;
     Token operator;
+    bool pointerShift;
 } ASTAssignExpression;
 
 typedef struct ASTCallExpression {

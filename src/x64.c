@@ -31,18 +31,30 @@ static void x64ASTGenBinary(ASTBinaryExpression* ast, x64Ctx* ctx) {
     switch(ast->operator.type) {
         case TOKEN_PLUS:
             x64ASTGenExpression(ast->left, ctx);
+            if(ast->pointerShift && ast->left->exprType->type != AST_VARIABLE_TYPE_POINTER) {
+                fprintf(ctx->f, "\tshl $3, %%rax\n");
+            }
             fprintf(ctx->f, "\tpush %%rax\n");
             ctx->stackAlignment += 8;
             x64ASTGenExpression(ast->right, ctx);
+            if(ast->pointerShift && ast->right->exprType->type != AST_VARIABLE_TYPE_POINTER) {
+                fprintf(ctx->f, "\tshl $3, %%rax\n");
+            }
             fprintf(ctx->f, "\tpop %%rcx\n"
                             "\tadd %%rcx, %%rax\n");
             ctx->stackAlignment -= 8;
             break;
         case TOKEN_NEGATE:
             x64ASTGenExpression(ast->right, ctx);
+            if(ast->pointerShift && ast->right->exprType->type != AST_VARIABLE_TYPE_POINTER) {
+                fprintf(ctx->f, "\tshl $3, %%rax\n");
+            }
             fprintf(ctx->f, "\tpush %%rax\n");
             ctx->stackAlignment += 8;
             x64ASTGenExpression(ast->left, ctx);
+            if(ast->pointerShift && ast->left->exprType->type != AST_VARIABLE_TYPE_POINTER) {
+                fprintf(ctx->f, "\tshl $3, %%rax\n");
+            }
             fprintf(ctx->f, "\tpop %%rcx\n"
                             "\tsub %%rcx, %%rax\n");
             ctx->stackAlignment -= 8;
@@ -293,6 +305,9 @@ static void x64ASTGenAssign(ASTAssignExpression* ast, x64Ctx* ctx) {
     ctx->stackAlignment += 8;
 
     x64ASTGenExpression(ast->value, ctx);
+    if(ast->pointerShift) {
+        fprintf(ctx->f, "\tshl $3, %%rax\n");
+    }
 
     fprintf(ctx->f, "\tpop %%r9\n");
     ctx->stackAlignment -= 8;

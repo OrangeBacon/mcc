@@ -126,12 +126,26 @@ static void AnalyseAssignExpression(ASTExpression* ast, ctx* ctx) {
     AnalyseExpression(assign->target, ctx);
     AnalyseExpression(assign->value, ctx);
 
-    if(!TypeCompat(assign->target->exprType, assign->value->exprType)) {
-        errorAt(ctx->parser, &assign->operator, "Cannot assign value to target of different type");
-    }
+    assign->pointerShift = false;
 
-    if(assign->operator.type != TOKEN_EQUAL_EQUAL && !TypeCompat(assign->value->exprType, &defaultInt)) {
-        errorAt(ctx->parser, &assign->operator, "Cannot do arithmetic assignment with non arithmetic type");
+    if(assign->operator.type == TOKEN_PLUS_EQUAL || assign->operator.type == TOKEN_MINUS_EQUAL) {
+        if(assign->target->exprType->type == AST_VARIABLE_TYPE_POINTER) {
+            if(!TypeCompat(assign->value->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &assign->operator, "Cannot change pointer by non arithmetic ammount");
+            }
+            assign->pointerShift = true;
+        } else {
+            goto arithassign;
+        }
+    } else {
+        arithassign:
+        if(!TypeCompat(assign->target->exprType, assign->value->exprType)) {
+            errorAt(ctx->parser, &assign->operator, "Cannot assign value to target of different type");
+        }
+
+        if(assign->operator.type != TOKEN_EQUAL && !TypeCompat(assign->value->exprType, &defaultInt)) {
+            errorAt(ctx->parser, &assign->operator, "Cannot do arithmetic assignment with non arithmetic type");
+        }
     }
 
     ast->exprType = assign->target->exprType;
@@ -142,16 +156,81 @@ static void AnalyseBinaryExpression(ASTExpression* ast, ctx* ctx) {
     AnalyseExpression(bin->left, ctx);
     AnalyseExpression(bin->right, ctx);
 
-    // TODO - pointer arithmetic, integer conversions, ...
-    if(!TypeCompat(bin->left->exprType, bin->right->exprType)) {
-        errorAt(ctx->parser, &bin->operator, "Binary operator types must be equal");
-    }
+    ast->as.binary.pointerShift = false;
 
-    if(!TypeCompat(bin->left->exprType, &defaultInt)) {
-        errorAt(ctx->parser, &bin->operator, "Cannot use operator on non arithmetic type");
-    }
+    // TODO - integer conversions, ...
+    if(bin->operator.type == TOKEN_PLUS) {
+        int ptrCount = 0;
+        ptrCount |= (bin->left->exprType->type == AST_VARIABLE_TYPE_POINTER) << 0;
+        ptrCount |= (bin->right->exprType->type == AST_VARIABLE_TYPE_POINTER) << 1;
 
-    ast->exprType = bin->left->exprType;
+        if(ptrCount == 0) {
+            if(!TypeCompat(bin->left->exprType, &defaultInt) || !TypeCompat(bin->right->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot add non arithmetic type");
+            }
+            ast->exprType = bin->left->exprType;
+        } else if(ptrCount == 1) {
+            // left ptr
+            if(!TypeCompat(bin->right->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot add non-arithmetic type to pointer");
+            }
+            ast->exprType = bin->left->exprType;
+            ast->as.binary.pointerShift = true;
+        } else if(ptrCount == 2) {
+            // right ptr
+            if(!TypeCompat(bin->left->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot add non-arithmetic type to pointer");
+            }
+            ast->exprType = bin->right->exprType;
+            ast->as.binary.pointerShift = true;
+        } else {
+            errorAt(ctx->parser, &bin->operator, "Cannot add pointers");
+            ast->exprType = bin->left->exprType;
+        }
+    } else if(bin->operator.type == TOKEN_NEGATE) {
+        int ptrCount = 0;
+        ptrCount |= (bin->left->exprType->type == AST_VARIABLE_TYPE_POINTER) << 0;
+        ptrCount |= (bin->right->exprType->type == AST_VARIABLE_TYPE_POINTER) << 1;
+
+        if(ptrCount == 0) {
+            if(!TypeCompat(bin->left->exprType, &defaultInt) || !TypeCompat(bin->right->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot subtract non arithmetic type");
+            }
+            ast->exprType = bin->left->exprType;
+        } else if(ptrCount == 1) {
+            // left ptr
+            if(!TypeCompat(bin->right->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot add non-arithmetic type to pointer");
+            }
+            ast->exprType = bin->left->exprType;
+            ast->as.binary.pointerShift = true;
+        } else if(ptrCount == 2) {
+            // right ptr
+            if(!TypeCompat(bin->left->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot add non-arithmetic type to pointer");
+            }
+            ast->exprType = bin->right->exprType;
+            ast->as.binary.pointerShift = true;
+        } else {
+            // two pointers
+            if(!TypeCompat(bin->left->exprType, bin->right->exprType)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot subtract pointers of different type");
+            }
+            ast->exprType = bin->left->exprType;
+        }
+    } else if(bin->operator.type == TOKEN_EQUAL_EQUAL || bin->operator.type == TOKEN_NOT_EQUAL || bin->operator.type == TOKEN_LESS || bin->operator.type == TOKEN_LESS_EQUAL || bin->operator.type == TOKEN_GREATER || bin->operator.type == TOKEN_GREATER_EQUAL) {
+        if(!((TypeCompat(bin->left->exprType, &defaultInt) && TypeCompat(bin->right->exprType, &defaultInt))||(bin->left->exprType->type == AST_VARIABLE_TYPE_POINTER && TypeCompat(bin->left->exprType, bin->right->exprType)))) {
+            errorAt(ctx->parser, &bin->operator, "Cannot check different types");
+        }
+        ast->exprType = &defaultInt;
+    } else if(bin->operator.type == TOKEN_COMMA) {
+        ast->exprType = bin->right->exprType;
+    } else {
+        if(!TypeCompat(bin->left->exprType, &defaultInt) || !TypeCompat(bin->right->exprType, &defaultInt)) {
+                errorAt(ctx->parser, &bin->operator, "Cannot use operator on non arithmetic type");
+        }
+        ast->exprType = bin->left->exprType;
+    }
 }
 
 static void AnalyseCallExpression(ASTExpression* ast, ctx* ctx) {
