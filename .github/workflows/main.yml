@@ -19,7 +19,7 @@ jobs:
         cd build
         mingw32-make 2>&1
         dir
-        mcc
-        echo assembling
+        .\mcc ..\test\test.c
+        dir
         gcc -m64 a.s -o out
-        out
+        .\out
