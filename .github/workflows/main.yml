@@ -20,5 +20,6 @@ jobs:
         mingw32-make 2>&1
         dir
         mcc ../test/test.c
+        echo assembling
         gcc -m64 a.s -o out
         out
