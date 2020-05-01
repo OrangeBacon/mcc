@@ -61,6 +61,7 @@ typedef struct ASTUnaryExpression {
 typedef struct ASTPostfixExpression {
     Token operator;
     struct ASTExpression* operand;
+    bool pointerShift;
 } ASTPostfixExpression;
 
 #define FOREACH_CONSTANTEXPRESSION(x, ns) \

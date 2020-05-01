@@ -277,9 +277,9 @@ static void AnalysePostfixExpression(ASTExpression* ast, ctx* ctx) {
 
     AnalyseExpression(post->operand, ctx);
 
-    // only postfix implemented are ++ and --
-    if(!TypeCompat(post->operand->exprType, &defaultInt)) {
-        errorAt(ctx->parser, &post->operator, "Cannot increment/decrement non arithmetic type");
+    post->pointerShift = post->operand->exprType->type == AST_VARIABLE_TYPE_POINTER;
+    if(!TypeCompat(post->operand->exprType, &defaultInt) && !post->pointerShift) {
+        errorAt(ctx->parser, &post->operator, "Cannot increment/decrement non arithmetic or pointer type");
     }
 
     ast->exprType = &defaultInt;

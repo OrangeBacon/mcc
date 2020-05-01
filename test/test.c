@@ -58,9 +58,15 @@ int main() {
 
     int ten = 0;
     for(int i = 0; i < size; i++) {
-        (*(arr + i))++;
-        (*(arr + i))--;
-        ten += *(arr + i);
+        arr++;
+        arr--;
+        ++arr;
+        --arr;
+        (*arr)++;
+        (*arr)--;
+        ten += *arr;
+        arr += 2;
+        arr -= 1;
     }
 
     while(b < ten) {

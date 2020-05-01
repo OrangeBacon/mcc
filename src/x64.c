@@ -386,10 +386,16 @@ static void x64ASTGenPostfix(ASTPostfixExpression* ast, x64Ctx* ctx) {
 
     switch(ast->operator.type) {
         case TOKEN_PLUS_PLUS:
-            fprintf(ctx->f, "\tincq (%%rax)\n");
+            if(ast->pointerShift)
+                fprintf(ctx->f, "\tadd $8, (%%rax)\n");
+            else
+                fprintf(ctx->f, "\tincq (%%rax)\n");
             break;
         case TOKEN_MINUS_MINUS:
-            fprintf(ctx->f, "\tdecq (%%rax)\n");
+            if(ast->pointerShift)
+                fprintf(ctx->f, "\tsub $8, (%%rax)\n");
+            else
+                fprintf(ctx->f, "\tdecq (%%rax)\n");
             break;
         default:
             printf("Postfix undefined\n");
