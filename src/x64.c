@@ -3,20 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-
-typedef struct x64Ctx {
-    // file to write the assembly to
-    FILE* f;
-
-    // location break statements should jump to
-    unsigned int loopBreak;
-
-    // location continue statements should jump to
-    unsigned int loopContinue;
-
-    // distance to top of stack
-    int stackIndex;
-} x64Ctx;
+#include "assemble.h"
 
 static unsigned int getID() {
     static int i = 0;
@@ -30,202 +17,170 @@ static void x64ASTGenBinary(ASTBinaryExpression* ast, x64Ctx* ctx) {
         case TOKEN_PLUS:
             x64ASTGenExpression(ast->left, ctx);
             if(ast->pointerShift && ast->left->exprType->type != AST_VARIABLE_TYPE_POINTER) {
-                fprintf(ctx->f, "\tshl $3, %%rax\n");
+                asmShiftLeftInt(ctx, RAX, 3);
             }
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
             if(ast->pointerShift && ast->right->exprType->type != AST_VARIABLE_TYPE_POINTER) {
-                fprintf(ctx->f, "\tshl $3, %%rax\n");
+                asmShiftLeftInt(ctx, RAX, 3);
             }
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tadd %%rcx, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmAdd(ctx, RCX, RAX);
             break;
         case TOKEN_NEGATE:
             x64ASTGenExpression(ast->right, ctx);
             if(ast->pointerShift && ast->right->exprType->type != AST_VARIABLE_TYPE_POINTER) {
-                fprintf(ctx->f, "\tshl $3, %%rax\n");
+                asmShiftLeftInt(ctx, RAX, 3);
             }
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->left, ctx);
             if(ast->pointerShift && ast->left->exprType->type != AST_VARIABLE_TYPE_POINTER) {
-                fprintf(ctx->f, "\tshl $3, %%rax\n");
+                asmShiftLeftInt(ctx, RAX, 3);
             }
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tsub %%rcx, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmSub(ctx, RCX, RAX);
             break;
         case TOKEN_STAR:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\timul %%rcx, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmIMul(ctx, RCX, RAX);
             break;
         case TOKEN_SLASH:
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcqo\n"
-                            "\tidiv %%rcx\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmRAXExtend(ctx);
+            asmIDiv(ctx, RCX);
             break;
         case TOKEN_EQUAL_EQUAL:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcmp %%rax, %%rcx\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsete %%al\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmCmp(ctx, RAX, RCX);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, EQUAL, RAX);
             break;
         case TOKEN_NOT_EQUAL:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcmp %%rax, %%rcx\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsetne %%al\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmCmp(ctx, RAX, RCX);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, NOT_EQUAL, RAX);
             break;
         case TOKEN_LESS:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcmp %%rax, %%rcx\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsetl %%al\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmCmp(ctx, RAX, RCX);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, LESS, RAX);
             break;
         case TOKEN_LESS_EQUAL:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcmp %%rax, %%rcx\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsetle %%al\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmCmp(ctx, RAX, RCX);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, LESS_EQUAL, RAX);
             break;
         case TOKEN_GREATER:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcmp %%rax, %%rcx\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsetg %%al\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmCmp(ctx, RAX, RCX);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, GREATER, RAX);
             break;
         case TOKEN_GREATER_EQUAL:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcmp %%rax, %%rcx\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsetge %%al\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmCmp(ctx, RAX, RCX);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, GREATER_EQUAL, RAX);
             break;
         case TOKEN_OR_OR: {
             unsigned int clause2 = getID();
             unsigned int end = getID();
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                            "\tje _%u\n"
-                            "\tmov $1, %%rax\n"
-                            "\tjmp _%u\n"
-                            "_%u:\n", clause2, end, clause2);
+            asmICmp(ctx, RAX, 0);
+            asmJumpCC(ctx, EQUAL, clause2);
+            asmRegSet(ctx, RAX, 1);
+            asmJump(ctx, end);
+            asmJumpTarget(ctx, clause2);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsetne %%al\n"
-                            "_%u:\n", end);
+            asmICmp(ctx, RAX, 0);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, NOT_EQUAL, RAX);
+            asmJumpTarget(ctx, end);
         }; break;
         case TOKEN_AND_AND: {
             unsigned int clause2 = getID();
             unsigned int end = getID();
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                            "\tjne _%u\n"
-                            "\tjmp _%u\n"
-                            "_%u:\n", clause2, end, clause2);
+            asmICmp(ctx, RAX, 0);
+            asmJumpCC(ctx, NOT_EQUAL, clause2);
+            asmJump(ctx, end);
+            asmJumpTarget(ctx, clause2);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                            "\tmov $0, %%rax\n"
-                            "\tsetne %%al\n"
-                            "_%u:\n", end);
+            asmICmp(ctx, RAX, 0);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, NOT_EQUAL, RAX);
+            asmJumpTarget(ctx, end);
         }; break;
         case TOKEN_OR:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tor %%rcx, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmOr(ctx, RCX, RAX);
             break;
         case TOKEN_AND:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tand %%rcx, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmAnd(ctx, RCX, RAX);
             break;
         case TOKEN_PERCENT:
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tcqo\n"
-                            "\tidiv %%rcx\n"
-                            "\tmov %%rdx, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmRAXExtend(ctx);
+            asmIDiv(ctx, RCX);
+            asmRegMov(ctx, RDX, RAX);
             break;
         case TOKEN_XOR:
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\txor %%rcx, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmXor(ctx, RCX, RAX);
             break;
         case TOKEN_SHIFT_LEFT:
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tsal %%cl, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmShiftLeft(ctx, RCX, RAX);
             break;
         case TOKEN_SHIFT_RIGHT:
             x64ASTGenExpression(ast->right, ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
             x64ASTGenExpression(ast->left, ctx);
-            fprintf(ctx->f, "\tpop %%rcx\n"
-                            "\tsar %%cl, %%rax\n");
-            ctx->stackIndex += 8;
+            asmPop(ctx, RCX);
+            asmShiftRight(ctx, RCX, RAX);
             break;
         case TOKEN_COMMA:
             x64ASTGenExpression(ast->left, ctx);
@@ -245,25 +200,24 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, x64Ctx* ctx) {
     switch(ast->operator.type) {
         case TOKEN_NOT:
             x64ASTGenExpression(ast->operand, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                       "\tmov $0, %%rax\n"
-                       "\tsete %%al\n");
+            asmCmp(ctx, RAX, 0);
+            asmRegSet(ctx, RAX, 0);
+            asmSetcc(ctx, EQUAL, RAX);
             break;
         case TOKEN_NEGATE:
             x64ASTGenExpression(ast->operand, ctx);
-            fprintf(ctx->f, "\tneg %%rax\n");
+            asmNeg(ctx, RAX);
             break;
         case TOKEN_COMPLIMENT:
             x64ASTGenExpression(ast->operand, ctx);
-            fprintf(ctx->f, "\tnot %%rax\n");
+            asmNot(ctx, RAX);
             break;
         case TOKEN_AND:
-            fprintf(ctx->f, "\tlea %d(%%rbp), %%rax\n",
-                ast->operand->as.constant.local->stackOffset);
+            asmLeaDerefOffset(ctx, RBP, ast->operand->as.constant.local->stackOffset, RAX);
             break;
         case TOKEN_STAR:
             x64ASTGenExpression(ast->operand, ctx);
-            fprintf(ctx->f, "\tmov (%%rax), %%rax\n");
+            asmDeref(ctx, RAX, RAX);
             break;
         default:
             printf("x64 unreachable unary\n");
@@ -271,13 +225,13 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, x64Ctx* ctx) {
     }
 }
 
-static void x64ASTGenConstant(ASTConstantExpression* ast, FILE* f) {
+static void x64ASTGenConstant(ASTConstantExpression* ast, x64Ctx* ctx) {
     switch(ast->type) {
         case AST_CONSTANT_EXPRESSION_LOCAL: {
-            fprintf(f, "\tmov %d(%%rbp), %%rax\n", ast->local->stackOffset);
+            asmDerefOffset(ctx, RBP, ast->local->stackOffset, RAX);
         }; break;
         case AST_CONSTANT_EXPRESSION_INTEGER:
-            fprintf(f, "\tmov $%i, %%rax\n", ast->tok.numberValue);
+            asmRegSet(ctx, RAX, ast->tok.numberValue);
             break;
     }
 }
@@ -299,16 +253,14 @@ static ASTExpression* x64RAXLoadAddress(ASTExpression* ast) {
 
 static void x64ASTGenAssign(ASTAssignExpression* ast, x64Ctx* ctx) {
     x64ASTGenExpression(x64RAXLoadAddress(ast->target), ctx);
-    fprintf(ctx->f, "\tpush %%rax\n");
-    ctx->stackIndex -= 8;
+    asmPush(ctx, RAX);
 
     x64ASTGenExpression(ast->value, ctx);
     if(ast->pointerShift) {
-        fprintf(ctx->f, "\tshl $3, %%rax\n");
+        asmShiftLeftInt(ctx, RAX, 3);
     }
 
-    fprintf(ctx->f, "\tpop %%r9\n");
-    ctx->stackIndex += 8;
+    asmPop(ctx, R9);
 
     // value to store/operate on is in rax
     // address to store value to is in r9
@@ -318,59 +270,59 @@ static void x64ASTGenAssign(ASTAssignExpression* ast, x64Ctx* ctx) {
 
     switch(ast->operator.type) {
         case TOKEN_EQUAL:
-            fprintf(ctx->f, "\tmov %%rax, (%%r9)\n");
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         case TOKEN_PLUS_EQUAL:
-            fprintf(ctx->f, "\tadd (%%r9), %%rax\n"
-                            "\tmov %%rax, (%%r9)\n");
+            asmAddDeref(ctx, R9, RAX);
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         case TOKEN_MINUS_EQUAL:
-            fprintf(ctx->f, "\tmov (%%r9), %%rdx\n"
-                            "\tsub %%rax, %%rdx\n"
-                            "\tmov %%rdx, (%%r9)\n");
+            asmDeref(ctx, R9, RDX);
+            asmSub(ctx, RAX, RDX);
+            asmRegMovAddr(ctx, RDX, R9);
             break;
         case TOKEN_SLASH_EQUAL:
-            fprintf(ctx->f, "\tmov %%rax, %%r8\n"
-                            "\tmov (%%r9), %%rax\n"
-                            "\tcqo\n"
-                            "\tidiv %%r8\n"
-                            "\tmov %%rax, (%%r9)\n");
+            asmRegMov(ctx, RAX, R8);
+            asmDeref(ctx, R9, RAX);
+            asmRAXExtend(ctx);
+            asmIDiv(ctx, R8);
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         case TOKEN_STAR_EQUAL:
-            fprintf(ctx->f, "\timul (%%r9), %%rax\n"
-                            "\tmov %%rax, (%%r9)\n");
+            asmIMulDeref(ctx, R9, RAX);
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         case TOKEN_PERCENT_EQUAL:
-            fprintf(ctx->f, "\tmov %%rax, %%r8\n"
-                            "\tmov (%%r9), %%rax\n"
-                            "\tcqo\n"
-                            "\tidiv %%r8\n"
-                            "\tmov %%rdx, %%rax\n"
-                            "\tmov %%rax, (%%r9)\n");
+            asmRegMov(ctx, RAX, R8);
+            asmDeref(ctx, R9, RAX);
+            asmRAXExtend(ctx);
+            asmIDiv(ctx, R8);
+            asmRegMov(ctx, RDX, RAX);
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         case TOKEN_LEFT_SHIFT_EQUAL:
-            fprintf(ctx->f, "\tmov (%%r9), %%rdx\n"
-                            "\tmov %%rax, %%rcx\n"
-                            "\tsal %%cl, %%rdx\n"
-                            "\tmov %%rdx, (%%r9)\n");
+            asmDeref(ctx, R9, RDX);
+            asmRegMov(ctx, RAX, RCX);
+            asmShiftLeft(ctx, RCX, RDX);
+            asmRegMovAddr(ctx, RDX, R9);
             break;
         case TOKEN_RIGHT_SHIFT_EQUAL:
-            fprintf(ctx->f, "\tmov (%%r9), %%rdx\n"
-                            "\tmov %%rax, %%rcx\n"
-                            "\tsar %%cl, %%rdx\n"
-                            "\tmov %%rdx, (%%r9)\n");
+            asmDeref(ctx, R9, RDX);
+            asmRegMov(ctx, RAX, RCX);
+            asmShiftRight(ctx, RCX, RDX);
+            asmRegMovAddr(ctx, RDX, R9);
             break;
         case TOKEN_AND_EQUAL:
-            fprintf(ctx->f, "\tand (%%r9), %%rax\n"
-                            "\tmov %%rax, (%%r9)\n");
+            asmAndDeref(ctx, R9, RAX);
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         case TOKEN_OR_EQUAL:
-            fprintf(ctx->f, "\tor (%%r9), %%rax\n"
-                            "\tmov %%rax, (%%r9)\n");
+            asmOrDeref(ctx, R9, RAX);
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         case TOKEN_XOR_EQUAL:
-            fprintf(ctx->f, "\txor (%%r9), %%rax\n"
-                            "\tmov %%rax, (%%r9)\n");
+            asmXorDeref(ctx, R9, RAX);
+            asmRegMovAddr(ctx, RAX, R9);
             break;
         default:
             printf("Unknown assignment\n");
@@ -380,94 +332,88 @@ static void x64ASTGenAssign(ASTAssignExpression* ast, x64Ctx* ctx) {
 
 static void x64ASTGenPostfix(ASTPostfixExpression* ast, x64Ctx* ctx) {
     x64ASTGenExpression(x64RAXLoadAddress(ast->operand), ctx);
-    fprintf(ctx->f, "\tmov (%%rax), %%rcx\n");
+    asmDeref(ctx, RAX, RCX);
 
     switch(ast->operator.type) {
         case TOKEN_PLUS_PLUS:
             if(ast->pointerShift)
-                fprintf(ctx->f, "\tadd $8, (%%rax)\n");
+                asmAddIStoreRef(ctx, 8, RAX);
             else
-                fprintf(ctx->f, "\tincq (%%rax)\n");
+                asmIncDeref(ctx, RAX);
             break;
         case TOKEN_MINUS_MINUS:
             if(ast->pointerShift)
-                fprintf(ctx->f, "\tsub $8, (%%rax)\n");
+                asmSubIStoreRef(ctx, 8, RAX);
             else
-                fprintf(ctx->f, "\tdecq (%%rax)\n");
+                asmDecDeref(ctx, RAX);
             break;
         default:
             printf("Postfix undefined\n");
             exit(0);
     }
-    fprintf(ctx->f, "\tmov %%rcx, %%rax\n");
+
+    asmRegMov(ctx, RCX, RAX);
 }
 
 static void x64ASTGenTernary(ASTTernaryExpression* ast, x64Ctx* ctx) {
     unsigned int elseExp = getID();
     unsigned int endExp = getID();
     x64ASTGenExpression(ast->operand1, ctx);
-    fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                    "\tje _%u\n", elseExp);
+    asmICmp(ctx, RAX, 0);
+    asmJumpCC(ctx, EQUAL, elseExp);
     x64ASTGenExpression(ast->operand2, ctx);
-    fprintf(ctx->f, "\tjmp _%u\n"
-                    "_%u:\n", endExp, elseExp);
+    asmJump(ctx, endExp);
+    asmJumpTarget(ctx, elseExp);
     x64ASTGenExpression(ast->operand3, ctx);
-    fprintf(ctx->f, "_%u:\n", endExp);
+    asmJumpTarget(ctx, endExp);
 }
 
-static char* registers[] = {
-    "rcx", "rdx", "r8", "r9"
+static Register registers[] = {
+    RCX, RDX, R8, R9
 };
 
 static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
     bool usedAlign = false;
     if((ast->paramCount > 4 && abs(ctx->stackIndex - (ast->paramCount - 4)) % 16 != 0) || abs(ctx->stackIndex) % 16 != 0) {
         usedAlign = true;
-        fprintf(ctx->f, "\tsub $8, %%rsp\n");
-        ctx->stackIndex -= 8;
+        asmSubI(ctx, RSP, 8);
     }
     for(unsigned int i = 4; i < ast->paramCount; i++) {
         x64ASTGenExpression(ast->params[i], ctx);
-        fprintf(ctx->f, "\tpush %%rax\n");
-        ctx->stackIndex -= 8;
+        asmPush(ctx, RAX);
     }
     for(int i = ast->paramCount - 1; i >= 0; i--) {
         if(i < 4) {
             x64ASTGenExpression(ast->params[i], ctx);
-            fprintf(ctx->f, "\tpush %%rax\n");
-            ctx->stackIndex -= 8;
+            asmPush(ctx, RAX);
         }
     }
     for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
-        fprintf(ctx->f, "\tpop %%%s\n", registers[i]);
-        ctx->stackIndex += 8;
+        asmPop(ctx, registers[i]);
     }
     SymbolLocal* fn = ast->target->as.constant.local;
 
-    fprintf(ctx->f, "\tsub $0x20, %%rsp\n"
-                    "\tcall %.*s\n", fn->length, fn->name);
+    asmSubI(ctx, RSP, 0x20);
+    fprintf(ctx->f, "\tcall %.*s\n", fn->length, fn->name);
     // shadow space does not affect ctx->stackAlignment as it is a multiple of 16
 
     // if extra padding used for alignment needs cleaning up
     if(usedAlign) {
         if(ast->paramCount > 4) {
             // number of parameters passed on the stack + alignment + shadow
-            ctx->stackIndex += 8 * (ast->paramCount - 4 + 1);
-            fprintf(ctx->f, "\tadd $%d, %%rsp\n", 8 * (ast->paramCount - 4 + 1) + 0x20);
+            asmAddI(ctx, RSP, 8 * (ast->paramCount - 4 + 1) + 0x20);
         } else {
             // only used register call
             // shadow + alignment = 32 + 8 = 40 = 0x28
-            ctx->stackIndex += 8;
-            fprintf(ctx->f, "\tadd $0x28, %%rsp\n");
+            asmAddI(ctx, RSP, 0x28);
         }
     } else {
         if(ast->paramCount > 4) {
             // number of parameters passed on the stack + shadow
-            ctx->stackIndex += 8 * (ast->paramCount - 4);
-            fprintf(ctx->f, "\tadd $%d, %%rsp\n", 8 * (ast->paramCount - 4) + 0x20);
+            asmAddI(ctx, RSP, 8 * (ast->paramCount - 4) + 0x20);
         } else {
             // only used register call
-            fprintf(ctx->f, "\tadd $0x20, %%rsp\n");
+            asmAddI(ctx, RSP, 0x20);
         }
     }
     // the above allocates 0x20 on the stack because windows
@@ -488,7 +434,7 @@ static void x64ASTGenExpression(ASTExpression* ast, x64Ctx* ctx) {
     }
     switch(ast->type) {
         case AST_EXPRESSION_CONSTANT:
-            x64ASTGenConstant(&ast->as.constant, ctx->f);
+            x64ASTGenConstant(&ast->as.constant, ctx);
             break;
         case AST_EXPRESSION_UNARY:
             x64ASTGenUnary(&ast->as.unary, ctx);
@@ -523,19 +469,19 @@ static void x64ASTGenSelectionStatement(ASTSelectionStatement* ast, x64Ctx* ctx)
     unsigned int elseExp = getID();
     unsigned int endExp = getID();
     x64ASTGenExpression(ast->condition, ctx);
-    fprintf(ctx->f, "\tcmp $0, %%rax\n");
+    asmICmp(ctx, RAX, 0);
     if(ast->type == AST_SELECTION_STATEMENT_IF) {
-        fprintf(ctx->f, "\tje _%u\n", endExp);
+        asmJumpCC(ctx, EQUAL, endExp);
     } else {
-        fprintf(ctx->f, "\tje _%u\n", elseExp);
+        asmJumpCC(ctx, EQUAL, elseExp);
     }
     x64ASTGenStatement(ast->block, ctx);
     if(ast->type == AST_SELECTION_STATEMENT_IFELSE) {
-        fprintf(ctx->f, "\tjmp _%u\n"
-                   "_%u:\n", endExp, elseExp);
+        asmJump(ctx, endExp);
+        asmJumpTarget(ctx, elseExp);
         x64ASTGenStatement(ast->elseBlock, ctx);
     }
-    fprintf(ctx->f, "_%u:\n", endExp);
+    asmJumpTarget(ctx, endExp);
 }
 
 static void x64ASTGenBlockItem(ASTBlockItem*, x64Ctx*);
@@ -543,13 +489,10 @@ static void x64ASTGenCompoundStatement(ASTCompoundStatement* ast, x64Ctx* ctx) {
     for(unsigned int i = 0; i < ast->itemCount; i++) {
         x64ASTGenBlockItem(ast->items[i], ctx);
     }
-    fprintf(ctx->f, "\tadd $%u, %%rsp\n", ast->popCount->localCount * 8);
-    ctx->stackIndex += 8 * ast->popCount->localCount;
+    asmAddI(ctx, RSP, ast->popCount->localCount * 8);
 }
 
-
 static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx);
-
 static void x64ASTGenIterationStatement(ASTIterationStatement* ast, x64Ctx* ctx) {
 
     unsigned int oldEnd = ctx->loopBreak;
@@ -562,51 +505,50 @@ static void x64ASTGenIterationStatement(ASTIterationStatement* ast, x64Ctx* ctx)
 
     switch(ast->type) {
         case AST_ITERATION_STATEMENT_WHILE: {
-            fprintf(ctx->f, "_%u:\n", cont);
+            asmJumpTarget(ctx, cont);
             x64ASTGenExpression(ast->control, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                            "\tje _%u\n", end);
+            asmICmp(ctx, RAX, 0);
+            asmJumpCC(ctx, EQUAL, end);
             x64ASTGenStatement(ast->body, ctx);
-            fprintf(ctx->f, "\tjmp _%u\n"
-                            "_%u:\n", cont, end);
+            asmJump(ctx, cont);
+            asmJumpTarget(ctx, end);
         }; break;
         case AST_ITERATION_STATEMENT_DO: {
             unsigned int start = getID();
-            fprintf(ctx->f, "_%u:\n", start);
+            asmJumpTarget(ctx, start);
             x64ASTGenStatement(ast->body, ctx);
-            fprintf(ctx->f, "_%u:\n", cont);
+            asmJumpTarget(ctx, cont);
             x64ASTGenExpression(ast->control, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                            "\tjne _%u\n"
-                            "_%u:\n", start, end);
+            asmICmp(ctx, RAX, 0);
+            asmJumpCC(ctx, NOT_EQUAL, start);
+            asmJumpTarget(ctx, end);
         }; break;
         case AST_ITERATION_STATEMENT_FOR_EXPR: {
             unsigned int cond = getID();
             x64ASTGenExpression(ast->preExpr, ctx);
-            fprintf(ctx->f, "_%u:\n", cond);
+            asmJumpTarget(ctx, cond);
             x64ASTGenExpression(ast->control, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                            "\tje _%u\n", end);
+            asmICmp(ctx, RAX, 0);
+            asmJumpCC(ctx, EQUAL, end);
             x64ASTGenStatement(ast->body, ctx);
-            fprintf(ctx->f, "_%u:\n", cont);
+            asmJumpTarget(ctx, cont);
             x64ASTGenExpression(ast->post, ctx);
-            fprintf(ctx->f, "\tjmp _%u\n"
-                            "_%u:\n", cond, end);
+            asmJump(ctx, cond);
+            asmJumpTarget(ctx, end);
         }; break;
         case AST_ITERATION_STATEMENT_FOR_DECL: {
             unsigned int cond = getID();
             x64ASTGenDeclaration(ast->preDecl, ctx);
-            fprintf(ctx->f, "_%u:\n", cond);
+            asmJumpTarget(ctx, cond);
             x64ASTGenExpression(ast->control, ctx);
-            fprintf(ctx->f, "\tcmp $0, %%rax\n"
-                       "\tje _%u\n", end);
+            asmICmp(ctx, RAX, 0);
+            asmJumpCC(ctx, EQUAL, end);
             x64ASTGenStatement(ast->body, ctx);
-            fprintf(ctx->f, "_%u:\n", cont);
+            asmJumpTarget(ctx, cont);
             x64ASTGenExpression(ast->post, ctx);
-            fprintf(ctx->f, "\tjmp _%u\n"
-                       "_%u:\n"
-                       "\tadd $%u, %%rsp\n", cond, end, ast->freeCount->localCount * 8);
-            ctx->stackIndex += ast->freeCount->localCount * 8;
+            asmJump(ctx, cond);
+            asmJumpTarget(ctx, end);
+            asmAddI(ctx, RSP, ast->freeCount->localCount * 8);
         }; break;
     }
 
@@ -618,16 +560,15 @@ static void x64ASTGenJumpStatement(ASTJumpStatement* ast, x64Ctx* ctx) {
     switch(ast->type) {
         case AST_JUMP_STATEMENT_RETURN:
             x64ASTGenExpression(ast->expr, ctx);
-            fprintf(ctx->f, "\tmov %%rbp, %%rsp\n"
-                            "\tpop %%rbp\n"
-                            "\tret\n\n");
-            ctx->stackIndex += 8;
+            asmRegMov(ctx, RBP, RSP);
+            asmPop(ctx, RBP);
+            asmRet(ctx);
             break;
         case AST_JUMP_STATEMENT_BREAK:
-            fprintf(ctx->f, "\tjmp _%u # break\n", ctx->loopBreak);
+            asmJump(ctx, ctx->loopBreak);
             break;
         case AST_JUMP_STATEMENT_CONTINUE:
-            fprintf(ctx->f, "\tjmp _%u\n", ctx->loopContinue);
+            asmJump(ctx, ctx->loopContinue);
             break;
     }
 }
@@ -666,11 +607,10 @@ static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx) {
         if(a->type == AST_INIT_DECLARATOR_INITIALIZE) {
             x64ASTGenExpression(a->initializer, ctx);
         } else {
-            fprintf(ctx->f, "\tmov $0xcafebabe, %%rax\n");
+            asmRegSet(ctx, RAX, 0xcafebabe);
         }
-        fprintf(ctx->f, "\tpush %%rax\n");
         a->declarator->declarator->stackOffset = ctx->stackIndex;
-        ctx->stackIndex -= 8;
+        asmPush(ctx, RAX);
     }
 }
 
@@ -694,21 +634,20 @@ static void x64ASTGenFnCompoundStatement(ASTFnCompoundStatement* ast, x64Ctx* ct
 static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx) {
     if(ast->fn == NULL) return;
 
+    ctx->stackIndex = 0;
+
     SymbolLocal* symbol = ast->declarator->declarator;
-    fprintf(ctx->f, ".globl %.*s\n", symbol->length, symbol->name);
-    fprintf(ctx->f, "%.*s:\n"
-                    "\tpush %%rbp\n"
-                    "\tmov %%rsp, %%rbp\n", symbol->length, symbol->name);
+    asmGlobl(ctx, symbol->length, symbol->name);
+    asmFnName(ctx, symbol->length, symbol->name);
+    asmPush(ctx, RBP);
+    asmRegMov(ctx, RSP, RBP);
 
     ASTFnCompoundStatement* s = ast->fn;
-    ctx->stackIndex = -8;
 
     const ASTVariableTypeFunction* fnType = &ast->declarator->variableType->as.function;
     for(unsigned int i = 0; i < fnType->paramCount && i < 4; i++) {
         fnType->params[i]->declarator->stackOffset = ctx->stackIndex;
-        ctx->stackIndex -= 8;
-        fprintf(ctx->f, "\tpush %%%s\n", registers[i]);
-        ctx->stackIndex -= 8;
+        asmPush(ctx, registers[i]);
     }
     int stackParamIndex = 48;
     for(int i = fnType->paramCount - 1; i > 3; i--) {
@@ -722,10 +661,10 @@ static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx) {
        s->items[s->itemCount - 1]->type != AST_BLOCK_ITEM_STATEMENT ||
        s->items[s->itemCount - 1]->as.statement->type != AST_STATEMENT_JUMP ||
        s->items[s->itemCount - 1]->as.statement->as.jump->type != AST_JUMP_STATEMENT_RETURN) {
-        fprintf(ctx->f, "\tmov $0, %%rax\n"
-                        "\tmov %%rbp, %%rsp\n"
-                        "\tpop %%rbp\n"
-                        "\tret\n\n");
+        asmRegSet(ctx, RAX, 0);
+        asmRegMov(ctx, RBP, RSP);
+        asmPop(ctx, RBP);
+        asmRet(ctx);
     }
 }
 
