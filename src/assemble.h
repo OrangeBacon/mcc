@@ -58,6 +58,7 @@ void asmJump(x64Ctx* ctx, int target);
 void asmJumpCC(x64Ctx* ctx, ConditionCode code, int target);
 void asmJumpTarget(x64Ctx* ctx, int target);
 void asmRet(x64Ctx* ctx);
+void asmCallIndir(x64Ctx* ctx, Register reg);
 
 void asmGlobl(x64Ctx* ctx, int len, const char* name);
 void asmFnName(x64Ctx* ctx, int len, const char* name);

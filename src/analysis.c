@@ -4,13 +4,11 @@
 typedef struct ctx {
     Parser* parser;
     bool inLoop;
+    bool convertFnDesignator;
 
     const ASTVariableType* currentFn;
     ASTTranslationUnit* translationUnit;
 } ctx;
-
-// TODO - major saftey improvements - this allows far too much through
-// treats c as an untyped language!
 
 static const ASTVariableType defaultInt = {
     .type = AST_VARIABLE_TYPE_INT,
@@ -234,13 +232,8 @@ static void AnalyseBinaryExpression(ASTExpression* ast, ctx* ctx) {
 }
 
 static void AnalyseCallExpression(ASTExpression* ast, ctx* ctx) {
-    // indirect call check
-    //TODO - analyse functions, check multiple definition compatability,
-    // possibly needs parser changes to record everything
-    // check number/type of arguments
-    // difference between int a() and int a(void)
-    // get return value type
-    // return type check
+    // TODO - indirect call check
+    // TODO - difference between int a() and int a(void)
 
     ASTCallExpression* call = &ast->as.call;
 
@@ -249,22 +242,49 @@ static void AnalyseCallExpression(ASTExpression* ast, ctx* ctx) {
         AnalyseExpression(call->params[i], ctx);
     }
 
-    if(call->target->exprType->type != AST_VARIABLE_TYPE_FUNCTION) {
-        errorAt(ctx->parser, &call->indirectErrorLoc, "Cannot call non function");
+    if(call->target->exprType->type != AST_VARIABLE_TYPE_POINTER ||
+       call->target->exprType->as.pointer->type != AST_VARIABLE_TYPE_FUNCTION) {
+        errorAt(ctx->parser, &call->indirectErrorLoc, "Cannot call non pointer to function");
         return;
     }
 
-    ast->exprType = call->target->exprType->as.function.ret;
+    ast->exprType = call->target->exprType->as.pointer->as.function.ret;
 }
 
-static void AnalyseConstantExpression(ASTExpression* ast) {
+static void AnalyseConstantExpression(ASTExpression* ast, ctx* ctx) {
     ASTConstantExpression* expr = &ast->as.constant;
     switch(expr->type) {
         case AST_CONSTANT_EXPRESSION_INTEGER:
             ast->exprType = &defaultInt;
             break;
         case AST_CONSTANT_EXPRESSION_LOCAL:
-            ast->exprType = expr->local->type;
+            if(expr->local->type->type == AST_VARIABLE_TYPE_FUNCTION && ctx->convertFnDesignator) {
+                // according to the c standard (n1570 draft) in section
+                // 6.3.2.1(4) A function designator should automatically convert
+                // into its address unless in sizeof, address of or align of
+                // operators.  Those operators should set convertFnDesignator to
+                // false, otherwise it should be left true.
+
+                // This adds the ast node and type node required to take its
+                // address, otherwise functions are treated identically to
+                // other global variables.
+
+                ASTExpression* newExp = ArenaAlloc(sizeof*newExp);
+                *newExp = *ast;
+                newExp->exprType = expr->local->type;
+                ast->type = AST_EXPRESSION_UNARY;
+                ast->as.unary.elide = false;
+                ast->as.unary.operator = TokenMake(TOKEN_AND);
+                ast->as.unary.operand = newExp;
+
+                ASTVariableType* type = ArenaAlloc(sizeof(*type));
+                type->type = AST_VARIABLE_TYPE_POINTER;
+                type->token = TokenMake(TOKEN_AND);
+                type->as.pointer = newExp->exprType;
+                ast->exprType = type;
+            } else {
+                ast->exprType = expr->local->type;
+            }
             break;
     }
 }
@@ -306,9 +326,11 @@ static void AnalyseTernaryExpression(ASTExpression* ast, ctx* ctx) {
 static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
     ASTUnaryExpression* unary = &ast->as.unary;
 
-    AnalyseExpression(unary->operand, ctx);
-
     if(unary->operator.type == TOKEN_AND) {
+        bool old = ctx->convertFnDesignator;
+        ctx->convertFnDesignator = false;
+        AnalyseExpression(unary->operand, ctx);
+
         // elide &*var
         if(unary->operand->type == AST_EXPRESSION_UNARY &&
         unary->operand->as.unary.operator.type == TOKEN_STAR &&
@@ -320,6 +342,9 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
             // disallow &1, &(5+6), etc
             errorAt(ctx->parser, &unary->operator, "Cannot take address of not variable");
         }
+        ctx->convertFnDesignator = old;
+    } else {
+        AnalyseExpression(unary->operand, ctx);
     }
 
     // -a, ~a, &a, *a
@@ -374,7 +399,7 @@ static void AnalyseExpression(ASTExpression* ast, ctx* ctx) {
             AnalyseCallExpression(ast, ctx);
             break;
         case AST_EXPRESSION_CONSTANT:
-            AnalyseConstantExpression(ast);
+            AnalyseConstantExpression(ast, ctx);
             break;
         case AST_EXPRESSION_POSTFIX:
             AnalysePostfixExpression(ast, ctx);
@@ -520,6 +545,12 @@ static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
                 "Cannot have anonymous declaration, expected identifier");
         }
 
+        if(decltype->type == AST_VARIABLE_TYPE_FUNCTION &&
+           decl->type == AST_INIT_DECLARATOR_INITIALIZE) {
+            errorAt(ctx->parser, &decl->initializerStart,
+                "Cannot initialise function with value");
+        }
+
         if(decl->type == AST_INIT_DECLARATOR_FUNCTION) {
             if(i != 0) {
                 errorAt(ctx->parser, &decl->initializerStart,
@@ -594,6 +625,7 @@ void Analyse(Parser* parser) {
     ctx ctx = {
         .parser = parser,
         .inLoop = false,
+        .convertFnDesignator = true,
     };
     TABLE_INIT(parser->ast->undefinedSymbols, SymbolLocal*);
     AnalyseTranslationUnit(parser->ast, &ctx);

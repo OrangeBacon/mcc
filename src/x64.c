@@ -398,14 +398,15 @@ static void x64ASTGenCall(ASTCallExpression* ast, x64Ctx* ctx) {
             asmPush(ctx, RAX);
         }
     }
+
+    x64ASTGenExpression(ast->target, ctx);
+
     for(unsigned int i = 0; i < ast->paramCount && i < 4; i++) {
         asmPop(ctx, registers[i]);
     }
-    SymbolLocal* fn = ast->target->as.constant.local;
 
     asmSubI(ctx, RSP, 0x20);
-    fprintf(ctx->f, "\tcall %.*s\n", fn->length, fn->name);
-    // shadow space does not affect ctx->stackAlignment as it is a multiple of 16
+    asmCallIndir(ctx, RAX);
 
     // if extra padding used for alignment needs cleaning up
     if(usedAlign) {

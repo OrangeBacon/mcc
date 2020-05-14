@@ -177,6 +177,10 @@ void asmRet(x64Ctx* ctx) {
     fprintf(ctx->f, "\tret\n");
 }
 
+void asmCallIndir(x64Ctx* ctx, Register reg) {
+    fprintf(ctx->f, "\tcall *%s\n", registerNames[reg]);
+}
+
 void asmGlobl(x64Ctx* ctx, int len, const char* name) {
     fprintf(ctx->f, ".globl %.*s\n", len, name);
 }

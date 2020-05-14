@@ -14,6 +14,14 @@ int* bar(int** arg) {
     return *arg;
 }
 
+int foo2() {
+    return fibCallCount;
+}
+
+int (*getFoo2())() {
+    return foo2;
+}
+
 int main() {
     int a = 5, b, c;
     b = a--;
@@ -86,20 +94,22 @@ int main() {
     b |= 7;
     c ^= 9;
     a = (b += 7) * a;
-    putchar(test(1,2,3,4,5,6,7, 8, 9,72));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,101));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,108));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,108));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,111));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,44));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,32));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,87));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,111));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,114));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,108));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,100));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,33));
-    putchar(test(1,2,3,4,5,6,7, 8, 9,10));
+
+    int (*testFn)(int, int, int, int, int, int, int, int, int, int j) = test;
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,72));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,101));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,108));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,108));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,111));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,44));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,32));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,87));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,111));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,114));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,108));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,100));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,33));
+    putchar(testFn(1,2,3,4,5,6,7, 8, 9,10));
 
     int x = 115;
     int *z = &x;
@@ -112,7 +122,7 @@ int main() {
 
     int fib11 = fib(11);
     for(;;)
-    return 101 - (fibCallCount - (fib11 -((-a + 2 * b + c + x) % 256)));
+    return 101 - (getFoo2()() - (fib11 -((-a + 2 * b + c + x) % 256)));
 }
 
 int fib(int n) {
