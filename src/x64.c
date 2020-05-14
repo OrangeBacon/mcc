@@ -212,9 +212,14 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, x64Ctx* ctx) {
             x64ASTGenExpression(ast->operand, ctx);
             asmNot(ctx, RAX);
             break;
-        case TOKEN_AND:
-            asmLeaDerefOffset(ctx, RBP, ast->operand->as.constant.local->stackOffset, RAX);
-            break;
+        case TOKEN_AND: {
+            SymbolLocal* symbol = ast->operand->as.constant.local;
+            if(symbol->scopeDepth == 0) {
+                asmLoadName(ctx, symbol->length, symbol->name, RAX);
+            } else {
+                asmLeaDerefOffset(ctx, RBP, symbol->stackOffset, RAX);
+            }
+        }; break;
         case TOKEN_STAR:
             x64ASTGenExpression(ast->operand, ctx);
             asmDeref(ctx, RAX, RAX);
@@ -227,9 +232,14 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, x64Ctx* ctx) {
 
 static void x64ASTGenConstant(ASTConstantExpression* ast, x64Ctx* ctx) {
     switch(ast->type) {
-        case AST_CONSTANT_EXPRESSION_LOCAL: {
-            asmDerefOffset(ctx, RBP, ast->local->stackOffset, RAX);
-        }; break;
+        case AST_CONSTANT_EXPRESSION_LOCAL:
+            if(ast->local->scopeDepth == 0) {
+                asmLoadName(ctx, ast->local->length, ast->local->name, RAX);
+                asmDeref(ctx, RAX, RAX);
+            } else {
+                asmDerefOffset(ctx, RBP, ast->local->stackOffset, RAX);
+            }
+            break;
         case AST_CONSTANT_EXPRESSION_INTEGER:
             asmRegSet(ctx, RAX, ast->tok.numberValue);
             break;
@@ -595,8 +605,20 @@ static void x64ASTGenStatement(ASTStatement* ast, x64Ctx* ctx) {
     }
 }
 
-static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx);
+static void x64ASTGenGlobal(ASTInitDeclarator* ast, x64Ctx* ctx) {
+    SymbolLocal* symbol = ast->declarator->symbol;
+    if(ast->type == AST_INIT_DECLARATOR_NO_INITIALIZE) {
+        return; // gas treats undefined symbols as extern automatically
+    }
+    asmGlobl(ctx, symbol->length, symbol->name);
+    asmSection(ctx, "data");
+    asmAlign(ctx, 8);
+    asmFnName(ctx, symbol->length, symbol->name);
+    asmLong(ctx, ast->initializer->as.constant.tok.numberValue);
+    asmSection(ctx, "text");
+}
 
+static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx);
 static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx) {
     for(unsigned int i = 0; i < ast->declaratorCount; i++) {
         ASTInitDeclarator* a = ast->declarators[i];
@@ -604,12 +626,16 @@ static void x64ASTGenDeclaration(ASTDeclaration* ast, x64Ctx* ctx) {
             x64ASTGenFunctionDefinition(a, ctx);
             return;
         }
+        if(a->declarator->symbol->scopeDepth == 0) {
+            x64ASTGenGlobal(a, ctx);
+            return;
+        }
         if(a->type == AST_INIT_DECLARATOR_INITIALIZE) {
             x64ASTGenExpression(a->initializer, ctx);
         } else {
             asmRegSet(ctx, RAX, 0xcafebabe);
         }
-        a->declarator->declarator->stackOffset = ctx->stackIndex;
+        a->declarator->symbol->stackOffset = ctx->stackIndex;
         asmPush(ctx, RAX);
     }
 }
@@ -636,7 +662,7 @@ static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx) {
 
     ctx->stackIndex = 0;
 
-    SymbolLocal* symbol = ast->declarator->declarator;
+    SymbolLocal* symbol = ast->declarator->symbol;
     asmGlobl(ctx, symbol->length, symbol->name);
     asmFnName(ctx, symbol->length, symbol->name);
     asmPush(ctx, RBP);
@@ -646,12 +672,12 @@ static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx) {
 
     const ASTVariableTypeFunction* fnType = &ast->declarator->variableType->as.function;
     for(unsigned int i = 0; i < fnType->paramCount && i < 4; i++) {
-        fnType->params[i]->declarator->stackOffset = ctx->stackIndex;
+        fnType->params[i]->symbol->stackOffset = ctx->stackIndex;
         asmPush(ctx, registers[i]);
     }
     int stackParamIndex = 48;
     for(int i = fnType->paramCount - 1; i > 3; i--) {
-        fnType->params[i]->declarator->stackOffset = stackParamIndex;
+        fnType->params[i]->symbol->stackOffset = stackParamIndex;
         stackParamIndex += 8;
     }
 
@@ -669,6 +695,19 @@ static void x64ASTGenFunctionDefinition(ASTInitDeclarator* ast, x64Ctx* ctx) {
 }
 
 static void x64ASTGenTranslationUnit(ASTTranslationUnit* ast, x64Ctx* ctx) {
+    for(unsigned int i = 0; i < ast->undefinedSymbols.entryCapacity; i++) {
+        Entry* entry = &ast->undefinedSymbols.entrys[i];
+        if(entry->key.key == NULL) {
+            continue;
+        }
+        SymbolLocal* symbol = entry->value;
+        asmGlobl(ctx, symbol->length, symbol->name);
+        asmSection(ctx, "data");
+        asmAlign(ctx, 8);
+        asmComm(ctx, symbol->length, symbol->name, 8);
+        asmSection(ctx, "text");
+    }
+
     for(unsigned int i = 0; i < ast->declarationCount; i++) {
         x64ASTGenDeclaration(ast->declarations[i], ctx);
     }

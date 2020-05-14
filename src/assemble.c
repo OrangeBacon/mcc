@@ -184,3 +184,23 @@ void asmGlobl(x64Ctx* ctx, int len, const char* name) {
 void asmFnName(x64Ctx* ctx, int len, const char* name) {
     fprintf(ctx->f, "%.*s:\n", len, name);
 }
+
+void asmSection(x64Ctx* ctx, const char* section) {
+    fprintf(ctx->f, "\t.%s\n", section);
+}
+
+void asmAlign(x64Ctx* ctx, int bytes) {
+    fprintf(ctx->f, "\t.balign %d\n", bytes);
+}
+
+void asmLong(x64Ctx* ctx, int value) {
+    fprintf(ctx->f, "\t.long %d\n", value);
+}
+
+void asmLoadName(x64Ctx* ctx, int len, const char* name, Register dst) {
+    fprintf(ctx->f, "\tlea %.*s(%%rip), %s\n", len, name, registerNames[dst]);
+}
+
+void asmComm(x64Ctx* ctx, int len, const char* name, int size) {
+    fprintf(ctx->f, "\t.comm %.*s,%d\n", len, name, size);
+}

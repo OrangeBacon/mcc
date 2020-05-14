@@ -32,7 +32,7 @@ static void ASTVariableTypePrint(const ASTVariableType* ast) {
             for(unsigned int i = 0; i < ast->as.function.paramCount; i++) {
                 ASTDeclarator* decl = ast->as.function.params[i];
                 ASTVariableTypePrint(decl->variableType);
-                printf(" '%.*s'", decl->declarator->length, decl->declarator->name);
+                printf(" '%.*s'", decl->symbol->length, decl->symbol->name);
                 if(i != ast->as.function.paramCount - 1) {
                     printf(", ");
                 }
@@ -159,7 +159,7 @@ static void ASTDeclaratorPrint(ASTDeclarator* ast, int depth) {
     PrintTabs(depth);
     printf("ASTDeclarator:\n");
     PrintTabs(depth + 1);
-    printf("Identifier: %.*s\n", ast->declarator->length, ast->declarator->name);
+    printf("Identifier: %.*s\n", ast->symbol->length, ast->symbol->name);
     PrintTabs(depth + 1);
     printf("Type: ");
     ASTVariableTypePrint(ast->variableType);

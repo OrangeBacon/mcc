@@ -406,11 +406,8 @@ ASTFN(Declarator)
     if(local == NULL) {
         local = SymbolTableGetLocal(&parser->locals,
             parser->previous.start, parser->previous.length);
-        ast->redeclared = true;
-    } else {
-        ast->redeclared = false;
     }
-    ast->declarator = local;
+    ast->symbol = local;
     ast->declToken = parser->previous;
 
     // the variable has this type
@@ -557,6 +554,8 @@ static ASTInitDeclarator* InitDeclarator(Parser* parser, bool* foundFnDef) {
         } else {
             ast->type = AST_INIT_DECLARATOR_NO_INITIALIZE;
         }
+
+        ast->initializerStart = ast->declarator->declToken;
 
         // if not set to null, ast print occasionaly crashed
         ast->initializer = NULL;

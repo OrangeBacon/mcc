@@ -43,6 +43,8 @@ typedef struct SymbolLocal {
 
     // used only by the backend, not in creating the ast
     int stackOffset;
+    bool initialised;
+    bool globalSymbolGenDone;
 } SymbolLocal;
 
 typedef struct SymbolTable {
@@ -71,8 +73,8 @@ SymbolExitList* SymbolTableExit(SymbolTable* table);
 
 #define TABLE_INIT(table, vType) \
     do { \
-        table.valueSize = sizeof(vType); \
-        ARRAY_ZERO(table, entry); \
+        (table).valueSize = sizeof(vType); \
+        ARRAY_ZERO((table), entry); \
         adjustCapacity(&(table), 8); \
     } while(0)
 

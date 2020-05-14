@@ -2,6 +2,8 @@ int fib(int);
 int putchar(int);
 int* malloc(int);
 
+int fibCallCount = 0;
+
 int test(int, int, int, int, int, int, int, int, int, int j) {
     return j;
 }
@@ -108,11 +110,13 @@ int main() {
 
     int (*(**g)(int a))(int (*b)(int g));
 
+    int fib11 = fib(11);
     for(;;)
-    return 186 - (fib(11) -((-a + 2 * b + c + x) % 256));
+    return 101 - (fibCallCount - (fib11 -((-a + 2 * b + c + x) % 256)));
 }
 
 int fib(int n) {
+    fibCallCount++;
     if (n == 0 || n == 1) {
         return n;
     } else {

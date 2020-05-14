@@ -6,6 +6,7 @@ typedef struct ctx {
     bool inLoop;
 
     const ASTVariableType* currentFn;
+    ASTTranslationUnit* translationUnit;
 } ctx;
 
 // TODO - major saftey improvements - this allows far too much through
@@ -99,9 +100,8 @@ static const ASTVariableType* TypeComposite(const ASTVariableType* base, const A
                         afn->params[i]->variableType,
                         bfn->params[i]->variableType);
                     ASTDeclarator* decl = ArenaAlloc(sizeof*decl);
-                    decl->declarator = afn->params[i]->declarator;
+                    decl->symbol = afn->params[i]->symbol;
                     decl->declToken = afn->params[i]->declToken;
-                    decl->redeclared = false;
                     decl->variableType = param;
                     ARRAY_PUSH(fn->as.function, param, decl);
                 }
@@ -481,6 +481,34 @@ static void AnalyseStatement(ASTStatement* ast, ctx* ctx) {
 
 static void AnalyseFnCompoundStatement(ASTFnCompoundStatement* ast, ctx* ctx);
 
+static void AnalyseFnDeclaration(ASTInitDeclarator* decl, const ASTVariableType* decltype, ctx* ctx) {
+    if(decl->declarator->symbol->scopeDepth != 0) {
+        errorAt(ctx->parser, &decl->initializerStart,
+            "Function definition not allowed in inner scope");
+    }
+
+    // whether function parameters are anonymous or not is not checked
+    // although it is invalid c11, it is likley to become valid in c2x
+    // and i dont really want to add more code to prevent it.
+    // clang --std=c2x accepts the syntax
+
+    for(unsigned int j = 0; j < decltype->as.function.paramCount; j++) {
+        decltype->as.function.params[j]->symbol->type =
+            decltype->as.function.params[j]->variableType;
+    }
+
+    if(decl->declarator->symbol->type == NULL) {
+        decl->declarator->symbol->type = decltype;
+    } else {
+        decl->declarator->symbol->type = TypeComposite(decl->declarator->symbol->type, decltype);
+    }
+
+    const ASTVariableType* old = ctx->currentFn;
+    ctx->currentFn = decltype;
+    AnalyseFnCompoundStatement(decl->fn, ctx);
+    ctx->currentFn = old;
+}
+
 static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
     if(ast == NULL) return;
     for(unsigned int i = 0; i < ast->declaratorCount; i++) {
@@ -497,47 +525,43 @@ static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
                 errorAt(ctx->parser, &decl->initializerStart,
                     "Cannot initialise function and variable at the same time");
             }
-
-            if(decl->declarator->declarator->scopeDepth != 0) {
-                errorAt(ctx->parser, &decl->initializerStart,
-                    "Function definition not allowed in inner scope");
-            }
-
-            // whether function parameters are anonymous or not is not checked
-            // although it is invalid c11, it is likley to become valid in c2x
-            // and i dont really want to add more code to prevent it.
-            // clang --std=c2x accepts the syntax
-
-            for(unsigned int j = 0; j < decltype->as.function.paramCount; j++) {
-                decltype->as.function.params[j]->declarator->type =
-                    decltype->as.function.params[j]->variableType;
-            }
-
-            if(decl->declarator->declarator->type == NULL) {
-                decl->declarator->declarator->type = decltype;
-            } else {
-                decl->declarator->declarator->type = TypeComposite(decl->declarator->declarator->type, decltype);
-            }
-
-            const ASTVariableType* old = ctx->currentFn;
-            ctx->currentFn = decltype;
-            AnalyseFnCompoundStatement(decl->fn, ctx);
-            ctx->currentFn = old;
+            AnalyseFnDeclaration(decl, decltype, ctx);
             continue;
         }
 
-        decl->declarator->declarator->type = decltype;
+        SymbolLocal* symbol = decl->declarator->symbol;
+        bool isGlobal = symbol->scopeDepth == 0;
+        bool isInitialising = decl->type != AST_INIT_DECLARATOR_NO_INITIALIZE;
+        bool isInitialised = symbol->initialised;
 
-        if(decl->declarator->declarator->scopeDepth == 0) {
-            errorAt(ctx->parser, &decl->declarator->declToken,
-                "Global variables not implemented yet");
+        if((isInitialising || !isGlobal) && isInitialised) {
+            errorAt(ctx->parser, &decl->initializerStart,
+                "Cannot re-declare identifier with the same linkage");
         }
-        if(decl->declarator->redeclared) {
-            errorAt(ctx->parser, &decl->declarator->declToken,
-                "Cannot redeclare variable with same linkage");
+
+        symbol->initialised |= isInitialising;
+        if(!isGlobal) {
+            symbol->initialised = true;
         }
+
+        symbol->type = decltype;
 
         AnalyseExpression(decl->initializer, ctx);
+
+        // if is global
+        if(decl->declarator->symbol->scopeDepth == 0) {
+            if(isInitialising &&
+               (decl->initializer->type != AST_EXPRESSION_CONSTANT ||
+                decl->initializer->as.constant.type != AST_CONSTANT_EXPRESSION_INTEGER)) {
+                errorAt(ctx->parser, &decl->initializerStart,
+                    "Global cannot have non-constant value");
+            }
+            if(!isInitialising && !symbol->initialised) {
+                TABLE_SET(ctx->translationUnit->undefinedSymbols, symbol->name, symbol->length, symbol);
+            } else {
+                tableRemove(&ctx->translationUnit->undefinedSymbols, symbol->name, symbol->length);
+            }
+        }
     }
 }
 
@@ -560,6 +584,7 @@ static void AnalyseFnCompoundStatement(ASTFnCompoundStatement* ast, ctx* ctx) {
 }
 
 static void AnalyseTranslationUnit(ASTTranslationUnit* ast, ctx* ctx) {
+    ctx->translationUnit = ast;
     for(unsigned int i = 0; i < ast->declarationCount; i++) {
         AnalyseDeclaration(ast->declarations[i], ctx);
     }
@@ -570,5 +595,6 @@ void Analyse(Parser* parser) {
         .parser = parser,
         .inLoop = false,
     };
+    TABLE_INIT(parser->ast->undefinedSymbols, SymbolLocal*);
     AnalyseTranslationUnit(parser->ast, &ctx);
 }

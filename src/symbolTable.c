@@ -38,6 +38,8 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned 
     ret->length = length;
     ret->stackOffset = 0xDEAD;
     ret->type = NULL;
+    ret->initialised = false;
+    ret->globalSymbolGenDone = false;
 
     return ret;
 }

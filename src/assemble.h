@@ -61,5 +61,10 @@ void asmRet(x64Ctx* ctx);
 
 void asmGlobl(x64Ctx* ctx, int len, const char* name);
 void asmFnName(x64Ctx* ctx, int len, const char* name);
+void asmSection(x64Ctx* ctx, const char* section);
+void asmAlign(x64Ctx* ctx, int bytes);
+void asmLong(x64Ctx* ctx, int value);
+void asmLoadName(x64Ctx* ctx, int len, const char* name, Register dst);
+void asmComm(x64Ctx* ctx, int len, const char* name, int size);
 
 #endif

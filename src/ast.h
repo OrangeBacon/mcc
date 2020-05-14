@@ -189,10 +189,9 @@ typedef struct ASTStatement {
 } ASTStatement;
 
 typedef struct ASTDeclarator {
-    SymbolLocal* declarator;
+    SymbolLocal* symbol;
     const ASTVariableType* variableType;
     Token declToken;
-    bool redeclared;
     bool anonymous;
 } ASTDeclarator;
 
@@ -244,7 +243,10 @@ typedef enum ASTExternalDeclarationType {
     FOREACH_EXTERNALDECLARATION(ASTENUM, AST_EXTERNAL_DECLARATION)
 } ASTExternalDeclarationType;
 
-ASTARRAY(TranslationUnit, Declaration, declaration);
+typedef struct ASTTranslationUnit {
+    ARRAY_DEFINE(ASTDeclaration*, declaration);
+    Table undefinedSymbols;
+} ASTTranslationUnit;
 
 void ASTPrint(ASTTranslationUnit* ast);
 
