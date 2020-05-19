@@ -171,7 +171,7 @@ static ASTExpression* Variable(Parser* parser) {
 static ASTDeclarator* Declarator(Parser*);
 static ASTExpression* Grouping(Parser* parser) {
     if(match(parser, TOKEN_INT)) {
-        ASTDeclarator*  decl = Declarator(parser);
+        ASTDeclarator* decl = Declarator(parser);
         consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
 
         ASTExpression* ast = ArenaAlloc(sizeof(*ast));
@@ -202,6 +202,7 @@ static ASTExpression* Unary(Parser* parser) {
     ast->as.unary.operator = parser->previous;
     ast->as.unary.operand = parsePrecidence(parser, PREC_UNARY);
     ast->as.unary.elide = false;
+    ast->as.unary.isSizeofType = false;
 
     if(ast->as.unary.operator.type == TOKEN_STAR) {
         ast->isLvalue = true;
@@ -232,6 +233,29 @@ static ASTExpression* PreIncDec(Parser* parser) {
 
     ASTExpression* exp = parsePrecidence(parser, PREC_UNARY);
     ast->as.assign.target = exp;
+
+    return ast;
+}
+
+static ASTExpression* Sizeof(Parser* parser) {
+    ASTExpression* ast = ArenaAlloc(sizeof(*ast));
+    ast->type = AST_EXPRESSION_UNARY;
+    ast->as.unary.elide = false;
+    ast->as.unary.operator = parser->previous;
+
+    if(match(parser, TOKEN_LEFT_PAREN)) {
+        if(match(parser, TOKEN_INT)) {
+            ast->as.unary.typeExpr = Declarator(parser)->variableType;
+            ast->as.unary.isSizeofType = true;
+        } else {
+            ast->as.unary.operand = Expression(parser);
+            ast->as.unary.isSizeofType = false;
+        }
+        consume(parser, TOKEN_RIGHT_PAREN, "Expected ')'");
+    } else {
+        ast->as.unary.operand = Expression(parser);
+        ast->as.unary.isSizeofType = false;
+    }
 
     return ast;
 }
@@ -356,6 +380,7 @@ ParseRule rules[] = {
     [TOKEN_DO] =                { NULL,      NULL,       PREC_NONE           },
     [TOKEN_CONTINUE] =          { NULL,      NULL,       PREC_NONE           },
     [TOKEN_BREAK] =             { NULL,      NULL,       PREC_NONE           },
+    [TOKEN_SIZEOF] =            { Sizeof,    NULL,       PREC_NONE           },
     [TOKEN_ERROR] =             { NULL,      NULL,       PREC_NONE           },
     [TOKEN_EOF] =               { NULL,      NULL,       PREC_NONE           },
 };

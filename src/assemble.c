@@ -76,6 +76,7 @@ void asmRAXExtend(x64Ctx* ctx) {
 }
 
 void asmAddI(x64Ctx* ctx, Register reg, int shift) {
+    if(shift == 0) return;
     fprintf(ctx->f, "\tadd $%d, %s\n", shift, registerNames[reg]);
     if(reg == RSP) {
         ctx->stackIndex += shift;

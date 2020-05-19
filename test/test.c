@@ -58,7 +58,7 @@ int main() {
     *bar(&j) = 7;
 
     int size = 5;
-    int* arr = malloc(size * 8);
+    int* arr = malloc(size * sizeof(int));
 
     for(int i = 0; i < size; i++) {
         *(arr + i) = 0;
@@ -90,9 +90,9 @@ int main() {
     }
     b <<= 3;
     c >>= 1;
-    a &= b > a ? 3 + (b %= 8) : 11 * (c /= 4);
+    a &= b > a ? 3 + (b %= sizeof a) : 11 * (c /= 4);
     b |= 7;
-    c ^= 9;
+    c ^= sizeof(a + b) + 1;
     a = (b += 7) * a;
 
     int (*testFn)(int, int, int, int, int, int, int, int, int, int j) = test;

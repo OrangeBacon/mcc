@@ -19,7 +19,7 @@
     x(XOR_EQUAL) x(IF) x(ELSE) \
     x(COLON) x(QUESTION) x(FOR) \
     x(DO) x(WHILE) x(BREAK) \
-    x(CONTINUE) \
+    x(CONTINUE) x(SIZEOF) \
     x(ERROR) x(EOF)
 
 #define ENUM_TOKEN(x) TOKEN_##x,

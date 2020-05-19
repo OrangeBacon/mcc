@@ -343,6 +343,11 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
             errorAt(ctx->parser, &unary->operator, "Cannot take address of not variable");
         }
         ctx->convertFnDesignator = old;
+    } else if(unary->operator.type == TOKEN_SIZEOF) {
+        if(!unary->isSizeofType) {
+            AnalyseExpression(unary->operand, ctx);
+            unary->typeExpr = unary->operand->exprType;
+        }
     } else {
         AnalyseExpression(unary->operand, ctx);
     }
@@ -369,8 +374,11 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
             }
             ast->exprType = unary->operand->exprType->as.pointer;
             break;
+        case TOKEN_SIZEOF:
+            ast->exprType = unary->typeExpr;
+            break;
         default:
-            printf("unreachable unary analysis");
+            printf("unreachable unary analysis\n");
             exit(0);
     }
 }

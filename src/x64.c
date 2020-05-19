@@ -224,6 +224,9 @@ static void x64ASTGenUnary(ASTUnaryExpression* ast, x64Ctx* ctx) {
             x64ASTGenExpression(ast->operand, ctx);
             asmDeref(ctx, RAX, RAX);
             break;
+        case TOKEN_SIZEOF:
+            asmRegSet(ctx, RAX, 8);
+            break;
         default:
             printf("x64 unreachable unary\n");
             exit(0);

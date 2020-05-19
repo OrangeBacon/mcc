@@ -102,9 +102,14 @@ static void ASTExpressionPrint(ASTExpression* ast, int depth) {
             printf("Elided: %s\n", ast->as.unary.elide ? "true" : "false");
             PrintTabs(depth + 1);
             printf("Operator: ");
-            TokenPrint(&ast->as.postfix.operator);
+            TokenPrint(&ast->as.unary.operator);
             printf("\n");
-            ASTExpressionPrint(ast->as.postfix.operand, depth + 1);
+            if(ast->as.unary.isSizeofType) {
+                PrintTabs(depth + 1);
+                ASTVariableTypePrint(ast->as.unary.typeExpr);
+            } else {
+                ASTExpressionPrint(ast->as.unary.operand, depth + 1);
+            }
             break;
         case AST_EXPRESSION_ASSIGN:
             ASTExpressionPrint(ast->as.assign.target, depth + 1);

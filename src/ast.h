@@ -55,7 +55,9 @@ typedef struct ASTTernaryExpression {
 typedef struct ASTUnaryExpression {
     Token operator;
     struct ASTExpression* operand;
+    const ASTVariableType* typeExpr;
     bool elide;
+    bool isSizeofType;
 } ASTUnaryExpression;
 
 typedef struct ASTPostfixExpression {
