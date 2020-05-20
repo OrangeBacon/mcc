@@ -21,6 +21,7 @@ add_executable(mcc
     src/symbolTable.c
     src/analysis.c
     src/assemble.c
+    src/ir.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
