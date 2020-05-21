@@ -88,4 +88,51 @@ char* aprintf(const char* format, ...);
 
 char* vaprintf(const char* format, va_list args);
 
+// container to hold virtual, non-committed memory areas
+typedef struct MemoryPool {
+
+    // pointer to reserved, unusable virtual memory
+    void* memory;
+
+    // how many bytes have been given out to be allocated
+    size_t bytesUsed;
+
+    // size of the allocated memory
+    size_t pageSize;
+
+    // minimum allocation size
+    size_t allocGranularity;
+} MemoryPool;
+
+// array holding single size objects, allocated out of a memory pool
+typedef struct MemoryArray {
+
+    // pointer to start of usable memory
+    void* memory;
+
+    // how much of the buffer has been used
+    size_t bytesUsed;
+
+    // how much of the buffer has been committed
+    size_t bytesCommitted;
+
+    // how big each item is
+    size_t itemSize;
+
+    // maximum size of the array
+    size_t pageSize;
+
+    // minimum allocation size
+    size_t allocGranularity;
+} MemoryArray;
+
+// create a new memory pool
+void memoryPoolAlloc(MemoryPool* pool, size_t pageSize);
+
+// create a new memory array from a pool
+void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_t itemSize);
+
+// get a pointer to a new item at the end of the array
+void* memoryArrayPush(MemoryArray* arr);
+
 #endif

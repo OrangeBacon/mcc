@@ -1,10 +1,12 @@
 #define __USE_MINGW_ANSI_STDIO 1
 
+#include "memory.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "memory.h"
+#include <windows.h>
 
 // global instance of arena,
 // only place memory is stored in the program
@@ -116,4 +118,56 @@ char* vaprintf(const char* format, va_list args) {
     vsprintf(buf, format, args);
 
     return buf;
+}
+
+static size_t align(size_t value, size_t align) {
+    return (value + (align - 1)) & ~(align - 1);
+}
+
+void memoryPoolAlloc(MemoryPool* pool, size_t pageSize) {
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    pageSize = align(pageSize, info.dwAllocationGranularity);
+
+    pool->allocGranularity = info.dwAllocationGranularity;
+    pool->pageSize = pageSize;
+    pool->memory = VirtualAlloc(NULL, pageSize, MEM_RESERVE, PAGE_NOACCESS);
+    pool->bytesUsed = 0;
+}
+
+// assumes itemSize < dwAllocationGranularity
+void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_t itemSize) {
+    pageSize = align(pageSize, pool->allocGranularity);
+    if(pool->bytesUsed + pageSize > pool->pageSize) {
+        // todo: error handling, increasing virtual memory ammount
+        printf("Out of virtual memory\n");
+        exit(0);
+    }
+
+    arr->bytesUsed = 0;
+    arr->bytesCommitted = 0;
+    arr->itemSize = itemSize;
+    arr->pageSize = pageSize;
+    arr->memory = (char*)pool->memory + pool->bytesUsed;
+    arr->allocGranularity = pool->allocGranularity;
+    pool->bytesUsed += pageSize;
+}
+
+void* memoryArrayPush(MemoryArray* arr) {
+    // todo: item alignment? it should already be 4k aligned
+    if(arr->bytesUsed + arr->itemSize > arr->pageSize) {
+        // todo: request another virtual memory page
+        printf("Array out of memory\n");
+        exit(0);
+    }
+
+    if(arr->bytesUsed + arr->itemSize > arr->bytesCommitted) {
+        VirtualAlloc((char*)arr->memory + arr->bytesCommitted, arr->allocGranularity, MEM_COMMIT, PAGE_READWRITE);
+        arr->bytesCommitted += arr->allocGranularity;
+    }
+
+    void* ptr = (char*)arr->memory + arr->bytesUsed;
+    arr->bytesUsed += arr->itemSize;
+
+    return ptr;
 }
