@@ -5,10 +5,8 @@
 
 // This file describes an SSA IR used by this compiler.  It is strictly
 // statically typed, each virtual register has a datatype, unlike LLVMIR.  This
-// means that cast noes are required to convert types explicitly; however allows
-// types to not be required at every usage of a register.  Doubly linked lists
-// are used to avoid having to allocate and copy to expand in arrays, as
-// hopefully random access is not required.
+// means that cast nodes are required to convert types explicitly; however
+// allows types to not be required at every usage of a register.
 
 // Example:
 // the code:
@@ -41,16 +39,6 @@
 // which is significantly clearer and easier to work with than the equivalent
 // ast, which at the time of writing is prints as 56 lines long.
 
-// a constant value that can be used at the global scope
-// todo: possibly add top level instruction calls, eg allowing
-// `int a = 5 + 6` to be represented
-typedef struct IrConstant {
-    int value;
-
-    // the type of the constant
-    IrType type;
-} IrConstant;
-
 // the type of an ir node
 typedef struct IrType {
 
@@ -63,7 +51,6 @@ typedef struct IrType {
     union {
         // the size of the integer type, eg int = i32
         // i0 means any convinient integer size
-        // todo: add signed/unsigned, etc
         unsigned int integer;
 
         // pointer type infomation
@@ -78,6 +65,16 @@ typedef struct IrType {
         } pointer;
     } as;
 } IrType;
+
+// a constant value that can be used at the global scope
+// todo: possibly add top level instruction calls, eg allowing
+// `int a = 5 + 6` to be represented
+typedef struct IrConstant {
+    int value;
+
+    // the type of the constant
+    IrType type;
+} IrConstant;
 
 // identifier for a global variable
 typedef struct IrGlobalID {
@@ -121,17 +118,6 @@ typedef struct IrGlobal {
     IrConstant value;
 } IrGlobal;
 
-
-// possible comparisons used in instructions
-typedef enum IrComparison {
-    IR_COMPARE_GREATER,
-    IR_COMPARE_GREATER_EQUAL,
-    IR_COMAPRE_LESS,
-    IR_COMPARE_LESS_EQUAL,
-    IR_COMPARE_EQUAL,
-    IR_COMPARE_NOT_EQUAL,
-} IrComparison;
-
 // a parameter to an instruction in the ir
 typedef struct IrParameter {
 
@@ -148,9 +134,6 @@ typedef struct IrParameter {
 
         // a constant numerical value
         IR_PARAMETER_CONSTANT,
-
-        // a sort of comparison, for compare instruction
-        IR_PARAMETER_COMPARISON,
     } kind;
 
     // the value stored
@@ -159,9 +142,20 @@ typedef struct IrParameter {
         IrRegisterID virtualRegister;
         IrBlockID block;
         IrConstant constant;
-        IrComparison comparison;
     } as;
 } IrParameter;
+
+// possible comparisons used in instructions
+// 3 bit, bit 0 = greater, bit 1 = equal, bit 2 = less than
+// eg. 0b001 = greater, 0b110 = less than or equal to
+typedef enum IrComparison {
+    IR_COMPARE_GREATER = 0x1,
+    IR_COMPARE_EQUAL = 0x2,
+    IR_COMPARE_GREATER_EQUAL = 0x3,
+    IR_COMAPRE_LESS = 0x4,
+    IR_COMPARE_NOT_EQUAL = 0x5,
+    IR_COMPARE_LESS_EQUAL = 0x6,
+} IrComparison;
 
 // each instruction inside a basic block
 typedef struct IrInstruction {
@@ -171,14 +165,7 @@ typedef struct IrInstruction {
     struct IrInstruction* next;
     struct IrInstruction* prev;
 
-    // the block containing this instruction
-    struct IrBasicBlock* block;
-
-    // the virtual register assigned to by this instruction, if required
-    IrRegisterID assign;
-
-    // does this instruction return a value
-    bool assigns;
+    IrComparison comparison : 3;
 
     // what the operation is (todo: more operations, this is just an example)
     enum {
@@ -191,7 +178,7 @@ typedef struct IrInstruction {
         IR_INS_PHI,
     } opcode;
 
-    // list of parameters
+    // list of parameters.  If required, parameter 0 is the return value
     IrParameter* params;
 
     // number of parameters in the list
@@ -199,9 +186,6 @@ typedef struct IrInstruction {
 } IrInstruction;
 
 typedef struct IrBasicBlock {
-    // reference to the function containing this block
-    struct IrFunction* function;
-
     // this block's id
     IrBlockID id;
 
@@ -210,10 +194,6 @@ typedef struct IrBasicBlock {
 
     // last instruction, where to add new instructions to
     IrInstruction* end;
-
-    // linked list
-    IrBasicBlock* next;
-    IrBasicBlock* prev;
 } IrBasicBlock;
 
 // a function definition
@@ -252,10 +232,6 @@ typedef struct IrTopLevel {
         IrGlobal global;
         IrFunction function;
     } as;
-
-    // linked list
-    IrTopLevel* next;
-    IrTopLevel* prev;
 } IrTopLevel;
 
 // the main struct holding everything in a translation unit
