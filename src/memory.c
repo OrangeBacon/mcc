@@ -139,7 +139,7 @@ void memoryPoolAlloc(MemoryPool* pool, size_t pageSize) {
 void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_t itemSize) {
     pageSize = align(pageSize, pool->allocGranularity);
     if(pool->bytesUsed + pageSize > pool->pageSize) {
-        // todo: error handling, increasing virtual memory ammount
+        // todo: error handling, increasing virtual memory ammount?
         printf("Out of virtual memory\n");
         exit(0);
     }
@@ -150,24 +150,76 @@ void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_
     arr->pageSize = pageSize;
     arr->memory = (char*)pool->memory + pool->bytesUsed;
     arr->allocGranularity = pool->allocGranularity;
+    arr->pool = pool;
+    arr->itemsPerPage = arr->pageSize / itemSize;
     pool->bytesUsed += pageSize;
 }
 
 void* memoryArrayPush(MemoryArray* arr) {
     // todo: item alignment? it should already be 4k aligned
-    if(arr->bytesUsed + arr->itemSize > arr->pageSize) {
-        // todo: request another virtual memory page
-        printf("Array out of memory\n");
-        exit(0);
+
+    // bytes used out of current page + item size > page size
+    // = need to get more virtual memory
+    if((arr->bytesUsed & (arr->pageSize - 1)) + arr->itemSize > arr->pageSize) {
+        if(arr->pool->bytesUsed + arr->pageSize > arr->pool->pageSize) {
+            // todo: error handling, increasing virtual memory ammount
+            printf("Out of virtual memory\n");
+            exit(0);
+        }
+
+        // virtual memory location
+        void* newMem = (char*)arr->pool->memory + arr->pool->bytesUsed;
+
+        // commit first section of it
+        VirtualAlloc(newMem, arr->allocGranularity, MEM_COMMIT, PAGE_READWRITE);
+
+        // round up to page size
+        arr->bytesUsed = (arr->bytesUsed & (arr->pageSize - 1));
+
+        // account for commited memory from above
+        arr->bytesCommitted = arr->bytesUsed + arr->allocGranularity;
+
+        // first element of array refers to old memory section (for freeing the)
+        // array (as linked list)
+        *(void**)newMem = arr->pool->memory;
+        arr->bytesUsed += sizeof(void*);
+
+        arr->memory = newMem;
+
+        // skip out of virtual memory check (as just allocated)
+        goto alloc;
     }
 
+    // bytes used + item size > avaliable memory
+    // = make more memory avaliable
     if(arr->bytesUsed + arr->itemSize > arr->bytesCommitted) {
         VirtualAlloc((char*)arr->memory + arr->bytesCommitted, arr->allocGranularity, MEM_COMMIT, PAGE_READWRITE);
         arr->bytesCommitted += arr->allocGranularity;
     }
 
+alloc: ;
     void* ptr = (char*)arr->memory + arr->bytesUsed;
     arr->bytesUsed += arr->itemSize;
 
     return ptr;
+}
+
+void* memoryArrayGet(MemoryArray* arr, size_t idx) {
+    // this might be really slow?
+    // hopefully page size is large though
+    int pageNo = idx / arr->itemsPerPage;
+    int itemNo = idx % arr->itemsPerPage;
+
+#ifndef NDEBUG
+    if(pageNo * arr->pageSize + itemNo * arr->itemSize > arr->bytesUsed) {
+        printf("Array access out of bounds\n");
+    }
+#endif
+    void* page = arr->memory;
+    while(pageNo > 0) {
+        page = *((void**)page);
+        pageNo--;
+    }
+
+    return (void*)(uint64_t)((char*)page)[itemNo * arr->itemSize];
 }

@@ -124,6 +124,11 @@ typedef struct MemoryArray {
 
     // minimum allocation size
     size_t allocGranularity;
+
+    // incase more virtual memory is needed
+    MemoryPool* pool;
+
+    size_t itemsPerPage;
 } MemoryArray;
 
 // create a new memory pool
@@ -134,5 +139,8 @@ void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_
 
 // get a pointer to a new item at the end of the array
 void* memoryArrayPush(MemoryArray* arr);
+
+// get item by index
+void* memoryArrayGet(MemoryArray* arr, size_t idx);
 
 #endif
