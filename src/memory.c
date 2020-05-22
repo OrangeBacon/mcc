@@ -120,84 +120,105 @@ char* vaprintf(const char* format, va_list args) {
     return buf;
 }
 
+// increase value to the next multiple of align,
+// assumes align is a power of two
+// returns the new value
 static size_t align(size_t value, size_t align) {
     return (value + (align - 1)) & ~(align - 1);
 }
 
-void memoryPoolAlloc(MemoryPool* pool, size_t pageSize) {
-    SYSTEM_INFO info;
-    GetSystemInfo(&info);
-    pageSize = align(pageSize, info.dwAllocationGranularity);
+// array memory overhead, used as lookup table
+#define MEMORY_ARRAY_INDEX_SIZE (512 * sizeof(void*))
 
-    pool->allocGranularity = info.dwAllocationGranularity;
+// technically should be taken from windows system call, practically
+// will never change
+#define ALLOCATION_GRANULARITY 65536
+
+// predict less likley to return truthy value
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+void memoryPoolAlloc(MemoryPool* pool, size_t pageSize) {
+    pageSize = align(pageSize, ALLOCATION_GRANULARITY);
+
     pool->pageSize = pageSize;
     pool->memory = VirtualAlloc(NULL, pageSize, MEM_RESERVE, PAGE_NOACCESS);
     pool->bytesUsed = 0;
 }
 
-// assumes itemSize < dwAllocationGranularity
+// how memory array works:
+// It allocates a memory block (No. 1) of size pageSize at start.  The first
+// MEMORY_ARRAY_INDEX_SIZE bytes of that block act as a lookup table.  The first
+// item is allocated directly after that table, until the end of the memory
+// block.  When a new block is required, (block n), its address is added to the
+// lookup table in block 1, then it is used for allocating items.  The lookup
+// table allows the get function to find the location an item is stored in,
+// allowing the memory blocks to not have to be continuous.  This allows array
+// expansion in constant time, without copying the rest of the array.  It does
+// mean that the array can only be expanded (currently 512) times, however the
+// pages could be large (1GiB+) and are only partially added to RAM, unless
+// used.  Therefore unless 0.5TiB+ RAM per array is needed (unlikely, as will
+// have multiple arrays), then it will be large enough.
+
+// assumes itemSize < ALLOCATION_GRANULARITY (65536)
 void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_t itemSize) {
-    pageSize = align(pageSize, pool->allocGranularity);
+    pageSize = align(pageSize, ALLOCATION_GRANULARITY);
+
     if(pool->bytesUsed + pageSize > pool->pageSize) {
-        // todo: error handling, increasing virtual memory ammount?
-        printf("Out of virtual memory\n");
+        // todo: error handling, increasing virtual memory amount?
+        printf("Out of virtual memory - pool\n");
         exit(0);
     }
 
     arr->bytesUsed = 0;
+    arr->pagesUsed = 0;
     arr->bytesCommitted = 0;
     arr->itemSize = itemSize;
     arr->pageSize = pageSize;
     arr->memory = (char*)pool->memory + pool->bytesUsed;
-    arr->allocGranularity = pool->allocGranularity;
+    arr->index = arr->memory;
     arr->pool = pool;
-    arr->itemsPerPage = arr->pageSize / itemSize;
     pool->bytesUsed += pageSize;
 }
 
 void* memoryArrayPush(MemoryArray* arr) {
-    // todo: item alignment? it should already be 4k aligned
+    // todo: item alignment? it should already be 4k aligned?
 
-    // bytes used out of current page + item size > page size
-    // = need to get more virtual memory
-    if((arr->bytesUsed & (arr->pageSize - 1)) + arr->itemSize > arr->pageSize) {
-        if(arr->pool->bytesUsed + arr->pageSize > arr->pool->pageSize) {
-            // todo: error handling, increasing virtual memory ammount
-            printf("Out of virtual memory\n");
-            exit(0);
-        }
+    if(unlikely(arr->bytesUsed == 0)) {
+        // new array, create index, memory is not allocated if array is not used
 
-        // virtual memory location
-        void* newMem = (char*)arr->pool->memory + arr->pool->bytesUsed;
-
-        // commit first section of it
-        VirtualAlloc(newMem, arr->allocGranularity, MEM_COMMIT, PAGE_READWRITE);
-
-        // round up to page size
-        arr->bytesUsed = (arr->bytesUsed & (arr->pageSize - 1));
-
-        // account for commited memory from above
-        arr->bytesCommitted = arr->bytesUsed + arr->allocGranularity;
-
-        // first element of array refers to old memory section (for freeing the)
-        // array (as linked list)
-        *(void**)newMem = arr->pool->memory;
-        arr->bytesUsed += sizeof(void*);
-
-        arr->memory = newMem;
-
-        // skip out of virtual memory check (as just allocated)
-        goto alloc;
+        VirtualAlloc(arr->index, ALLOCATION_GRANULARITY, MEM_COMMIT, PAGE_READWRITE);
+        // allocate index
+        arr->bytesUsed += MEMORY_ARRAY_INDEX_SIZE;
+        arr->bytesCommitted += ALLOCATION_GRANULARITY;
+        arr->pagesUsed = 1;
     }
 
     // bytes used + item size > avaliable memory
     // = make more memory avaliable
     if(arr->bytesUsed + arr->itemSize > arr->bytesCommitted) {
-        VirtualAlloc((char*)arr->memory + arr->bytesCommitted, arr->allocGranularity, MEM_COMMIT, PAGE_READWRITE);
-        arr->bytesCommitted += arr->allocGranularity;
+        if(arr->bytesUsed + ALLOCATION_GRANULARITY > arr->pageSize) {
+            if(arr->pool->bytesUsed + arr->pageSize > arr->pool->pageSize) {
+                // todo: error handling, increasing virtual memory ammount
+                printf("Out of virtual memory - array\n");
+                exit(0);
+            }
+
+            // virtual memory location
+            arr->memory = (char*)arr->pool->memory + arr->pool->bytesUsed;
+            arr->pool->bytesUsed += arr->pageSize;
+            arr->bytesUsed = 0;
+            arr->bytesCommitted = 0;
+
+            // set address in index
+            ((void**)arr->index)[arr->pagesUsed - 1] = arr->memory;
+
+            arr->pagesUsed++;
+        }
+
+        VirtualAlloc((char*)arr->memory + arr->bytesCommitted, ALLOCATION_GRANULARITY, MEM_COMMIT, PAGE_READWRITE);
+        arr->bytesCommitted += ALLOCATION_GRANULARITY;
     }
 
-alloc: ;
     void* ptr = (char*)arr->memory + arr->bytesUsed;
     arr->bytesUsed += arr->itemSize;
 
@@ -205,21 +226,34 @@ alloc: ;
 }
 
 void* memoryArrayGet(MemoryArray* arr, size_t idx) {
-    // this might be really slow?
-    // hopefully page size is large though
-    int pageNo = idx / arr->itemsPerPage;
-    int itemNo = idx % arr->itemsPerPage;
+    size_t firstPageCount = (arr->pageSize - MEMORY_ARRAY_INDEX_SIZE) / arr->itemSize;
+    size_t itemsPerPage = arr->pageSize / arr->itemSize;
+
+    if(arr->pagesUsed == 1) {
+#ifndef NDEBUG
+        if(idx * arr->itemSize + MEMORY_ARRAY_INDEX_SIZE > arr->bytesUsed) {
+            printf("Array access out of bounds - index page\n");
+        }
+#endif
+        return (char*)arr->index + MEMORY_ARRAY_INDEX_SIZE + idx * arr->itemSize;
+    }
+
+    idx -= firstPageCount;
+
+    int pageNo = (idx - 1) / itemsPerPage + 1; // ceiling of integer division
+    int itemNo = idx % itemsPerPage;
 
 #ifndef NDEBUG
-    if(pageNo * arr->pageSize + itemNo * arr->itemSize > arr->bytesUsed) {
+    if(pageNo * arr->pageSize + itemNo * arr->itemSize > arr->bytesUsed + (arr->pagesUsed - 1) * arr->pageSize) {
         printf("Array access out of bounds\n");
     }
 #endif
-    void* page = arr->memory;
-    while(pageNo > 0) {
-        page = *((void**)page);
-        pageNo--;
-    }
 
-    return (void*)(uint64_t)((char*)page)[itemNo * arr->itemSize];
+    // get page address from index
+    uintptr_t pageAddr = (uintptr_t)(((void**)arr->index)[pageNo - 1]);
+
+    // get  item address
+    pageAddr += itemNo * arr->itemSize;
+
+    return (void*) pageAddr;
 }

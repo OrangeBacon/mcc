@@ -99,22 +99,25 @@ typedef struct MemoryPool {
 
     // size of the allocated memory
     size_t pageSize;
-
-    // minimum allocation size
-    size_t allocGranularity;
 } MemoryPool;
 
 // array holding single size objects, allocated out of a memory pool
 typedef struct MemoryArray {
 
-    // pointer to start of usable memory
+    // pointer to current page
     void* memory;
 
-    // how much of the buffer has been used
+    // pointer to index page
+    void* index;
+
+    // how much of the current buffer has been used
     size_t bytesUsed;
 
-    // how much of the buffer has been committed
+    // how much of the current buffer has been committed
     size_t bytesCommitted;
+
+    // how many buffers have been used (including the current one)
+    size_t pagesUsed;
 
     // how big each item is
     size_t itemSize;
@@ -122,13 +125,8 @@ typedef struct MemoryArray {
     // maximum size of the array
     size_t pageSize;
 
-    // minimum allocation size
-    size_t allocGranularity;
-
     // incase more virtual memory is needed
     MemoryPool* pool;
-
-    size_t itemsPerPage;
 } MemoryArray;
 
 // create a new memory pool
