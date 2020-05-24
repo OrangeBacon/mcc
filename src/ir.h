@@ -21,9 +21,9 @@
 //
 // could be represented in the ir as:
 //
-// global $0 : i32 = 0
+// global a $0 : i32 = 0
 //
-// function add(i32, i32) : i32 {
+// function add $1(i32, i32) : i32 {
 //   | @0:
 // 0 |   %2 = parameter 0
 // 1 |   %3 = parameter 1
@@ -76,15 +76,6 @@ typedef struct IrConstant {
     IrType type;
 } IrConstant;
 
-// identifier for a global variable
-typedef struct IrGlobalID {
-    // the identifier's globally unique (at the top level) id
-    unsigned int id;
-
-    // the global it refers to
-    struct IrGlobal* location;
-} IrGlobalID;
-
 // identifier for a virtual regiser
 typedef struct IrRegisterID {
     // the unique to the function id
@@ -97,22 +88,8 @@ typedef struct IrRegisterID {
     IrType type;
 } IrRegisterID;
 
-// indentifier for a basic block within a function
-typedef struct IrBlockID {
-
-    // unique lable within a function, in a different namespace to virtual
-    // registers, they could collide.
-    unsigned int id;
-
-    // the basic block the id refers to
-    struct IrBasicBlock* location;
-} IrBlockID;
-
 // a global variable
 typedef struct IrGlobal {
-
-    // the id of the global
-    IrGlobalID id;
 
     // the value stored in the global
     IrConstant value;
@@ -140,7 +117,7 @@ typedef struct IrParameter {
     union {
         IrType type;
         IrRegisterID virtualRegister;
-        IrBlockID block;
+        size_t block;
         IrConstant constant;
     } as;
 } IrParameter;
@@ -159,13 +136,16 @@ typedef enum IrComparison {
 
 // each instruction inside a basic block
 typedef struct IrInstruction {
-    // the instruction after this one (singly linked list, avoids having to
-    // allocate an array which could reduce copying of pointers inside a
-    // basic block)
+    // the instruction after this one
     struct IrInstruction* next;
+
+    // the instruction before this one
     struct IrInstruction* prev;
 
+    // flags
     IrComparison comparison : 3;
+    bool hasReturn : 1;
+    bool hasCondition : 1;
 
     // what the operation is (todo: more operations, this is just an example)
     enum {
@@ -178,46 +158,38 @@ typedef struct IrInstruction {
         IR_INS_PHI,
     } opcode;
 
-    // list of parameters.  If required, parameter 0 is the return value
-    IrParameter* params;
+    // instruction parameters index.  If required, the previous parameter
+    // is the return value
+    size_t params;
 
     // number of parameters in the list
     unsigned int parameterCount;
 } IrInstruction;
 
 typedef struct IrBasicBlock {
-    // this block's id
-    IrBlockID id;
 
     // first instruction in the block
-    IrInstruction* start;
+    size_t instrctions;
+    size_t instructionCount;
 
-    // last instruction, where to add new instructions to
-    IrInstruction* end;
 } IrBasicBlock;
 
 // a function definition
 typedef struct IrFunction {
-    struct IrModule* module;
-
-    // the identifier to be use
-    // could be exported and/or used in a call
-    const char* name;
-    unsigned int nameLength;
 
     // return type, must equal types of everything returned from all
     // return instructions in the function
     IrType returnType;
 
-    // the types passed into thee function, access the values with a
-    // parameter instruction
-    ARRAY_DEFINE(IrType, param);
+    // the types passed into the function index into parameters array,
+    // access the values with a parameter instruction
+    size_t parameters;
+    size_t parameterCount;
 
-    // linked list of blocks in the function
-    IrBasicBlock* start;
+    // first basic block
+    size_t blocks;
+    size_t blockCount;
 
-    // end of the linked list
-    IrBasicBlock* end;
 } IrFunction;
 
 // any top level declaration
@@ -228,18 +200,31 @@ typedef struct IrTopLevel {
         IR_TOP_LEVEL_FUNCTION,
     } kind;
 
+    // the identifier to be use
+    // could be exported and/or used in a call
+    const char* name;
+    unsigned int nameLength;
+
     union {
         IrGlobal global;
         IrFunction function;
     } as;
 } IrTopLevel;
 
-// the main struct holding everything in a translation unit
-typedef struct IrModule {
+typedef struct IrContext {
+    // all top level elements in the translation unit
+    MemoryArray topLevel;
 
-    // linked list of top level elements
-    IrTopLevel* start;
-    IrTopLevel* end;
-} IrModule;
+    // all basic blocks allocated
+    MemoryArray basicBlocks;
+
+    // all instructions
+    MemoryArray instructions;
+
+    // all parameters to instructions
+    MemoryArray instParams;
+} IrContext;
+
+void IrContextCreate(IrContext* ctx, MemoryPool* pool);
 
 #endif

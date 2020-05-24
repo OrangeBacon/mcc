@@ -221,20 +221,22 @@ void* memoryArrayPush(MemoryArray* arr) {
 
     void* ptr = (char*)arr->memory + arr->bytesUsed;
     arr->bytesUsed += arr->itemSize;
+    arr->itemCount++;
 
     return ptr;
 }
 
 void* memoryArrayGet(MemoryArray* arr, size_t idx) {
+#ifndef NDEBUG
+    if(idx >= arr->itemCount) {
+        printf("Array access out of bounds\n");
+    }
+#endif
+
     size_t firstPageCount = (arr->pageSize - MEMORY_ARRAY_INDEX_SIZE) / arr->itemSize;
     size_t itemsPerPage = arr->pageSize / arr->itemSize;
 
     if(arr->pagesUsed == 1) {
-#ifndef NDEBUG
-        if(idx * arr->itemSize + MEMORY_ARRAY_INDEX_SIZE > arr->bytesUsed) {
-            printf("Array access out of bounds - index page\n");
-        }
-#endif
         return (char*)arr->index + MEMORY_ARRAY_INDEX_SIZE + idx * arr->itemSize;
     }
 
@@ -243,16 +245,10 @@ void* memoryArrayGet(MemoryArray* arr, size_t idx) {
     int pageNo = (idx - 1) / itemsPerPage + 1; // ceiling of integer division
     int itemNo = idx % itemsPerPage;
 
-#ifndef NDEBUG
-    if(pageNo * arr->pageSize + itemNo * arr->itemSize > arr->bytesUsed + (arr->pagesUsed - 1) * arr->pageSize) {
-        printf("Array access out of bounds\n");
-    }
-#endif
-
     // get page address from index
     uintptr_t pageAddr = (uintptr_t)(((void**)arr->index)[pageNo - 1]);
 
-    // get  item address
+    // get item address
     pageAddr += itemNo * arr->itemSize;
 
     return (void*) pageAddr;

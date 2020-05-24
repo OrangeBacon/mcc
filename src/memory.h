@@ -127,6 +127,9 @@ typedef struct MemoryArray {
 
     // incase more virtual memory is needed
     MemoryPool* pool;
+
+    // number of items stored
+    size_t itemCount;
 } MemoryArray;
 
 // create a new memory pool
