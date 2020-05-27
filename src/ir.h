@@ -25,15 +25,15 @@
 //
 // function add $1(i32, i32) : i32 {
 //   | @0:
-// 0 |   %2 = parameter 0
-// 1 |   %3 = parameter 1
-// 2 |   %4 = add %2 %3
-// 3 |   %5 = compare greater %4 5
-// 4 |   jump_if %5 @1 @2
+// 0 |   %0 = parameter 0
+// 1 |   %1 = parameter 1
+// 2 |   %2 = add %2 %3
+// 3 |   %3 = compare greater %2 5
+// 4 |   jump if %3 @1 @2
 //   | @1:
-// 5 |   return $0
+// 0 |   return $0
 //   | @2:
-// 6 |   return %4
+// 0 |   return %2
 // }
 //
 // which is significantly clearer and easier to work with than the equivalent
@@ -61,7 +61,7 @@ typedef struct IrType {
             unsigned int depth;
 
             // the type being pointed to
-            struct IrType* type;
+            size_t type;
         } pointer;
     } as;
 } IrType;
@@ -76,20 +76,20 @@ typedef struct IrConstant {
     IrType type;
 } IrConstant;
 
-// identifier for a virtual regiser
-typedef struct IrRegisterID {
-    // the unique to the function id
-    unsigned int id;
+// a virtual regiser
+typedef struct IrVirtualRegister {
+    size_t ID;
 
     // the instruction that created the register
     struct IrInstruction* location;
 
     // the type of the value in the register
     IrType type;
-} IrRegisterID;
+} IrVirtualRegister;
 
 // a global variable
 typedef struct IrGlobal {
+    size_t ID;
 
     // the value stored in the global
     IrConstant value;
@@ -111,14 +111,17 @@ typedef struct IrParameter {
 
         // a constant numerical value
         IR_PARAMETER_CONSTANT,
+
+        IR_PARAMETER_GLOBAL,
     } kind;
 
     // the value stored
     union {
         IrType type;
-        IrRegisterID virtualRegister;
-        size_t block;
+        IrVirtualRegister* virtualRegister;
+        struct IrBasicBlock* block;
         IrConstant constant;
+        IrGlobal* global;
     } as;
 } IrParameter;
 
@@ -134,13 +137,20 @@ typedef enum IrComparison {
     IR_COMPARE_LESS_EQUAL = 0x6,
 } IrComparison;
 
+typedef enum IrOpcode {
+    IR_INS_PARAMETER,
+    IR_INS_ADD,
+    IR_INS_COMPARE,
+    IR_INS_JUMP_IF,
+    IR_INS_RETURN,
+} IrOpcode;
+
 // each instruction inside a basic block
 typedef struct IrInstruction {
+    size_t ID;
+
     // the instruction after this one
     struct IrInstruction* next;
-
-    // the instruction before this one
-    struct IrInstruction* prev;
 
     // flags
     IrComparison comparison : 3;
@@ -148,53 +158,60 @@ typedef struct IrInstruction {
     bool hasCondition : 1;
 
     // what the operation is (todo: more operations, this is just an example)
-    enum {
-        IR_INS_ALLOCA,
-        IR_INS_ADD,
-        IR_INS_SUB,
-        IR_INS_STORE,
-        IR_INS_LOAD,
-        IR_INS_GET_ELEMENT_POINTER,
-        IR_INS_PHI,
-    } opcode;
+    IrOpcode opcode;
 
-    // instruction parameters index.  If required, the previous parameter
+    // Parameters to the instruction. If required, the previous parameter
     // is the return value
-    size_t params;
+    IrParameter* params;
 
     // number of parameters in the list
     unsigned int parameterCount;
 } IrInstruction;
 
 typedef struct IrBasicBlock {
+    size_t ID;
 
     // first instruction in the block
-    size_t instrctions;
+    IrInstruction* firstInstruction;
     size_t instructionCount;
+
+    IrInstruction* lastInstruction;
+
+    struct IrBasicBlock* next;
+
+    struct IrFunction* fn;
 
 } IrBasicBlock;
 
 // a function definition
 typedef struct IrFunction {
+    size_t ID;
 
     // return type, must equal types of everything returned from all
     // return instructions in the function
-    IrType returnType;
+    IrParameter* returnType;
 
     // the types passed into the function index into parameters array,
-    // access the values with a parameter instruction
-    size_t parameters;
+    // access the values with a parameter instruction, continuous array
+    IrParameter* parameters;
     size_t parameterCount;
 
     // first basic block
-    size_t blocks;
+    IrBasicBlock* firstBlock;
     size_t blockCount;
+
+    IrBasicBlock* lastBlock;
+    IrVirtualRegister* lastVReg;
+
+    // context used in creating this function
+    struct IrContext* ctx;
 
 } IrFunction;
 
 // any top level declaration
 // todo: add struct definitions, etc
 typedef struct IrTopLevel {
+
     enum {
         IR_TOP_LEVEL_GLOBAL,
         IR_TOP_LEVEL_FUNCTION,
@@ -223,8 +240,27 @@ typedef struct IrContext {
 
     // all parameters to instructions
     MemoryArray instParams;
+
+    MemoryArray vReg;
 } IrContext;
 
 void IrContextCreate(IrContext* ctx, MemoryPool* pool);
+IrFunction* IrFunctionCreate(IrContext* ctx, char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount);
+IrGlobal* IrGlobalCreate(IrContext* ctx, char* name, unsigned int nameLength, size_t value);
+IrBasicBlock* IrBasicBlockCreate(IrFunction* fn);
+IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn);
+IrParameter* IrParameterCreate(IrContext* ctx);
+IrParameter* IrParametersCreate(IrContext* ctx, size_t count);
+void IrParameterConstant(IrParameter* param, int value);
+void IrParameterIntegerType(IrParameter* param, int size);
+void IrParameterNewVReg(IrFunction* fn, IrParameter* param);
+void IrParameterVRegRef(IrParameter* param, IrParameter* vreg);
+void IrParameterBlock(IrParameter* param, IrBasicBlock* block);
+void IrParameterGlobal(IrParameter* param, IrGlobal* global);
+IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
+IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
+void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
+
+void IrContextPrint(IrContext* ctx);
 
 #endif

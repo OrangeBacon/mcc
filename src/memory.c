@@ -177,11 +177,17 @@ void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_
     arr->memory = (char*)pool->memory + pool->bytesUsed;
     arr->index = arr->memory;
     arr->pool = pool;
+    arr->itemCount = 0;
     pool->bytesUsed += pageSize;
 }
 
-void* memoryArrayPush(MemoryArray* arr) {
+static void* memReserve(MemoryArray* arr, size_t byteCount) {
     // todo: item alignment? it should already be 4k aligned?
+
+    if(unlikely(byteCount > ALLOCATION_GRANULARITY)) {
+        printf("Large reservations not implemented\n");
+        exit(0);
+    }
 
     if(unlikely(arr->bytesUsed == 0)) {
         // new array, create index, memory is not allocated if array is not used
@@ -195,7 +201,7 @@ void* memoryArrayPush(MemoryArray* arr) {
 
     // bytes used + item size > avaliable memory
     // = make more memory avaliable
-    if(arr->bytesUsed + arr->itemSize > arr->bytesCommitted) {
+    if(arr->bytesUsed + byteCount > arr->bytesCommitted) {
         if(arr->bytesUsed + ALLOCATION_GRANULARITY > arr->pageSize) {
             if(arr->pool->bytesUsed + arr->pageSize > arr->pool->pageSize) {
                 // todo: error handling, increasing virtual memory ammount
@@ -220,10 +226,18 @@ void* memoryArrayPush(MemoryArray* arr) {
     }
 
     void* ptr = (char*)arr->memory + arr->bytesUsed;
-    arr->bytesUsed += arr->itemSize;
+    arr->bytesUsed += byteCount;
     arr->itemCount++;
 
     return ptr;
+}
+
+void* memoryArrayPush(MemoryArray* arr) {
+    return memReserve(arr, arr->itemSize);
+}
+
+void* memoryArrayPushN(MemoryArray* arr, size_t n) {
+    return memReserve(arr, arr->itemSize * n);
 }
 
 void* memoryArrayGet(MemoryArray* arr, size_t idx) {

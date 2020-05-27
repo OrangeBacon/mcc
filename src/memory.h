@@ -7,6 +7,10 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
+#define KiB (1024)
+#define MiB (1024*KiB)
+#define GiB (1024*MiB)
+
 // section of memory
 typedef struct Area {
     size_t bytesLeft;
@@ -140,6 +144,9 @@ void memoryArrayAlloc(MemoryArray* arr, MemoryPool* pool, size_t pageSize, size_
 
 // get a pointer to a new item at the end of the array
 void* memoryArrayPush(MemoryArray* arr);
+
+// get a pointer to the start of n new items at the end of the array
+void* memoryArrayPushN(MemoryArray* arr, size_t n);
 
 // get item by index
 void* memoryArrayGet(MemoryArray* arr, size_t idx);

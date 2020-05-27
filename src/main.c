@@ -5,6 +5,7 @@
 #include "analysis.h"
 #include "memory.h"
 #include "x64.h"
+#include "ir.h"
 
 int main(int argc, char** argv) {
     if(argc != 2) {
