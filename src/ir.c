@@ -247,6 +247,8 @@ static char* IrInstructionNames[] = {
     [IR_INS_COMPARE] = "compare",
     [IR_INS_JUMP_IF] = "jump if",
     [IR_INS_RETURN] = "return",
+    [IR_INS_NEGATE] = "negate",
+    [IR_INS_NOT] = "not",
 };
 
 static char* IrConditionNames[] = {

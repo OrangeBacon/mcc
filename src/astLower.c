@@ -28,6 +28,8 @@ static IrParameter* astLowerType(const ASTVariableType* type, lowerCtx* ctx) {
     return retType;
 }
 
+static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx);
+
 static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_CONSTANT_EXPRESSION_INTEGER: {
@@ -40,10 +42,46 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
     }
 }
 
+static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
+    switch(exp->operator.type) {
+        case TOKEN_NEGATE: {
+            IrParameter* operand = astLowerExpression(exp->operand, ctx);
+            IrParameter* params = IrParametersCreate(ctx->ir, 2);
+            IrParameterNewVReg(ctx->fn, params);
+            IrParameterReference(params + 1, operand);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, params, 2);
+            return params;
+        }; break;
+        case TOKEN_COMPLIMENT: {
+            IrParameter* operand = astLowerExpression(exp->operand, ctx);
+            IrParameter* params = IrParametersCreate(ctx->ir, 2);
+            IrParameterNewVReg(ctx->fn, params);
+            IrParameterReference(params + 1, operand);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NOT, params, 2);
+            return params;
+        }; break;
+        case TOKEN_NOT: {
+            IrParameter* operand = astLowerExpression(exp->operand, ctx);
+            IrParameter* params = IrParametersCreate(ctx->ir, 3);
+            IrParameterNewVReg(ctx->fn, params);
+            IrParameterConstant(params + 1, 0);
+            IrParameterReference(params + 2, operand);
+            IrInstruction* cmpInst =
+                IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, params, 3);
+            IrInstructionCondition(cmpInst, IR_COMPARE_EQUAL);
+            return params;
+        }; break;
+        default:
+            error("Unsupported unary");
+    }
+}
+
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_EXPRESSION_CONSTANT:
             return astLowerConstant(&exp->as.constant, ctx);
+        case AST_EXPRESSION_UNARY:
+            return astLowerUnary(&exp->as.unary, ctx);
         default:
             error("Unsupported expression");
     }

@@ -354,6 +354,7 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
 
     // -a, ~a, &a, *a
     switch(unary->operator.type) {
+        case TOKEN_NOT:
         case TOKEN_NEGATE:
         case TOKEN_COMPLIMENT:
             if(!TypeCompat(unary->operand->exprType, &defaultInt)) {

@@ -19,5 +19,3 @@ jobs:
         cd build
         mingw32-make 2>&1
         .\mcc ..\test\test.c
-        gcc -m64 a.s -o out
-        .\out

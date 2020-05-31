@@ -143,6 +143,8 @@ typedef enum IrOpcode {
     IR_INS_COMPARE,
     IR_INS_JUMP_IF,
     IR_INS_RETURN,
+    IR_INS_NEGATE, // 2's compliment
+    IR_INS_NOT, // 1's compliment
 } IrOpcode;
 
 // each instruction inside a basic block
