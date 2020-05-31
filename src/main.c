@@ -4,7 +4,7 @@
 #include "parser.h"
 #include "analysis.h"
 #include "memory.h"
-#include "x64.h"
+#include "astLower.h"
 #include "ir.h"
 
 int main(int argc, char** argv) {
@@ -28,8 +28,14 @@ int main(int argc, char** argv) {
     }
 
     if(!parser.hadError) {
+        MemoryPool pool;
+        memoryPoolAlloc(&pool, 64ULL*GiB);
+        IrContext ctx;
+        IrContextCreate(&ctx, &pool);
+
         ASTPrint(parser.ast);
-        x64ASTGen(parser.ast);
+        astLower(parser.ast, &ctx);
+        IrContextPrint(&ctx);
     } else {
         return 2;
     }

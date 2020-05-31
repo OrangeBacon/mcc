@@ -245,7 +245,7 @@ typedef struct IrContext {
 } IrContext;
 
 void IrContextCreate(IrContext* ctx, MemoryPool* pool);
-IrFunction* IrFunctionCreate(IrContext* ctx, char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount);
+IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount);
 IrGlobal* IrGlobalCreate(IrContext* ctx, char* name, unsigned int nameLength, size_t value);
 IrBasicBlock* IrBasicBlockCreate(IrFunction* fn);
 IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn);
@@ -257,6 +257,7 @@ void IrParameterNewVReg(IrFunction* fn, IrParameter* param);
 void IrParameterVRegRef(IrParameter* param, IrParameter* vreg);
 void IrParameterBlock(IrParameter* param, IrBasicBlock* block);
 void IrParameterGlobal(IrParameter* param, IrGlobal* global);
+void IrParameterReference(IrParameter* param, IrParameter* src);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);

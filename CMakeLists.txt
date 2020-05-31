@@ -22,6 +22,7 @@ add_executable(mcc
     src/analysis.c
     src/assemble.c
     src/ir.c
+    src/astLower.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})

@@ -31,7 +31,7 @@ void IrContextCreate(IrContext* ctx, MemoryPool* pool) {
     memoryArrayAlloc(&ctx->vReg, pool, 256*MiB, sizeof(IrVirtualRegister));
 }
 
-IrFunction* IrFunctionCreate(IrContext* ctx, char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount) {
+IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount) {
     IrTopLevel* top = memoryArrayPush(&ctx->topLevel);
     top->name = name;
     top->nameLength = nameLength;
@@ -136,6 +136,22 @@ void IrParameterGlobal(IrParameter* param, IrGlobal* global) {
     param->kind = IR_PARAMETER_GLOBAL;
     param->as.global = global;
 }
+
+void IrParameterReference(IrParameter* param, IrParameter* src) {
+    switch(src->kind) {
+        case IR_PARAMETER_BLOCK:
+            IrParameterBlock(param, src->as.block); break;
+        case IR_PARAMETER_CONSTANT:
+            *param = *src; break;
+        case IR_PARAMETER_GLOBAL:
+            IrParameterGlobal(param, src->as.global); break;
+        case IR_PARAMETER_REGISTER:
+            IrParameterVRegRef(param, src); break;
+        case IR_PARAMETER_TYPE:
+            printf("IrBuilder error\n");exit(1);
+    }
+}
+
 
 static IrInstruction* addIns(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode) {
     IrInstruction* inst = memoryArrayPush(&ctx->instructions);
