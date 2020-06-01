@@ -249,6 +249,15 @@ static char* IrInstructionNames[] = {
     [IR_INS_RETURN] = "return",
     [IR_INS_NEGATE] = "negate",
     [IR_INS_NOT] = "not",
+    [IR_INS_SUB] = "sub",
+    [IR_INS_SMUL] = "mul signed",
+    [IR_INS_SDIV] = "div signed",
+    [IR_INS_SREM] = "rem signed",
+    [IR_INS_OR] = "or",
+    [IR_INS_AND] = "and",
+    [IR_INS_XOR] = "xor",
+    [IR_INS_SHL] = "shift left",
+    [IR_INS_ASR] = "shift right signed",
 };
 
 static char* IrConditionNames[] = {

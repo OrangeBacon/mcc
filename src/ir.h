@@ -145,6 +145,15 @@ typedef enum IrOpcode {
     IR_INS_RETURN,
     IR_INS_NEGATE, // 2's compliment
     IR_INS_NOT, // 1's compliment
+    IR_INS_SUB,
+    IR_INS_SMUL,
+    IR_INS_SDIV,
+    IR_INS_SREM,
+    IR_INS_OR,
+    IR_INS_AND,
+    IR_INS_XOR,
+    IR_INS_SHL,
+    IR_INS_ASR,
 } IrOpcode;
 
 // each instruction inside a basic block

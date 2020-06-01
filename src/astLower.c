@@ -76,12 +76,68 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
     }
 }
 
+static IrParameter* basicArith(ASTBinaryExpression* exp, IrOpcode op, lowerCtx* ctx) {
+    IrParameter* left = astLowerExpression(exp->left, ctx);
+    IrParameter* right = astLowerExpression(exp->right, ctx);
+    IrParameter* params = IrParametersCreate(ctx->ir, 3);
+
+    IrParameterNewVReg(ctx->fn, params);
+    IrParameterReference(params + 1, left);
+    IrParameterReference(params + 2, right);
+    IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
+
+    return params;
+}
+
+static IrParameter* basicCompare(ASTBinaryExpression* exp, IrComparison op, lowerCtx* ctx) {
+    IrParameter* left = astLowerExpression(exp->left, ctx);
+    IrParameter* right = astLowerExpression(exp->right, ctx);
+    IrParameter* params = IrParametersCreate(ctx->ir, 3);
+
+    IrParameterNewVReg(ctx->fn, params);
+    IrParameterReference(params + 1, left);
+    IrParameterReference(params + 2, right);
+    IrInstruction* cmpInst =
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, params, 3);
+    IrInstructionCondition(cmpInst, op);
+
+    return params;
+}
+
+static IrParameter* astLowerBinary(ASTBinaryExpression* exp, lowerCtx* ctx) {
+    switch(exp->operator.type) {
+        case TOKEN_PLUS: return basicArith(exp, IR_INS_ADD, ctx);
+        case TOKEN_NEGATE: return basicArith(exp, IR_INS_SUB, ctx);
+        case TOKEN_STAR: return basicArith(exp, IR_INS_SMUL, ctx);
+        case TOKEN_SLASH: return basicArith(exp, IR_INS_SDIV, ctx);
+        case TOKEN_AND: return basicArith(exp, IR_INS_AND, ctx);
+        case TOKEN_OR: return basicArith(exp, IR_INS_OR, ctx);
+        case TOKEN_XOR: return basicArith(exp, IR_INS_XOR, ctx);
+        case TOKEN_SHIFT_LEFT: return basicArith(exp, IR_INS_SHL, ctx);
+        case TOKEN_SHIFT_RIGHT: return basicArith(exp, IR_INS_ASR, ctx);
+        case TOKEN_EQUAL_EQUAL: return basicCompare(exp, IR_COMPARE_EQUAL, ctx);
+        case TOKEN_NOT_EQUAL: return basicCompare(exp, IR_COMPARE_NOT_EQUAL, ctx);
+        case TOKEN_LESS: return basicCompare(exp, IR_COMAPRE_LESS, ctx);
+        case TOKEN_LESS_EQUAL: return basicCompare(exp, IR_COMPARE_LESS_EQUAL, ctx);
+        case TOKEN_GREATER: return basicCompare(exp, IR_COMPARE_GREATER, ctx);
+        case TOKEN_GREATER_EQUAL: return basicCompare(exp, IR_COMPARE_GREATER_EQUAL, ctx);
+        case TOKEN_PERCENT: return basicArith(exp, IR_INS_SREM, ctx);
+        case TOKEN_COMMA:
+            astLowerExpression(exp->left, ctx);
+            return astLowerExpression(exp->right, ctx);
+        default:
+            error("Unsupported binary");
+    }
+}
+
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_EXPRESSION_CONSTANT:
             return astLowerConstant(&exp->as.constant, ctx);
         case AST_EXPRESSION_UNARY:
             return astLowerUnary(&exp->as.unary, ctx);
+        case AST_EXPRESSION_BINARY:
+            return astLowerBinary(&exp->as.binary, ctx);
         default:
             error("Unsupported expression");
     }
@@ -104,6 +160,9 @@ static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
         case AST_STATEMENT_JUMP:
             astLowerJump(ast->as.jump, ctx);
             break;
+        case AST_STATEMENT_EXPRESSION:
+            astLowerExpression(ast->as.expression, ctx);
+            break;
         default:
             error("Unsupported statement");
     }
@@ -122,7 +181,7 @@ static void astLowerBlockItem(ASTBlockItem* ast, lowerCtx* ctx) {
 static void astLowerFnCompound(ASTFnCompoundStatement* ast, lowerCtx* ctx) {
     ctx->blk = IrBasicBlockCreate(ctx->fn);
     for(unsigned int i = 0; i < ast->itemCount; i++) {
-        astLowerBlockItem(ast->items[0], ctx);
+        astLowerBlockItem(ast->items[i], ctx);
     }
 }
 
