@@ -71,6 +71,7 @@ typedef struct IrType {
 // `int a = 5 + 6` to be represented
 typedef struct IrConstant {
     int value;
+    bool undefined;
 
     // the type of the constant
     IrType type;
@@ -263,6 +264,7 @@ IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn);
 IrParameter* IrParameterCreate(IrContext* ctx);
 IrParameter* IrParametersCreate(IrContext* ctx, size_t count);
 void IrParameterConstant(IrParameter* param, int value);
+void IrParameterUndefined(IrParameter* param);
 void IrParameterIntegerType(IrParameter* param, int size);
 void IrParameterNewVReg(IrFunction* fn, IrParameter* param);
 void IrParameterVRegRef(IrParameter* param, IrParameter* vreg);

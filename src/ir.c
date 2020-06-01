@@ -106,8 +106,14 @@ IrParameter* IrParametersCreate(IrContext* ctx, size_t count) {
 void IrParameterConstant(IrParameter* param, int value) {
     param->kind = IR_PARAMETER_CONSTANT;
     param->as.constant.value = value;
+    param->as.constant.undefined = false;
     param->as.constant.type.kind = IR_TYPE_INTEGER;
     param->as.constant.type.as.integer = 0;
+}
+
+void IrParameterUndefined(IrParameter* param) {
+    IrParameterConstant(param, 0);
+    param->as.constant.undefined = true;
 }
 
 void IrParameterIntegerType(IrParameter* param, int size) {
@@ -221,6 +227,14 @@ void IrGlobalPrint(IrContext* ctx, IrTopLevel* ir) {
     printf(" = %d\n\n", global->value.value);
 }
 
+void IrConstantPrint(IrConstant* ir) {
+    if(ir->undefined) {
+        printf("undefined");
+    } else {
+        printf("%d", ir->value);
+    }
+}
+
 void IrParameterPrint(IrContext* ctx, IrParameter* param) {
     switch(param->kind) {
         case IR_PARAMETER_TYPE:
@@ -230,7 +244,7 @@ void IrParameterPrint(IrContext* ctx, IrParameter* param) {
             printf("%%%lld", param->as.virtualRegister->ID);
             break;
         case IR_PARAMETER_CONSTANT:
-            printf("%d", param->as.constant.value);
+            IrConstantPrint(&param->as.constant);
             break;
         case IR_PARAMETER_BLOCK:
             printf("@%lld", param->as.block->ID);

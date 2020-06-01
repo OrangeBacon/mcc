@@ -30,6 +30,47 @@ static IrParameter* astLowerType(const ASTVariableType* type, lowerCtx* ctx) {
 
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx);
 
+static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowerCtx* ctx) {
+    IrParameter* value = astLowerExpression(exp->value, ctx);
+    IrParameter* target = astLowerExpression(exp->target, ctx);
+    IrParameter** loc = &exp->target->as.constant.local->vreg;
+    IrParameter* params = IrParametersCreate(ctx->ir, 3);
+
+    IrParameterNewVReg(ctx->fn, params);
+    IrParameterReference(params + 1, target);
+    IrParameterReference(params + 2, value);
+    IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
+
+    return *loc = params;
+}
+
+static IrParameter* astLowerAssign(ASTAssignExpression* exp, lowerCtx* ctx) {
+    IrParameter* value = astLowerExpression(exp->value, ctx);
+    IrParameter** loc = &exp->target->as.constant.local->vreg;
+
+    if(exp->target->type != AST_EXPRESSION_CONSTANT ||
+       exp->target->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL) {
+        error("Unsupported assign target");
+    }
+
+    switch(exp->operator.type) {
+        case TOKEN_EQUAL:
+            return *loc = value;
+        case TOKEN_PLUS_EQUAL: return basicArithAssign(exp, IR_INS_ADD, ctx);
+        case TOKEN_MINUS_EQUAL: return basicArithAssign(exp, IR_INS_SUB, ctx);
+        case TOKEN_SLASH_EQUAL: return basicArithAssign(exp, IR_INS_SDIV, ctx);
+        case TOKEN_STAR_EQUAL: return basicArithAssign(exp, IR_INS_SMUL, ctx);
+        case TOKEN_PERCENT_EQUAL: return basicArithAssign(exp, IR_INS_SREM, ctx);
+        case TOKEN_LEFT_SHIFT_EQUAL: return basicArithAssign(exp, IR_INS_SHL, ctx);
+        case TOKEN_RIGHT_SHIFT_EQUAL: return basicArithAssign(exp, IR_INS_ASR, ctx);
+        case TOKEN_AND_EQUAL: return basicArithAssign(exp, IR_INS_AND, ctx);
+        case TOKEN_OR_EQUAL: return basicArithAssign(exp, IR_INS_OR, ctx);
+        case TOKEN_XOR_EQUAL: return basicArithAssign(exp, IR_INS_XOR, ctx);
+        default:
+            error("Unsupported assign");
+    }
+}
+
 static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_CONSTANT_EXPRESSION_INTEGER: {
@@ -37,6 +78,7 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
             IrParameterConstant(param, exp->tok.numberValue);
             return param;
         }; break;
+        case AST_CONSTANT_EXPRESSION_LOCAL: return exp->local->vreg;
         default:
             error("Unsupported constant");
     }
@@ -132,6 +174,8 @@ static IrParameter* astLowerBinary(ASTBinaryExpression* exp, lowerCtx* ctx) {
 
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
+        case AST_EXPRESSION_ASSIGN:
+            return astLowerAssign(&exp->as.assign, ctx);
         case AST_EXPRESSION_CONSTANT:
             return astLowerConstant(&exp->as.constant, ctx);
         case AST_EXPRESSION_UNARY:
@@ -168,13 +212,15 @@ static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
     }
 }
 
+static void astLowerDeclaration(ASTDeclaration* decl, lowerCtx* ctx);
 static void astLowerBlockItem(ASTBlockItem* ast, lowerCtx* ctx) {
     switch(ast->type) {
         case AST_BLOCK_ITEM_STATEMENT:
             astLowerStatement(ast->as.statement, ctx);
             break;
         case AST_BLOCK_ITEM_DECLARATION:
-            error("Declaration statement unsupported");
+            astLowerDeclaration(ast->as.declaration, ctx);
+            break;
     }
 }
 
@@ -202,10 +248,29 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
     astLowerFnCompound(decl->fn, ctx);
 }
 
+static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
+    IrParameter* value;
+    if(decl->type == AST_INIT_DECLARATOR_INITIALIZE) {
+        value = astLowerExpression(decl->initializer, ctx);
+    } else {
+        value = IrParameterCreate(ctx->ir);
+        IrParameterUndefined(value);
+    }
+
+    decl->declarator->symbol->vreg = value;
+}
+
 static void astLowerInitDeclarator(ASTInitDeclarator* decl, lowerCtx* ctx) {
     switch(decl->type) {
         case AST_INIT_DECLARATOR_FUNCTION:
             astLowerFunction(decl, ctx);
+            break;
+        case AST_INIT_DECLARATOR_INITIALIZE:
+            if(decl->declarator->symbol->scopeDepth == 0) {
+                error("Globals unsupported");
+            } else {
+                astLowerLocal(decl, ctx);
+            }
             break;
         default:
             error("Unsupported init declarator");

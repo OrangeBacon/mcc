@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include "memory.h"
+#include "ir.h"
 
 // Hash table implementation
 
@@ -45,6 +46,7 @@ typedef struct SymbolLocal {
     int stackOffset;
     bool initialised;
     bool globalSymbolGenDone;
+    IrParameter* vreg;
 } SymbolLocal;
 
 typedef struct SymbolTable {
