@@ -255,7 +255,7 @@ void IrParameterPrint(IrContext* ctx, IrParameter* param) {
     }
 }
 
-static char* IrInstructionNames[] = {
+char* IrInstructionNames[IR_INS_MAX] = {
     [IR_INS_PARAMETER] = "parameter",
     [IR_INS_ADD] = "add",
     [IR_INS_COMPARE] = "compare",
@@ -274,7 +274,7 @@ static char* IrInstructionNames[] = {
     [IR_INS_ASR] = "shift right signed",
 };
 
-static char* IrConditionNames[] = {
+char* IrConditionNames[IR_COMPARE_MAX] = {
     [IR_COMPARE_GREATER] = "greater",
     [IR_COMPARE_EQUAL] = "equal",
     [IR_COMPARE_GREATER_EQUAL] = "greater equal",

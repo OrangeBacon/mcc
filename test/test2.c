@@ -4,6 +4,7 @@ int main() {
    a = a - 3;
    a += 3;
    b <<= 2;
-   a *= 7;
+   a *= 7 * (a < b);
+   b <<= (b != a);
    return a + b;
 }

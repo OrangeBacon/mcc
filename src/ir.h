@@ -136,6 +136,7 @@ typedef enum IrComparison {
     IR_COMAPRE_LESS = 0x4,
     IR_COMPARE_NOT_EQUAL = 0x5,
     IR_COMPARE_LESS_EQUAL = 0x6,
+    IR_COMPARE_MAX, // largest comparison number
 } IrComparison;
 
 typedef enum IrOpcode {
@@ -155,6 +156,7 @@ typedef enum IrOpcode {
     IR_INS_XOR,
     IR_INS_SHL,
     IR_INS_ASR,
+    IR_INS_MAX, // largest opcode number;
 } IrOpcode;
 
 // each instruction inside a basic block
@@ -256,6 +258,8 @@ typedef struct IrContext {
     MemoryArray vReg;
 } IrContext;
 
+extern char* IrInstructionNames[IR_INS_MAX];
+extern char* IrConditionNames[IR_COMPARE_MAX];
 void IrContextCreate(IrContext* ctx, MemoryPool* pool);
 IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount);
 IrGlobal* IrGlobalCreate(IrContext* ctx, char* name, unsigned int nameLength, size_t value);

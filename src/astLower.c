@@ -13,6 +13,68 @@ static _Noreturn void error(const char* s) {
     exit(1);
 }
 
+static IrParameter* constFoldArith(IrParameter* leftParam, IrParameter* rightParam, IrOpcode op, lowerCtx* ctx) {
+    if(leftParam->as.constant.undefined || rightParam->as.constant.undefined) {
+        printf("Applying %s to undefined value\n", IrInstructionNames[op]);
+        // ir builder assumes 0 value at start
+    }
+
+    int left = leftParam->as.constant.value;
+    int right = rightParam->as.constant.value;
+
+    int value;
+    switch(op) {
+        case IR_INS_ADD: value = left + right; break;
+        case IR_INS_SUB: value = left - right; break;
+        case IR_INS_SMUL: value = left * right; break;
+        case IR_INS_AND: value = left & right; break;
+        case IR_INS_OR: value = left | right; break;
+        case IR_INS_XOR: value = left ^ right; break;
+        case IR_INS_SHL: value = left << right; break;
+        case IR_INS_ASR: value = left >> right; break;
+        case IR_INS_SDIV:
+            if(right == 0) error("Constant fold div 0");
+            value = left / right; break;
+        case IR_INS_SREM:
+            if(right == 0) error("Constant fold div 0");
+            value = left % right; break;
+        default:
+            error("Undefined constant fold");
+    }
+
+    IrParameter* ret = IrParameterCreate(ctx->ir);
+    IrParameterConstant(ret, value);
+
+    return ret;
+}
+
+static IrParameter* constFoldCompare(IrParameter* leftParam, IrParameter* rightParam, IrComparison op, lowerCtx* ctx) {
+    if(leftParam->as.constant.undefined || rightParam->as.constant.undefined) {
+        printf("Applying %s to undefined value\n", IrConditionNames[op]);
+        // ir builder assumes 0 value at start
+    }
+
+    int left = leftParam->as.constant.value;
+    int right = rightParam->as.constant.value;
+
+    int value;
+    switch(op) {
+        case IR_COMPARE_GREATER: value = left > right; break;
+        case IR_COMPARE_EQUAL: value = left == right; break;
+        case IR_COMPARE_GREATER_EQUAL: value = left >= right; break;
+        case IR_COMAPRE_LESS: value = left < right; break;
+        case IR_COMPARE_NOT_EQUAL: value = left != right; break;
+        case IR_COMPARE_LESS_EQUAL: value = left <= right; break;
+        default:
+            error("Undefined compare fold");
+    }
+
+    IrParameter* ret = IrParameterCreate(ctx->ir);
+    IrParameterConstant(ret, value);
+
+    return ret;
+}
+
 static void astLowerTypeArr(const ASTVariableType* type, IrParameter* arr) {
     switch(type->type) {
         case AST_VARIABLE_TYPE_INT: {
@@ -34,6 +96,12 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
     IrParameter* value = astLowerExpression(exp->value, ctx);
     IrParameter* target = astLowerExpression(exp->target, ctx);
     IrParameter** loc = &exp->target->as.constant.local->vreg;
+
+    if(value->kind == IR_PARAMETER_CONSTANT && target->kind == IR_PARAMETER_CONSTANT) {
+         IrParameter* res = constFoldArith(target, value, op, ctx);
+         return *loc = res;
+    }
+
     IrParameter* params = IrParametersCreate(ctx->ir, 3);
 
     IrParameterNewVReg(ctx->fn, params);
@@ -121,6 +189,11 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
 static IrParameter* basicArith(ASTBinaryExpression* exp, IrOpcode op, lowerCtx* ctx) {
     IrParameter* left = astLowerExpression(exp->left, ctx);
     IrParameter* right = astLowerExpression(exp->right, ctx);
+
+    if(left->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
+         return constFoldArith(left, right, op, ctx);
+    }
+
     IrParameter* params = IrParametersCreate(ctx->ir, 3);
 
     IrParameterNewVReg(ctx->fn, params);
@@ -134,6 +207,11 @@ static IrParameter* basicArith(ASTBinaryExpression* exp, IrOpcode op, lowerCtx* 
 static IrParameter* basicCompare(ASTBinaryExpression* exp, IrComparison op, lowerCtx* ctx) {
     IrParameter* left = astLowerExpression(exp->left, ctx);
     IrParameter* right = astLowerExpression(exp->right, ctx);
+
+    if(left->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
+         return constFoldCompare(left, right, op, ctx);
+    }
+
     IrParameter* params = IrParametersCreate(ctx->ir, 3);
 
     IrParameterNewVReg(ctx->fn, params);
@@ -266,6 +344,7 @@ static void astLowerInitDeclarator(ASTInitDeclarator* decl, lowerCtx* ctx) {
             astLowerFunction(decl, ctx);
             break;
         case AST_INIT_DECLARATOR_INITIALIZE:
+        case AST_INIT_DECLARATOR_NO_INITIALIZE:
             if(decl->declarator->symbol->scopeDepth == 0) {
                 error("Globals unsupported");
             } else {
