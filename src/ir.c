@@ -19,6 +19,12 @@
         for(unsigned int i = 0; i < (block)->instructionCount; i++, instruction = instruction->next) body \
     }
 
+#define ITER_PHIS(block, i, phi, body) \
+    { \
+        IrPhi* phi = (block)->firstPhi; \
+        for(unsigned int i = 0; i < (block)->phiCount; i++, phi = phi->next) body \
+    }
+
 // ------- //
 // BUILDER //
 // ------- //
@@ -29,6 +35,7 @@ void IrContextCreate(IrContext* ctx, MemoryPool* pool) {
     memoryArrayAlloc(&ctx->instructions, pool, 512*MiB, sizeof(IrInstruction));
     memoryArrayAlloc(&ctx->instParams, pool, 512*MiB, sizeof(IrParameter));
     memoryArrayAlloc(&ctx->vReg, pool, 256*MiB, sizeof(IrVirtualRegister));
+    memoryArrayAlloc(&ctx->phi, pool, 128*MiB, sizeof(IrPhi));
 }
 
 IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount) {
@@ -68,19 +75,48 @@ IrBasicBlock* IrBasicBlockCreate(IrFunction* fn) {
     block->fn = fn;
     block->lastInstruction = NULL;
     block->instructionCount = 0;
+    block->predecessors = NULL;
+    block->predecessorCount = 0;
+    block->firstPhi = NULL;
+    block->phiCount = 0;
+    block->lastPhi = NULL;
 
     if(fn->blockCount == 0) {
         fn->firstBlock = fn->lastBlock = block;
         block->ID = 0;
     } else {
         fn->lastBlock->next = block;
-        fn->lastBlock = block;
         block->ID = fn->lastBlock->ID + 1;
+        fn->lastBlock = block;
     }
 
     fn->blockCount++;
 
     return block;
+}
+
+IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, size_t params) {
+    IrPhi* phi = memoryArrayPush(&ctx->phi);
+    IrParameterNewVReg(block->fn, &phi->result);
+    phi->next = NULL;
+    phi->parameterCount = params;
+    phi->params = memoryArrayPushN(&ctx->instParams, params);
+    phi->blocks = memoryArrayPushN(&ctx->instParams, params);
+
+    if(block->phiCount == 0) {
+        block->firstPhi = block->lastPhi = phi;
+    } else {
+        block->lastPhi->next = phi;
+        block->lastPhi = phi;
+    }
+    block->phiCount++;
+
+    return phi;
+}
+
+IrParameter* IrBlockSetPredecessors(IrBasicBlock* block, size_t count) {
+    block->predecessorCount = count;
+    return block->predecessors = memoryArrayPushN(&block->fn->ctx->instParams, count);
 }
 
 IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn) {
@@ -184,6 +220,7 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
     inst->params = params + 1;
     inst->parameterCount = paramCount - 1;
     params[0].as.virtualRegister->location = inst;
+    params[0].as.virtualRegister->block = block;
 
     return inst;
 }
@@ -272,6 +309,7 @@ char* IrInstructionNames[IR_INS_MAX] = {
     [IR_INS_XOR] = "xor",
     [IR_INS_SHL] = "shift left",
     [IR_INS_ASR] = "shift right signed",
+    [IR_INS_JUMP] = "jump",
 };
 
 char* IrConditionNames[IR_COMPARE_MAX] = {
@@ -307,7 +345,29 @@ void IrInstructionPrint(IrContext* ctx, unsigned int idx, IrInstruction* inst, u
 }
 
 void IrBasicBlockPrint(IrContext* ctx, size_t idx, IrBasicBlock* block, unsigned int gutterSize) {
-    printf("%*s | @%lld:\n", gutterSize, "", idx);
+    printf("%*s | @%lld", gutterSize, "", idx);
+
+    if(block->predecessorCount == 0) {
+        printf(":\n");
+    } else {
+        printf("(");
+        for(unsigned int i = 0; i < block->predecessorCount; i++) {
+            if(i > 0) printf(", ");
+            printf("@%lld", block->predecessors[i].as.block->ID);
+        }
+        printf("):\n");
+    }
+
+    ITER_PHIS(block, i, phi, {
+        printf("%*s |   %%%lld = phi ", gutterSize, "", phi->result.as.virtualRegister->ID);
+        for(unsigned int j = 0; j < phi->parameterCount; j++) {
+            printf("[@%lld ", phi->blocks[j].as.block->ID);
+            IrParameterPrint(ctx, &phi->params[j]);
+            printf("] ");
+        }
+        printf("\n");
+    });
+
     ITER_INSTRUCTIONS(block, i, inst, {
         IrInstructionPrint(ctx, i, inst, gutterSize);
     });

@@ -83,6 +83,7 @@ typedef struct IrVirtualRegister {
 
     // the instruction that created the register
     struct IrInstruction* location;
+    struct IrBasicBlock* block;
 
     // the type of the value in the register
     IrType type;
@@ -156,6 +157,7 @@ typedef enum IrOpcode {
     IR_INS_XOR,
     IR_INS_SHL,
     IR_INS_ASR,
+    IR_INS_JUMP,
     IR_INS_MAX, // largest opcode number;
 } IrOpcode;
 
@@ -182,6 +184,16 @@ typedef struct IrInstruction {
     unsigned int parameterCount;
 } IrInstruction;
 
+typedef struct IrPhi {
+    IrParameter result;
+
+    IrParameter* params;
+    IrParameter* blocks;
+    unsigned int parameterCount;
+
+    struct IrPhi* next;
+} IrPhi;
+
 typedef struct IrBasicBlock {
     size_t ID;
 
@@ -194,6 +206,13 @@ typedef struct IrBasicBlock {
     struct IrBasicBlock* next;
 
     struct IrFunction* fn;
+
+    struct IrParameter* predecessors;
+    size_t predecessorCount;
+
+    struct IrPhi* firstPhi;
+    size_t phiCount;
+    struct IrPhi* lastPhi;
 
 } IrBasicBlock;
 
@@ -256,6 +275,8 @@ typedef struct IrContext {
     MemoryArray instParams;
 
     MemoryArray vReg;
+
+    MemoryArray phi;
 } IrContext;
 
 extern char* IrInstructionNames[IR_INS_MAX];
@@ -278,6 +299,8 @@ void IrParameterReference(IrParameter* param, IrParameter* src);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
+IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, size_t params);
+IrParameter* IrBlockSetPredecessors(IrBasicBlock* block, size_t count);
 
 void IrContextPrint(IrContext* ctx);
 
