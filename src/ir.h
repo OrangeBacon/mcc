@@ -45,24 +45,15 @@ typedef struct IrType {
     // what sort of type is being represented
     enum {
         IR_TYPE_INTEGER,
-        IR_TYPE_POINTER
     } kind;
+
+    // this is a pointer to the type
+    unsigned int pointerDepth;
 
     union {
         // the size of the integer type, eg int = i32
         // i0 means any convinient integer size
         unsigned int integer;
-
-        // pointer type infomation
-        struct {
-
-            // how many levels of indirection, eg int*** => 3
-            // hopefully reduces allocations of IrType structs
-            unsigned int depth;
-
-            // the type being pointed to
-            size_t type;
-        } pointer;
     } as;
 } IrType;
 
@@ -299,6 +290,7 @@ void IrParameterVRegRef(IrParameter* param, IrParameter* vreg);
 void IrParameterBlock(IrParameter* param, IrBasicBlock* block);
 void IrParameterGlobal(IrParameter* param, IrGlobal* global);
 void IrParameterReference(IrParameter* param, IrParameter* src);
+void IrTypeAddPointer(IrParameter* param);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);

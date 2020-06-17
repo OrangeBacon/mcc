@@ -50,6 +50,7 @@ typedef struct SymbolLocal {
     IrParameter* vreg;
     bool vregToAlloca;
     IrParameter* prevLoad;
+    bool memoryRequired;
 } SymbolLocal;
 
 typedef struct SymbolTable {

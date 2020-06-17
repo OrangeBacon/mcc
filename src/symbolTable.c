@@ -40,6 +40,7 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned 
     ret->type = NULL;
     ret->initialised = false;
     ret->globalSymbolGenDone = false;
+    ret->memoryRequired = false;
 
     return ret;
 }

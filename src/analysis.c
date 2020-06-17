@@ -343,6 +343,7 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
             errorAt(ctx->parser, &unary->operator, "Cannot take address of not variable");
         }
         ctx->convertFnDesignator = old;
+        unary->operand->as.constant.local->memoryRequired = true;
     } else if(unary->operator.type == TOKEN_SIZEOF) {
         if(!unary->isSizeofType) {
             AnalyseExpression(unary->operand, ctx);

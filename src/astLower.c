@@ -4,7 +4,7 @@
 
 // SETTINGS
 bool constantFold = true;
-bool copyPropagation = false;
+bool copyPropagation = true;
 bool redundantLoadElimination = true;
 
 typedef struct lowerCtx {
@@ -84,6 +84,10 @@ static void astLowerTypeArr(const ASTVariableType* type, IrParameter* arr) {
     switch(type->type) {
         case AST_VARIABLE_TYPE_INT: {
             IrParameterIntegerType(arr, 32);
+        }; break;
+        case AST_VARIABLE_TYPE_POINTER: {
+            astLowerTypeArr(type->as.pointer, arr);
+            IrTypeAddPointer(arr);
         }; break;
         default: error("Unsupported type");
     }
@@ -205,6 +209,15 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
                 IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, params, 3);
             IrInstructionCondition(cmpInst, IR_COMPARE_EQUAL);
             return params;
+        }; break;
+        case TOKEN_AND: {
+            if(exp->elide) {
+                return astLowerExpression(exp->operand, ctx);
+            }
+            if(!exp->operand->as.constant.local->memoryRequired) {
+                error("Address of virtual variable");
+            }
+            return exp->operand->as.constant.local->vreg;
         }; break;
         default:
             error("Unsupported unary");
@@ -361,7 +374,7 @@ static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
         IrParameterUndefined(value);
     }
 
-    if(copyPropagation) {
+    if(copyPropagation && !decl->declarator->symbol->memoryRequired) {
         decl->declarator->symbol->vreg = value;
         decl->declarator->symbol->vregToAlloca = false;
     } else {

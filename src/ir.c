@@ -194,7 +194,6 @@ void IrParameterReference(IrParameter* param, IrParameter* src) {
     }
 }
 
-
 static IrInstruction* addIns(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode) {
     IrInstruction* inst = memoryArrayPush(&ctx->instructions);
 
@@ -235,6 +234,10 @@ IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOp
     return inst;
 }
 
+void IrTypeAddPointer(IrParameter* param) {
+    param->as.type.pointerDepth++;
+}
+
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
     inst->hasCondition = true;
     inst->comparison = cmp;
@@ -244,23 +247,21 @@ void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
 // PRINTER //
 // ------- //
 
-void IrTypePrint(IrContext* ctx, IrType* ir) {
+void IrTypePrint(IrType* ir) {
     switch(ir->kind) {
         case IR_TYPE_INTEGER:
             printf("i%d", ir->as.integer);
             break;
-        case IR_TYPE_POINTER:
-            for(unsigned int i = 0; i < ir->as.pointer.depth; i++) {
-                putchar('*');
-            }
-            IrTypePrint(ctx, memoryArrayGet(&ctx->instParams, ir->as.pointer.type));
+    }
+    for(unsigned int i = 0; i < ir->pointerDepth; i++) {
+        putchar('*');
     }
 }
 
-void IrGlobalPrint(IrContext* ctx, IrTopLevel* ir) {
+void IrGlobalPrint(IrTopLevel* ir) {
     IrGlobal* global = &ir->as.global;
     printf("global %.*s $%lld : ", ir->nameLength, ir->name, global->ID);
-    IrTypePrint(ctx, &global->value.type);
+    IrTypePrint(&global->value.type);
     printf(" = %d\n\n", global->value.value);
 }
 
@@ -272,10 +273,10 @@ void IrConstantPrint(IrConstant* ir) {
     }
 }
 
-void IrParameterPrint(IrContext* ctx, IrParameter* param) {
+void IrParameterPrint(IrParameter* param) {
     switch(param->kind) {
         case IR_PARAMETER_TYPE:
-            IrTypePrint(ctx, &param->as.type);
+            IrTypePrint(&param->as.type);
             break;
         case IR_PARAMETER_REGISTER:
             printf("%%%lld", param->as.virtualRegister->ID);
@@ -324,12 +325,12 @@ char* IrConditionNames[IR_COMPARE_MAX] = {
     [IR_COMPARE_LESS_EQUAL] = "less equal",
 };
 
-void IrInstructionPrint(IrContext* ctx, unsigned int idx, IrInstruction* inst, unsigned int gutterSize) {
+void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutterSize) {
 
     printf("%*d |   ", gutterSize, idx);
     if(inst->hasReturn) {
         IrParameter* param = inst->params - 1;
-        IrParameterPrint(ctx, param);
+        IrParameterPrint(param);
         printf(" = ");
     }
     printf("%s ", IrInstructionNames[inst->opcode]);
@@ -340,14 +341,14 @@ void IrInstructionPrint(IrContext* ctx, unsigned int idx, IrInstruction* inst, u
 
     for(unsigned int i = 0; i < inst->parameterCount; i++) {
         IrParameter* param = inst->params + i;
-        IrParameterPrint(ctx, param);
+        IrParameterPrint(param);
         printf(" ");
     }
 
     printf("\n");
 }
 
-void IrBasicBlockPrint(IrContext* ctx, size_t idx, IrBasicBlock* block, unsigned int gutterSize) {
+void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize) {
     printf("%*s | @%lld", gutterSize, "", idx);
 
     if(block->predecessorCount == 0) {
@@ -365,14 +366,14 @@ void IrBasicBlockPrint(IrContext* ctx, size_t idx, IrBasicBlock* block, unsigned
         printf("%*s |   %%%lld = phi ", gutterSize, "", phi->result.as.virtualRegister->ID);
         for(unsigned int j = 0; j < phi->parameterCount; j++) {
             printf("[@%lld ", phi->blocks[j].as.block->ID);
-            IrParameterPrint(ctx, &phi->params[j]);
+            IrParameterPrint(&phi->params[j]);
             printf("] ");
         }
         printf("\n");
     });
 
     ITER_INSTRUCTIONS(block, i, inst, {
-        IrInstructionPrint(ctx, i, inst, gutterSize);
+        IrInstructionPrint(i, inst, gutterSize);
     });
 }
 
@@ -380,15 +381,15 @@ unsigned int intLength(unsigned int num) {
     return num == 0 ? 1 : floor(log10(num)) + 1;
 }
 
-void IrFunctionPrint(IrContext* ctx, IrTopLevel* ir) {
+void IrFunctionPrint(IrTopLevel* ir) {
     IrFunction* fn = &ir->as.function;
     printf("function %.*s $%lld(", ir->nameLength, ir->name, fn->ID);
     for(unsigned int i = 0; i < fn->parameterCount; i++) {
         if(i != 0) printf(", ");
-        IrParameterPrint(ctx, &fn->parameters[i]);
+        IrParameterPrint(&fn->parameters[i]);
     }
     printf(") : ");
-    IrParameterPrint(ctx, fn->returnType);
+    IrParameterPrint(fn->returnType);
     printf(" {\n");
 
     unsigned int instrCount = 0;
@@ -399,7 +400,7 @@ void IrFunctionPrint(IrContext* ctx, IrTopLevel* ir) {
     unsigned int gutterSize = intLength(instrCount);
 
     ITER_BLOCKS(fn, i, block, {
-        IrBasicBlockPrint(ctx, i, block, gutterSize);
+        IrBasicBlockPrint(i, block, gutterSize);
     });
 
     printf("}\n\n");
@@ -409,10 +410,10 @@ void IrTopLevelPrint(IrContext* ctx, size_t idx) {
     IrTopLevel* ir = memoryArrayGet(&ctx->topLevel, idx);
     switch(ir->kind) {
         case IR_TOP_LEVEL_GLOBAL:
-            IrGlobalPrint(ctx, ir);
+            IrGlobalPrint(ir);
             break;
         case IR_TOP_LEVEL_FUNCTION:
-            IrFunctionPrint(ctx, ir);
+            IrFunctionPrint(ir);
             break;
     }
 }
