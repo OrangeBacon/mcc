@@ -5,6 +5,7 @@
 // SETTINGS
 bool constantFold = true;
 bool copyPropagation = false;
+bool redundantLoadElimination = true;
 
 typedef struct lowerCtx {
     IrContext* ir;
@@ -120,6 +121,7 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
         IrParameterReference(store + 1, params);
         IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, store, 2);
 
+        exp->target->as.constant.local->prevLoad = NULL;
         return params;
     }
 
@@ -160,10 +162,14 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
             if(!exp->local->vregToAlloca) {
                 return exp->local->vreg;
             }
+            if(redundantLoadElimination && exp->local->prevLoad != NULL) {
+                return exp->local->prevLoad;
+            }
             IrParameter* load = IrParametersCreate(ctx->ir, 2);
             IrParameterNewVReg(ctx->fn, load);
             IrParameterReference(load + 1, exp->local->vreg);
             IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, load, 2);
+            exp->local->prevLoad = load;
             return load;
         }
         default:
@@ -367,6 +373,7 @@ static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
 
         decl->declarator->symbol->vreg = alloca;
         decl->declarator->symbol->vregToAlloca = true;
+        decl->declarator->symbol->prevLoad = NULL;
     }
 }
 

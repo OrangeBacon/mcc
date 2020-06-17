@@ -46,8 +46,10 @@ typedef struct SymbolLocal {
     int stackOffset;
     bool initialised;
     bool globalSymbolGenDone;
+
     IrParameter* vreg;
     bool vregToAlloca;
+    IrParameter* prevLoad;
 } SymbolLocal;
 
 typedef struct SymbolTable {
