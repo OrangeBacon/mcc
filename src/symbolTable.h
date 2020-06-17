@@ -47,6 +47,7 @@ typedef struct SymbolLocal {
     bool initialised;
     bool globalSymbolGenDone;
     IrParameter* vreg;
+    bool vregToAlloca;
 } SymbolLocal;
 
 typedef struct SymbolTable {

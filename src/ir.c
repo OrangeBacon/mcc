@@ -310,6 +310,9 @@ char* IrInstructionNames[IR_INS_MAX] = {
     [IR_INS_SHL] = "shift left",
     [IR_INS_ASR] = "shift right signed",
     [IR_INS_JUMP] = "jump",
+    [IR_INS_ALLOCA] = "alloca",
+    [IR_INS_LOAD] = "load",
+    [IR_INS_STORE] = "store",
 };
 
 char* IrConditionNames[IR_COMPARE_MAX] = {

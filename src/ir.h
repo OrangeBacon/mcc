@@ -158,6 +158,9 @@ typedef enum IrOpcode {
     IR_INS_SHL,
     IR_INS_ASR,
     IR_INS_JUMP,
+    IR_INS_ALLOCA,
+    IR_INS_LOAD,
+    IR_INS_STORE,
     IR_INS_MAX, // largest opcode number;
 } IrOpcode;
 

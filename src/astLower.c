@@ -2,6 +2,10 @@
 
 #include <stdlib.h>
 
+// SETTINGS
+bool constantFold = true;
+bool copyPropagation = false;
+
 typedef struct lowerCtx {
     IrContext* ir;
     IrFunction* fn;
@@ -97,33 +101,39 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
     IrParameter* target = astLowerExpression(exp->target, ctx);
     IrParameter** loc = &exp->target->as.constant.local->vreg;
 
-    if(value->kind == IR_PARAMETER_CONSTANT && target->kind == IR_PARAMETER_CONSTANT) {
-         IrParameter* res = constFoldArith(target, value, op, ctx);
-         return *loc = res;
+    IrParameter* params;
+    if(op == IR_INS_MAX) {
+        params = value;
+    } else if(constantFold && value->kind == IR_PARAMETER_CONSTANT && target->kind == IR_PARAMETER_CONSTANT) {
+         params = constFoldArith(target, value, op, ctx);
+    } else {
+        params = IrParametersCreate(ctx->ir, 3);
+        IrParameterNewVReg(ctx->fn, params);
+        IrParameterReference(params + 1, target);
+        IrParameterReference(params + 2, value);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
     }
 
-    IrParameter* params = IrParametersCreate(ctx->ir, 3);
+    if(exp->target->as.constant.local->vregToAlloca) {
+        IrParameter* store = IrParametersCreate(ctx->ir, 2);
+        IrParameterVRegRef(store, *loc);
+        IrParameterReference(store + 1, params);
+        IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, store, 2);
 
-    IrParameterNewVReg(ctx->fn, params);
-    IrParameterReference(params + 1, target);
-    IrParameterReference(params + 2, value);
-    IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
+        return params;
+    }
 
     return *loc = params;
 }
 
 static IrParameter* astLowerAssign(ASTAssignExpression* exp, lowerCtx* ctx) {
-    IrParameter* value = astLowerExpression(exp->value, ctx);
-    IrParameter** loc = &exp->target->as.constant.local->vreg;
-
     if(exp->target->type != AST_EXPRESSION_CONSTANT ||
        exp->target->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL) {
         error("Unsupported assign target");
     }
 
     switch(exp->operator.type) {
-        case TOKEN_EQUAL:
-            return *loc = value;
+        case TOKEN_EQUAL: return basicArithAssign(exp, IR_INS_MAX, ctx);
         case TOKEN_PLUS_EQUAL: return basicArithAssign(exp, IR_INS_ADD, ctx);
         case TOKEN_MINUS_EQUAL: return basicArithAssign(exp, IR_INS_SUB, ctx);
         case TOKEN_SLASH_EQUAL: return basicArithAssign(exp, IR_INS_SDIV, ctx);
@@ -146,7 +156,16 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
             IrParameterConstant(param, exp->tok.numberValue);
             return param;
         }; break;
-        case AST_CONSTANT_EXPRESSION_LOCAL: return exp->local->vreg;
+        case AST_CONSTANT_EXPRESSION_LOCAL: {
+            if(!exp->local->vregToAlloca) {
+                return exp->local->vreg;
+            }
+            IrParameter* load = IrParametersCreate(ctx->ir, 2);
+            IrParameterNewVReg(ctx->fn, load);
+            IrParameterReference(load + 1, exp->local->vreg);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, load, 2);
+            return load;
+        }
         default:
             error("Unsupported constant");
     }
@@ -190,7 +209,7 @@ static IrParameter* basicArith(ASTBinaryExpression* exp, IrOpcode op, lowerCtx* 
     IrParameter* left = astLowerExpression(exp->left, ctx);
     IrParameter* right = astLowerExpression(exp->right, ctx);
 
-    if(left->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
+    if(constantFold && left->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
          return constFoldArith(left, right, op, ctx);
     }
 
@@ -208,7 +227,7 @@ static IrParameter* basicCompare(ASTBinaryExpression* exp, IrComparison op, lowe
     IrParameter* left = astLowerExpression(exp->left, ctx);
     IrParameter* right = astLowerExpression(exp->right, ctx);
 
-    if(left->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
+    if(constantFold && left->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
          return constFoldCompare(left, right, op, ctx);
     }
 
@@ -328,6 +347,7 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
 
 static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
     IrParameter* value;
+
     if(decl->type == AST_INIT_DECLARATOR_INITIALIZE) {
         value = astLowerExpression(decl->initializer, ctx);
     } else {
@@ -335,7 +355,19 @@ static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
         IrParameterUndefined(value);
     }
 
-    decl->declarator->symbol->vreg = value;
+    if(copyPropagation) {
+        decl->declarator->symbol->vreg = value;
+        decl->declarator->symbol->vregToAlloca = false;
+    } else {
+        IrParameter* alloca = IrParametersCreate(ctx->ir, 3);
+        IrParameterNewVReg(ctx->fn, alloca);
+        astLowerTypeArr(decl->declarator->variableType, alloca + 1);
+        IrParameterReference(alloca + 2, value);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_ALLOCA, alloca, 3);
+
+        decl->declarator->symbol->vreg = alloca;
+        decl->declarator->symbol->vregToAlloca = true;
+    }
 }
 
 static void astLowerInitDeclarator(ASTInitDeclarator* decl, lowerCtx* ctx) {
