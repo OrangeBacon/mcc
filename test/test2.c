@@ -6,5 +6,8 @@ int main() {
    b <<= 2;
    a *= 7 * (a < b);
    b <<= (b != a);
-   return a + b;
+   int c = a + b;
+   int* d = &c;
+   int e = *d;
+   return e;
 }

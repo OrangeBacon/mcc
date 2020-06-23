@@ -3,9 +3,9 @@
 #include <stdlib.h>
 
 // SETTINGS
-bool constantFold = false;
-bool copyPropagation = false;
-bool redundantLoadElimination = false;
+bool constantFold = true;
+bool copyPropagation = true;
+bool redundantLoadElimination = true;
 
 typedef struct lowerCtx {
     IrContext* ir;
@@ -218,6 +218,14 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
                 error("Address of virtual variable");
             }
             return exp->operand->as.constant.local->vreg;
+        }; break;
+        case TOKEN_STAR: {
+            IrParameter* operand = astLowerExpression(exp->operand, ctx);
+            IrParameter* params = IrParametersCreate(ctx->ir, 2);
+            IrParameterNewVReg(ctx->fn, params);
+            IrParameterReference(params + 1, operand);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, params, 2);
+            return params;
         }; break;
         default:
             error("Unsupported unary");
