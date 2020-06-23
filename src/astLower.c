@@ -3,9 +3,9 @@
 #include <stdlib.h>
 
 // SETTINGS
-bool constantFold = true;
-bool copyPropagation = true;
-bool redundantLoadElimination = true;
+bool constantFold = false;
+bool copyPropagation = false;
+bool redundantLoadElimination = false;
 
 typedef struct lowerCtx {
     IrContext* ir;

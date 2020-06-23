@@ -129,6 +129,8 @@ IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn) {
     }
     fn->lastVReg = reg;
 
+    reg->type.kind = IR_TYPE_NONE;
+
     return reg;
 }
 
@@ -194,6 +196,70 @@ void IrParameterReference(IrParameter* param, IrParameter* src) {
     }
 }
 
+static IrType* IrParameterGetType(IrParameter* param) {
+    switch(param->kind) {
+        case IR_PARAMETER_BLOCK:
+            printf("blocks do not have a type"); exit(0);
+        case IR_PARAMETER_CONSTANT:
+            return &param->as.constant.type;
+        case IR_PARAMETER_GLOBAL:
+            return &param->as.global->value.type;
+        case IR_PARAMETER_REGISTER:
+            return &param->as.virtualRegister->type;
+        case IR_PARAMETER_TYPE:
+            return &param->as.type;
+    }
+
+    return NULL; // unreachable
+}
+
+static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instruction) {
+    IrType* ret = &instruction->params[-1].as.virtualRegister->type;
+    switch(instruction->opcode) {
+        case IR_INS_PARAMETER:
+            *ret = fn->parameters[instruction->params[0].as.constant.value].as.type;
+            break;
+        case IR_INS_ADD:
+        case IR_INS_SUB:
+        case IR_INS_SMUL:
+        case IR_INS_SDIV:
+        case IR_INS_SREM:
+        case IR_INS_SHL:
+        case IR_INS_ASR:
+        case IR_INS_OR:
+        case IR_INS_AND:
+        case IR_INS_XOR:
+        case IR_INS_NEGATE:
+            *ret = *IrParameterGetType(&instruction->params[0]);
+            break;
+        case IR_INS_COMPARE:
+        case IR_INS_NOT:
+            ret->kind = IR_TYPE_INTEGER;
+            ret->pointerDepth = 0;
+            ret->as.integer = 8;
+            break;
+        case IR_INS_ALLOCA:
+            *ret = instruction->params[0].as.type;
+            ret->pointerDepth++;
+            break;
+        case IR_INS_LOAD:
+            *ret = *IrParameterGetType(&instruction->params[0]);
+            ret->pointerDepth--;
+            break;
+
+        // no return value
+        case IR_INS_RETURN:
+        case IR_INS_STORE:
+        case IR_INS_JUMP:
+        case IR_INS_JUMP_IF:
+            break;
+
+        // should be unreachable
+        case IR_INS_MAX:
+            break;
+    }
+}
+
 static IrInstruction* addIns(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode) {
     IrInstruction* inst = memoryArrayPush(&ctx->instructions);
 
@@ -220,6 +286,8 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
     inst->parameterCount = paramCount - 1;
     params[0].as.virtualRegister->location = inst;
     params[0].as.virtualRegister->block = block;
+
+    IrInstructionSetReturnType(block->fn, inst);
 
     return inst;
 }
@@ -252,6 +320,9 @@ void IrTypePrint(IrType* ir) {
         case IR_TYPE_INTEGER:
             printf("i%d", ir->as.integer);
             break;
+        case IR_TYPE_NONE:
+            printf("none");
+            break;
     }
     for(unsigned int i = 0; i < ir->pointerDepth; i++) {
         putchar('*');
@@ -273,7 +344,7 @@ void IrConstantPrint(IrConstant* ir) {
     }
 }
 
-void IrParameterPrint(IrParameter* param) {
+void IrParameterPrint(IrParameter* param, bool printType) {
     switch(param->kind) {
         case IR_PARAMETER_TYPE:
             IrTypePrint(&param->as.type);
@@ -290,6 +361,27 @@ void IrParameterPrint(IrParameter* param) {
         case IR_PARAMETER_GLOBAL:
             printf("$%lld", param->as.global->ID);
             break;
+    }
+
+    if(!printType || param->kind == IR_PARAMETER_TYPE) return;
+
+    printf(" : ");
+
+    switch(param->kind) {
+        case IR_PARAMETER_REGISTER:
+            IrTypePrint(&param->as.virtualRegister->type);
+            break;
+        case IR_PARAMETER_CONSTANT:
+            IrTypePrint(&param->as.constant.type);
+            break;
+        case IR_PARAMETER_BLOCK:
+            printf("block");
+            break;
+        case IR_PARAMETER_GLOBAL:
+            IrTypePrint(&param->as.global->value.type);
+            break;
+
+        case IR_PARAMETER_TYPE: break; // unreachable;
     }
 }
 
@@ -330,7 +422,7 @@ void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutt
     printf("%*d |   ", gutterSize, idx);
     if(inst->hasReturn) {
         IrParameter* param = inst->params - 1;
-        IrParameterPrint(param);
+        IrParameterPrint(param, true);
         printf(" = ");
     }
     printf("%s ", IrInstructionNames[inst->opcode]);
@@ -341,7 +433,7 @@ void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutt
 
     for(unsigned int i = 0; i < inst->parameterCount; i++) {
         IrParameter* param = inst->params + i;
-        IrParameterPrint(param);
+        IrParameterPrint(param, false);
         printf(" ");
     }
 
@@ -366,7 +458,7 @@ void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize)
         printf("%*s |   %%%lld = phi ", gutterSize, "", phi->result.as.virtualRegister->ID);
         for(unsigned int j = 0; j < phi->parameterCount; j++) {
             printf("[@%lld ", phi->blocks[j].as.block->ID);
-            IrParameterPrint(&phi->params[j]);
+            IrParameterPrint(&phi->params[j], false);
             printf("] ");
         }
         printf("\n");
@@ -386,10 +478,10 @@ void IrFunctionPrint(IrTopLevel* ir) {
     printf("function %.*s $%lld(", ir->nameLength, ir->name, fn->ID);
     for(unsigned int i = 0; i < fn->parameterCount; i++) {
         if(i != 0) printf(", ");
-        IrParameterPrint(&fn->parameters[i]);
+        IrParameterPrint(&fn->parameters[i], false);
     }
     printf(") : ");
-    IrParameterPrint(fn->returnType);
+    IrParameterPrint(fn->returnType, false);
     printf(" {\n");
 
     unsigned int instrCount = 0;

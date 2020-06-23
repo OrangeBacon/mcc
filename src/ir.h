@@ -45,6 +45,7 @@ typedef struct IrType {
     // what sort of type is being represented
     enum {
         IR_TYPE_INTEGER,
+        IR_TYPE_NONE,
     } kind;
 
     // this is a pointer to the type
