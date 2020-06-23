@@ -139,16 +139,16 @@ IrParameter* IrParametersCreate(IrContext* ctx, size_t count) {
     return memoryArrayPushN(&ctx->instParams, count);
 }
 
-void IrParameterConstant(IrParameter* param, int value) {
+void IrParameterConstant(IrParameter* param, int value, int dataSize) {
     param->kind = IR_PARAMETER_CONSTANT;
     param->as.constant.value = value;
     param->as.constant.undefined = false;
     param->as.constant.type.kind = IR_TYPE_INTEGER;
-    param->as.constant.type.as.integer = 0;
+    param->as.constant.type.as.integer = dataSize;
 }
 
 void IrParameterUndefined(IrParameter* param) {
-    IrParameterConstant(param, 0);
+    IrParameterConstant(param, 0, 0);
     param->as.constant.undefined = true;
 }
 

@@ -282,7 +282,7 @@ IrBasicBlock* IrBasicBlockCreate(IrFunction* fn);
 IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn);
 IrParameter* IrParameterCreate(IrContext* ctx);
 IrParameter* IrParametersCreate(IrContext* ctx, size_t count);
-void IrParameterConstant(IrParameter* param, int value);
+void IrParameterConstant(IrParameter* param, int value, int dataSize);
 void IrParameterUndefined(IrParameter* param);
 void IrParameterIntegerType(IrParameter* param, int size);
 void IrParameterNewVReg(IrFunction* fn, IrParameter* param);

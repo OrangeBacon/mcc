@@ -48,7 +48,7 @@ static IrParameter* constFoldArith(IrParameter* leftParam, IrParameter* rightPar
     }
 
     IrParameter* ret = IrParameterCreate(ctx->ir);
-    IrParameterConstant(ret, value);
+    IrParameterConstant(ret, value, 32);
 
     return ret;
 }
@@ -75,7 +75,7 @@ static IrParameter* constFoldCompare(IrParameter* leftParam, IrParameter* rightP
     }
 
     IrParameter* ret = IrParameterCreate(ctx->ir);
-    IrParameterConstant(ret, value);
+    IrParameterConstant(ret, value, 32);
 
     return ret;
 }
@@ -159,7 +159,7 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
     switch(exp->type) {
         case AST_CONSTANT_EXPRESSION_INTEGER: {
             IrParameter* param = IrParametersCreate(ctx->ir, 1);
-            IrParameterConstant(param, exp->tok.numberValue);
+            IrParameterConstant(param, exp->tok.numberValue, 32);
             return param;
         }; break;
         case AST_CONSTANT_EXPRESSION_LOCAL: {
@@ -203,7 +203,7 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
             IrParameter* operand = astLowerExpression(exp->operand, ctx);
             IrParameter* params = IrParametersCreate(ctx->ir, 3);
             IrParameterNewVReg(ctx->fn, params);
-            IrParameterConstant(params + 1, 0);
+            IrParameterConstant(params + 1, 0, 8);
             IrParameterReference(params + 2, operand);
             IrInstruction* cmpInst =
                 IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, params, 3);
