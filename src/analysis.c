@@ -214,7 +214,7 @@ static void AnalyseBinaryExpression(ASTExpression* ast, ctx* ctx) {
             if(!TypeCompat(bin->left->exprType, bin->right->exprType)) {
                 errorAt(ctx->parser, &bin->operator, "Cannot subtract pointers of different type");
             }
-            ast->exprType = bin->left->exprType;
+            ast->exprType = &defaultInt;
         }
     } else if(bin->operator.type == TOKEN_EQUAL_EQUAL || bin->operator.type == TOKEN_NOT_EQUAL || bin->operator.type == TOKEN_LESS || bin->operator.type == TOKEN_LESS_EQUAL || bin->operator.type == TOKEN_GREATER || bin->operator.type == TOKEN_GREATER_EQUAL) {
         if(!((TypeCompat(bin->left->exprType, &defaultInt) && TypeCompat(bin->right->exprType, &defaultInt))||(bin->left->exprType->type == AST_VARIABLE_TYPE_POINTER && TypeCompat(bin->left->exprType, bin->right->exprType)))) {
@@ -588,6 +588,11 @@ static void AnalyseDeclaration(ASTDeclaration* ast, ctx* ctx) {
         symbol->type = decltype;
 
         AnalyseExpression(decl->initializer, ctx);
+
+        if(isInitialising && !TypeCompat(decl->initializer->exprType, decltype)) {
+            errorAt(ctx->parser, &decl->initializerStart,
+                "Cannot initialise variable with value of wrong type");
+        }
 
         // if is global
         if(decl->declarator->symbol->scopeDepth == 0) {

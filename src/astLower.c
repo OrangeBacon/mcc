@@ -270,10 +270,73 @@ static IrParameter* basicCompare(ASTBinaryExpression* exp, IrComparison op, lowe
     return params;
 }
 
+static IrParameter* maybePointerArith(ASTBinaryExpression* exp, IrOpcode op, lowerCtx* ctx) {
+    if(exp->left->exprType->type == AST_VARIABLE_TYPE_POINTER
+       && exp->right->exprType->type == AST_VARIABLE_TYPE_POINTER) {
+        // pointer subtraction
+        IrParameter* first = astLowerExpression(exp->left, ctx);
+        IrParameter* firstParams = IrParametersCreate(ctx->ir, 3);
+        IrParameterNewVReg(ctx->fn, firstParams);
+        IrParameterIntegerType(firstParams + 1, 32);
+        IrParameterReference(firstParams + 2, first);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_CAST, firstParams, 3);
+
+        IrParameter* second = astLowerExpression(exp->right, ctx);
+        IrParameter* secondParams = IrParametersCreate(ctx->ir, 3);
+        IrParameterNewVReg(ctx->fn, secondParams);
+        IrParameterIntegerType(secondParams + 1, 32);
+        IrParameterReference(secondParams + 2, second);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_CAST, secondParams, 3);
+
+        IrParameter* sub = IrParametersCreate(ctx->ir, 3);
+        IrParameterNewVReg(ctx->fn, sub);
+        IrParameterReference(sub + 1, firstParams);
+        IrParameterReference(sub + 2, secondParams);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_SUB, sub, 3);
+
+        IrParameter* div = IrParametersCreate(ctx->ir, 3);
+        IrParameterNewVReg(ctx->fn, div);
+        IrParameterReference(div + 1, sub);
+        IrParameterConstant(div + 2, 4, 32);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_SDIV, div, 3);
+
+        return div;
+    }
+
+    if(!exp->pointerShift) return basicArith(exp, op, ctx);
+
+    // pointer/integer add/subtract
+    IrParameter* pointer;
+    IrParameter* integer;
+    if(exp->left->exprType->type == AST_VARIABLE_TYPE_POINTER) {
+        pointer = astLowerExpression(exp->left, ctx);
+        integer = astLowerExpression(exp->right, ctx);
+    } else {
+        pointer = astLowerExpression(exp->right, ctx);
+        integer = astLowerExpression(exp->left, ctx);
+    }
+
+    if(op == IR_INS_SUB) {
+        IrParameter* negate = IrParametersCreate(ctx->ir, 2);
+        IrParameterNewVReg(ctx->fn, negate);
+        IrParameterReference(negate + 1, integer);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
+        integer = negate;
+    }
+
+    IrParameter* gep = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, gep);
+    IrParameterReference(gep + 1, pointer);
+    IrParameterReference(gep + 2, integer);
+    IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_GET_ELEMENT_POINTER, gep, 3);
+
+    return gep;
+}
+
 static IrParameter* astLowerBinary(ASTBinaryExpression* exp, lowerCtx* ctx) {
     switch(exp->operator.type) {
-        case TOKEN_PLUS: return basicArith(exp, IR_INS_ADD, ctx);
-        case TOKEN_NEGATE: return basicArith(exp, IR_INS_SUB, ctx);
+        case TOKEN_PLUS: return maybePointerArith(exp, IR_INS_ADD, ctx);
+        case TOKEN_NEGATE: return maybePointerArith(exp, IR_INS_SUB, ctx);
         case TOKEN_STAR: return basicArith(exp, IR_INS_SMUL, ctx);
         case TOKEN_SLASH: return basicArith(exp, IR_INS_SDIV, ctx);
         case TOKEN_AND: return basicArith(exp, IR_INS_AND, ctx);

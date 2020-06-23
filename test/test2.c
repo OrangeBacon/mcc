@@ -7,7 +7,7 @@ int main() {
    a *= 7 * (a < b);
    b <<= (b != a);
    int c = a + b;
-   int* d = &c;
+   int* d = &c- &c + &c;
    int e = *d;
    return e;
 }

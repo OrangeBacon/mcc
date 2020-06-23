@@ -246,6 +246,14 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
             *ret = *IrParameterGetType(&instruction->params[0]);
             ret->pointerDepth--;
             break;
+        case IR_INS_GET_ELEMENT_POINTER: {
+            // note: this only works as gep is only used for pointer arithmetic
+            // &a + 1, etc
+            *ret = *IrParameterGetType(&instruction->params[0]);
+        }; break;
+        case IR_INS_CAST:
+            *ret = instruction->params[0].as.type;
+            break;
 
         // no return value
         case IR_INS_RETURN:
@@ -406,6 +414,8 @@ char* IrInstructionNames[IR_INS_MAX] = {
     [IR_INS_ALLOCA] = "alloca",
     [IR_INS_LOAD] = "load",
     [IR_INS_STORE] = "store",
+    [IR_INS_GET_ELEMENT_POINTER] = "get element pointer",
+    [IR_INS_CAST] = "cast",
 };
 
 char* IrConditionNames[IR_COMPARE_MAX] = {
