@@ -11,3 +11,5 @@ int main() {
    int e = *d;
    return e;
 }
+
+int* a(int b) {return &b;}

@@ -44,13 +44,16 @@ typedef struct SymbolLocal {
 
     // used only by the backend, not in creating the ast
     int stackOffset;
-    bool initialised;
-    bool globalSymbolGenDone;
 
     IrParameter* vreg;
-    bool vregToAlloca;
     IrParameter* prevLoad;
-    bool memoryRequired;
+    int parameterNumber;
+
+    bool memoryRequired : 1;
+    bool vregToAlloca : 1;
+    bool initialised : 1;
+    bool globalSymbolGenDone : 1;
+    bool toGenerateParameter : 1;
 } SymbolLocal;
 
 typedef struct SymbolTable {

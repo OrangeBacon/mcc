@@ -41,6 +41,8 @@ SymbolLocal* SymbolTableAddLocal(SymbolTable* table, const char* name, unsigned 
     ret->initialised = false;
     ret->globalSymbolGenDone = false;
     ret->memoryRequired = false;
+    ret->parameterNumber = 0;
+    ret->toGenerateParameter = false;
 
     return ret;
 }

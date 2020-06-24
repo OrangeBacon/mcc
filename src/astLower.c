@@ -163,6 +163,31 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
             return param;
         }; break;
         case AST_CONSTANT_EXPRESSION_LOCAL: {
+            if(exp->local->toGenerateParameter) {
+                exp->local->toGenerateParameter = false;
+                IrParameter* param = IrParametersCreate(ctx->ir, 2);
+                IrParameterNewVReg(ctx->fn, param);
+                IrParameterConstant(param + 1, exp->local->parameterNumber, 32);
+                IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_PARAMETER, param, 2);
+
+                exp->local->vreg = param;
+                exp->local->vregToAlloca = false;
+
+                if(exp->local->memoryRequired) {
+                    IrParameter* alloca = IrParametersCreate(ctx->ir, 3);
+                    IrParameterNewVReg(ctx->fn, alloca);
+                    astLowerTypeArr(exp->local->type, alloca + 1);
+                    IrParameterReference(alloca + 2, param);
+                    IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_ALLOCA, alloca, 3);
+
+                    exp->local->vreg = alloca;
+                    exp->local->vregToAlloca = true;
+
+                    return param;
+                } else {
+                    return param;
+                }
+            }
             if(!exp->local->vregToAlloca) {
                 return exp->local->vreg;
             }
@@ -216,6 +241,9 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
             }
             if(!exp->operand->as.constant.local->memoryRequired) {
                 error("Address of virtual variable");
+            }
+            if(exp->operand->as.constant.local->toGenerateParameter) {
+                astLowerExpression(exp->operand, ctx);
             }
             return exp->operand->as.constant.local->vreg;
         }; break;
@@ -426,8 +454,9 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
     IrParameter* inType = IrParametersCreate(ctx->ir, fnType->paramCount);
     for(unsigned int i = 0; i < fnType->paramCount; i++) {
         astLowerTypeArr(fnType->params[i]->variableType, inType + i);
+        fnType->params[i]->symbol->toGenerateParameter = true;
+        fnType->params[i]->symbol->parameterNumber = i;
     }
-
 
     IrFunction* fn = IrFunctionCreate(ctx->ir, sym->name, sym->length, retType, inType, fnType->paramCount);
     ctx->fn = fn;
