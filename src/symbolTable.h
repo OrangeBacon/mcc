@@ -89,7 +89,7 @@ SymbolExitList* SymbolTableExit(SymbolTable* table);
 
 #define TABLE_SET(table, key, length, value) \
     do { \
-        if(sizeof(*value) != (table).valueSize) { \
+        if(sizeof(value) != (table).valueSize) { \
             printf("Seting table member based on incorrect value size, correct " \
                 "is %zu, got %zu", (table).valueSize, sizeof(value)); \
         } \

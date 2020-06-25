@@ -55,17 +55,23 @@ IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int name
     return &top->as.function;
 }
 
-IrGlobal* IrGlobalCreate(IrContext* ctx, char* name, unsigned int nameLength, size_t value) {
+IrGlobal* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength) {
     IrTopLevel* top = memoryArrayPush(&ctx->topLevel);
     top->name = name;
     top->nameLength = nameLength;
     top->kind = IR_TOP_LEVEL_GLOBAL;
     top->as.global.ID = ctx->topLevel.itemCount - 1;
-    top->as.global.value.value = value;
-    top->as.global.value.type.kind = IR_TYPE_INTEGER;
-    top->as.global.value.type.as.integer = 0;
+    top->as.global.value.undefined = true;
 
     return &top->as.global;
+}
+
+void IrGlobalInitialize(IrGlobal* global, size_t value, size_t size) {
+    global->value.value = value;
+    global->value.undefined = false;
+    global->value.type.kind = IR_TYPE_INTEGER;
+    global->value.type.pointerDepth = 0;
+    global->value.type.as.integer = size;
 }
 
 IrBasicBlock* IrBasicBlockCreate(IrFunction* fn) {
@@ -341,7 +347,11 @@ void IrGlobalPrint(IrTopLevel* ir) {
     IrGlobal* global = &ir->as.global;
     printf("global %.*s $%lld : ", ir->nameLength, ir->name, global->ID);
     IrTypePrint(&global->value.type);
-    printf(" = %d\n\n", global->value.value);
+    if(!global->value.undefined) {
+        printf(" = %d\n\n", global->value.value);
+    } else {
+        printf("\n\n");
+    }
 }
 
 void IrConstantPrint(IrConstant* ir) {

@@ -80,22 +80,28 @@ static IrParameter* constFoldCompare(IrParameter* leftParam, IrParameter* rightP
     return ret;
 }
 
-static void astLowerTypeArr(const ASTVariableType* type, IrParameter* arr) {
+static void astLowerTypeArr(const ASTVariableType* type, IrType* arr) {
     switch(type->type) {
         case AST_VARIABLE_TYPE_INT: {
-            IrParameterIntegerType(arr, 32);
+            arr->kind = IR_TYPE_INTEGER;
+            arr->as.integer = 32;
         }; break;
         case AST_VARIABLE_TYPE_POINTER: {
             astLowerTypeArr(type->as.pointer, arr);
-            IrTypeAddPointer(arr);
+            arr->pointerDepth++;
         }; break;
         default: error("Unsupported type");
     }
 }
 
+static void astLowerTypeParameter(const ASTVariableType* type, IrParameter* param) {
+    param->kind = IR_PARAMETER_TYPE;
+    astLowerTypeArr(type, &param->as.type);
+}
+
 static IrParameter* astLowerType(const ASTVariableType* type, lowerCtx* ctx) {
     IrParameter* retType = IrParameterCreate(ctx->ir);
-    astLowerTypeArr(type, retType);
+    astLowerTypeParameter(type, retType);
     return retType;
 }
 
@@ -105,6 +111,7 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
     IrParameter* value = astLowerExpression(exp->value, ctx);
     IrParameter* target = astLowerExpression(exp->target, ctx);
     IrParameter** loc = &exp->target->as.constant.local->vreg;
+    SymbolLocal* sym = exp->target->as.constant.local;
 
     IrParameter* params;
     if(op == IR_INS_MAX) {
@@ -119,9 +126,9 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
         IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
     }
 
-    if(exp->target->as.constant.local->vregToAlloca) {
+    if(sym->vregToAlloca || sym->scopeDepth == 0) {
         IrParameter* store = IrParametersCreate(ctx->ir, 2);
-        IrParameterVRegRef(store, *loc);
+        IrParameterReference(store, *loc);
         IrParameterReference(store + 1, params);
         IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, store, 2);
 
@@ -176,7 +183,7 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
                 if(exp->local->memoryRequired) {
                     IrParameter* alloca = IrParametersCreate(ctx->ir, 3);
                     IrParameterNewVReg(ctx->fn, alloca);
-                    astLowerTypeArr(exp->local->type, alloca + 1);
+                    astLowerTypeParameter(exp->local->type, alloca + 1);
                     IrParameterReference(alloca + 2, param);
                     IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_ALLOCA, alloca, 3);
 
@@ -453,7 +460,7 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
     IrParameter* retType = astLowerType(fnType->ret, ctx);
     IrParameter* inType = IrParametersCreate(ctx->ir, fnType->paramCount);
     for(unsigned int i = 0; i < fnType->paramCount; i++) {
-        astLowerTypeArr(fnType->params[i]->variableType, inType + i);
+        astLowerTypeParameter(fnType->params[i]->variableType, inType + i);
         fnType->params[i]->symbol->toGenerateParameter = true;
         fnType->params[i]->symbol->parameterNumber = i;
     }
@@ -480,13 +487,31 @@ static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
     } else {
         IrParameter* alloca = IrParametersCreate(ctx->ir, 3);
         IrParameterNewVReg(ctx->fn, alloca);
-        astLowerTypeArr(decl->declarator->variableType, alloca + 1);
+        astLowerTypeParameter(decl->declarator->variableType, alloca + 1);
         IrParameterReference(alloca + 2, value);
         IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_ALLOCA, alloca, 3);
 
         decl->declarator->symbol->vreg = alloca;
         decl->declarator->symbol->vregToAlloca = true;
         decl->declarator->symbol->prevLoad = NULL;
+    }
+}
+
+static void astLowerGlobal(ASTInitDeclarator* decl, lowerCtx* ctx) {
+    SymbolLocal* sym = decl->declarator->symbol;
+
+    IrGlobal* globl;
+    if(sym->vreg == NULL) {
+        globl = IrGlobalPrototypeCreate(ctx->ir, sym->name, sym->length);
+        sym->vreg = IrParameterCreate(ctx->ir);
+        IrParameterGlobal(sym->vreg, globl);
+        astLowerTypeArr(decl->declarator->variableType, &globl->value.type);
+    } else {
+        globl = sym->vreg->as.global;
+    }
+
+    if(globl->value.undefined && decl->initializer != NULL) {
+        IrGlobalInitialize(globl, decl->initializer->as.constant.tok.numberValue, 32);
     }
 }
 
@@ -498,7 +523,7 @@ static void astLowerInitDeclarator(ASTInitDeclarator* decl, lowerCtx* ctx) {
         case AST_INIT_DECLARATOR_INITIALIZE:
         case AST_INIT_DECLARATOR_NO_INITIALIZE:
             if(decl->declarator->symbol->scopeDepth == 0) {
-                error("Globals unsupported");
+                astLowerGlobal(decl, ctx);
             } else {
                 astLowerLocal(decl, ctx);
             }
