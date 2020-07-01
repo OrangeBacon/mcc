@@ -126,17 +126,32 @@ static IrParameter* astLowerType(const ASTVariableType* type, lowerCtx* ctx) {
 
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx);
 
-static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowerCtx* ctx) {
+
+// lowers =, +=, *=, etc and postfix ++/--
+static IrParameter* basicArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* ctx) {
+    bool pointerShift;
+    ASTExpression *target;
+    IrParameter* value;
+    if(exp->type == AST_EXPRESSION_ASSIGN) {
+        pointerShift = exp->as.assign.pointerShift;
+        target = exp->as.assign.target;
+        value = astLowerExpression(exp->as.assign.value, ctx);
+    } else {
+        pointerShift = exp->as.postfix.pointerShift;
+        target = exp->as.postfix.operand;
+        value = IrParameterCreate(ctx->ir);
+        IrParameterConstant(value, 1, 32);
+    }
 
     // generate assign target
     bool generateLoad = false;
     IrParameter* storeLocation;
     IrParameter** copyPropStore;
 
-    if(exp->target->type == AST_EXPRESSION_CONSTANT
-       && exp->target->as.constant.type == AST_CONSTANT_EXPRESSION_LOCAL) {
+    if(target->type == AST_EXPRESSION_CONSTANT
+       && target->as.constant.type == AST_CONSTANT_EXPRESSION_LOCAL) {
         // variable name
-        SymbolLocal* sym = exp->target->as.constant.local;
+        SymbolLocal* sym = target->as.constant.local;
         if(sym->vregToAlloca) {
             generateLoad = true;
             storeLocation = sym->vreg;
@@ -145,10 +160,10 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
             generateLoad = false;
             copyPropStore = &sym->vreg;
         }
-    } else if(exp->target->type == AST_EXPRESSION_UNARY
-              && exp->target->as.unary.operator.type == TOKEN_STAR) {
+    } else if(target->type == AST_EXPRESSION_UNARY
+              && target->as.unary.operator.type == TOKEN_STAR) {
         // dereference
-        storeLocation = astLowerExpression(exp->target->as.unary.operand, ctx);
+        storeLocation = astLowerExpression(target->as.unary.operand, ctx);
         generateLoad = true;
     } else {
         // extend if new lvalue added
@@ -156,18 +171,17 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
     }
 
     // generate assign value
-    IrParameter* value = astLowerExpression(exp->value, ctx);
-
+    IrParameter* initialValue;
     if(op == IR_INS_MAX) {
         // do nothing
     } else if(constantFold
               && value->kind == IR_PARAMETER_CONSTANT
               && !generateLoad
-              && !exp->pointerShift
+              && !pointerShift
               && (*copyPropStore)->kind == IR_PARAMETER_CONSTANT) {
-         value = constFoldArith(*copyPropStore, value, op, ctx);
+        initialValue = *copyPropStore;
+        value = constFoldArith(*copyPropStore, value, op, ctx);
     } else {
-        IrParameter* initialValue;
         if(generateLoad) {
             IrParameter* params = IrParametersCreate(ctx->ir, 2);
             IrParameterNewVReg(ctx->fn, params);
@@ -178,7 +192,7 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
             initialValue = *copyPropStore;
         }
 
-        if(exp->pointerShift) {
+        if(pointerShift) {
             IrParameter* integer = value;
             if(op == IR_INS_SUB) {
                 if(constantFold && value->kind == IR_PARAMETER_CONSTANT) {
@@ -218,11 +232,14 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
         *copyPropStore = value;
     }
 
-    return value;
+    if(exp->type == AST_EXPRESSION_ASSIGN) {
+        return value;
+    }
+    return initialValue;
 }
 
-static IrParameter* astLowerAssign(ASTAssignExpression* exp, lowerCtx* ctx) {
-    switch(exp->operator.type) {
+static IrParameter* astLowerAssign(ASTExpression* exp, lowerCtx* ctx) {
+    switch(exp->as.assign.operator.type) {
         case TOKEN_EQUAL: return basicArithAssign(exp, IR_INS_MAX, ctx);
         case TOKEN_PLUS_EQUAL: return basicArithAssign(exp, IR_INS_ADD, ctx);
         case TOKEN_MINUS_EQUAL: return basicArithAssign(exp, IR_INS_SUB, ctx);
@@ -482,16 +499,27 @@ static IrParameter* astLowerBinary(ASTBinaryExpression* exp, lowerCtx* ctx) {
     }
 }
 
+static IrParameter* astLowerPostfix(ASTExpression* exp, lowerCtx* ctx) {
+    IrOpcode opcode = IR_INS_ADD;
+    if(exp->as.postfix.operator.type == TOKEN_MINUS_MINUS) {
+        opcode = IR_INS_SUB;
+    }
+
+    return basicArithAssign(exp, opcode, ctx);
+}
+
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_EXPRESSION_ASSIGN:
-            return astLowerAssign(&exp->as.assign, ctx);
+            return astLowerAssign(exp, ctx);
         case AST_EXPRESSION_CONSTANT:
             return astLowerConstant(&exp->as.constant, ctx);
         case AST_EXPRESSION_UNARY:
             return astLowerUnary(&exp->as.unary, ctx);
         case AST_EXPRESSION_BINARY:
             return astLowerBinary(&exp->as.binary, ctx);
+        case AST_EXPRESSION_POSTFIX:
+            return astLowerPostfix(exp, ctx);
         default:
             error("Unsupported expression");
     }

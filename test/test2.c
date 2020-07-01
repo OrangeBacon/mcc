@@ -2,5 +2,9 @@
 
 int main() {
    int a = 5;
-   return !~-a;
+   int *b = &a;
+   b++;
+   b--;
+   int c = (*b)++;
+   return a + c;
 }
