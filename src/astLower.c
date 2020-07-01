@@ -5,7 +5,6 @@
 // SETTINGS
 bool constantFold = true;
 bool copyPropagation = true;
-bool redundantLoadElimination = true;
 
 typedef struct lowerCtx {
     IrContext* ir;
@@ -108,43 +107,97 @@ static IrParameter* astLowerType(const ASTVariableType* type, lowerCtx* ctx) {
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx);
 
 static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowerCtx* ctx) {
-    IrParameter* value = astLowerExpression(exp->value, ctx);
-    IrParameter* target = astLowerExpression(exp->target, ctx);
-    IrParameter** loc = &exp->target->as.constant.local->vreg;
-    SymbolLocal* sym = exp->target->as.constant.local;
 
-    IrParameter* params;
-    if(op == IR_INS_MAX) {
-        params = value;
-    } else if(constantFold && value->kind == IR_PARAMETER_CONSTANT && target->kind == IR_PARAMETER_CONSTANT) {
-         params = constFoldArith(target, value, op, ctx);
+    // generate assign target
+    bool generateLoad = false;
+    IrParameter* storeLocation;
+    IrParameter** copyPropStore;
+
+    if(exp->target->type == AST_EXPRESSION_CONSTANT
+       && exp->target->as.constant.type == AST_CONSTANT_EXPRESSION_LOCAL) {
+        // variable name
+        SymbolLocal* sym = exp->target->as.constant.local;
+        if(sym->vregToAlloca) {
+            generateLoad = true;
+            storeLocation = sym->vreg;
+        } else {
+            // if copy propogation should be applied to this variable
+            generateLoad = false;
+            copyPropStore = &sym->vreg;
+        }
+    } else if(exp->target->type == AST_EXPRESSION_UNARY
+              && exp->target->as.unary.operator.type == TOKEN_STAR) {
+        // dereference
+        storeLocation = astLowerExpression(exp->target->as.unary.operand, ctx);
+        generateLoad = true;
     } else {
-        params = IrParametersCreate(ctx->ir, 3);
-        IrParameterNewVReg(ctx->fn, params);
-        IrParameterReference(params + 1, target);
-        IrParameterReference(params + 2, value);
-        IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
+        // extend if new lvalue added
+        error("Unknown lvalue");
     }
 
-    if(sym->vregToAlloca || sym->scopeDepth == 0) {
-        IrParameter* store = IrParametersCreate(ctx->ir, 2);
-        IrParameterReference(store, *loc);
-        IrParameterReference(store + 1, params);
-        IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, store, 2);
+    // generate assign value
+    IrParameter* value = astLowerExpression(exp->value, ctx);
 
-        exp->target->as.constant.local->prevLoad = NULL;
-        return params;
+    if(op == IR_INS_MAX) {
+        // do nothing
+    } else if(constantFold
+              && value->kind == IR_PARAMETER_CONSTANT
+              && !generateLoad
+              && !exp->pointerShift
+              && (*copyPropStore)->kind == IR_PARAMETER_CONSTANT) {
+         value = constFoldArith(*copyPropStore, value, op, ctx);
+    } else {
+        IrParameter* initialValue;
+        if(generateLoad) {
+            IrParameter* params = IrParametersCreate(ctx->ir, 2);
+            IrParameterNewVReg(ctx->fn, params);
+            IrParameterReference(params + 1, storeLocation);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, params, 2);
+            initialValue = params;
+        } else {
+            initialValue = *copyPropStore;
+        }
+
+        if(exp->pointerShift) {
+            IrParameter* integer = value;
+            if(op == IR_INS_SUB) {
+                IrParameter* negate = IrParametersCreate(ctx->ir, 2);
+                IrParameterNewVReg(ctx->fn, negate);
+                IrParameterReference(negate + 1, value);
+                IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
+                integer = negate;
+            }
+
+            IrParameter* gep = IrParametersCreate(ctx->ir, 3);
+            IrParameterNewVReg(ctx->fn, gep);
+            IrParameterReference(gep + 1, initialValue);
+            IrParameterReference(gep + 2, integer);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_GET_ELEMENT_POINTER, gep, 3);
+            value = gep;
+
+        } else {
+            IrParameter* params = IrParametersCreate(ctx->ir, 3);
+            IrParameterNewVReg(ctx->fn, params);
+            IrParameterReference(params + 1, initialValue);
+            IrParameterReference(params + 2, value);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
+            value = params;
+        }
     }
 
-    return *loc = params;
+    if(generateLoad) {
+        IrParameter* params = IrParametersCreate(ctx->ir, 2);
+        IrParameterReference(params, storeLocation);
+        IrParameterReference(params + 1, value);
+        IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, params, 2);
+    } else {
+        *copyPropStore = value;
+    }
+
+    return value;
 }
 
 static IrParameter* astLowerAssign(ASTAssignExpression* exp, lowerCtx* ctx) {
-    if(exp->target->type != AST_EXPRESSION_CONSTANT ||
-       exp->target->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL) {
-        error("Unsupported assign target");
-    }
-
     switch(exp->operator.type) {
         case TOKEN_EQUAL: return basicArithAssign(exp, IR_INS_MAX, ctx);
         case TOKEN_PLUS_EQUAL: return basicArithAssign(exp, IR_INS_ADD, ctx);
@@ -198,14 +251,10 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
             if(!exp->local->vregToAlloca) {
                 return exp->local->vreg;
             }
-            if(redundantLoadElimination && exp->local->prevLoad != NULL) {
-                return exp->local->prevLoad;
-            }
             IrParameter* load = IrParametersCreate(ctx->ir, 2);
             IrParameterNewVReg(ctx->fn, load);
             IrParameterReference(load + 1, exp->local->vreg);
             IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, load, 2);
-            exp->local->prevLoad = load;
             return load;
         }
         default:
@@ -493,7 +542,6 @@ static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
 
         decl->declarator->symbol->vreg = alloca;
         decl->declarator->symbol->vregToAlloca = true;
-        decl->declarator->symbol->prevLoad = NULL;
     }
 }
 

@@ -46,7 +46,6 @@ typedef struct SymbolLocal {
     int stackOffset;
 
     IrParameter* vreg;
-    IrParameter* prevLoad;
     int parameterNumber;
 
     bool memoryRequired : 1;
