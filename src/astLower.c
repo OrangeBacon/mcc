@@ -79,6 +79,26 @@ static IrParameter* constFoldCompare(IrParameter* leftParam, IrParameter* rightP
     return ret;
 }
 
+static IrParameter* constFoldUnary(IrParameter* operand, IrOpcode op, lowerCtx* ctx) {
+    if(operand->as.constant.undefined) {
+        printf("Applying %s to undefined value\n", IrInstructionNames[op]);
+    }
+
+    int value = operand->as.constant.value;
+    int retValue;
+    switch(op) {
+        case IR_INS_NEGATE: retValue = -value; break;
+        case IR_INS_NOT: retValue = ~value; break;
+        default:
+            error("Undefined unary fold");
+    }
+
+    IrParameter* ret = IrParameterCreate(ctx->ir);
+    IrParameterConstant(ret, retValue, 32);
+
+    return ret;
+}
+
 static void astLowerTypeArr(const ASTVariableType* type, IrType* arr) {
     switch(type->type) {
         case AST_VARIABLE_TYPE_INT: {
@@ -161,11 +181,15 @@ static IrParameter* basicArithAssign(ASTAssignExpression* exp, IrOpcode op, lowe
         if(exp->pointerShift) {
             IrParameter* integer = value;
             if(op == IR_INS_SUB) {
-                IrParameter* negate = IrParametersCreate(ctx->ir, 2);
-                IrParameterNewVReg(ctx->fn, negate);
-                IrParameterReference(negate + 1, value);
-                IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
-                integer = negate;
+                if(constantFold && value->kind == IR_PARAMETER_CONSTANT) {
+                    integer = constFoldUnary(value, IR_INS_NEGATE, ctx);
+                } else {
+                    IrParameter* negate = IrParametersCreate(ctx->ir, 2);
+                    IrParameterNewVReg(ctx->fn, negate);
+                    IrParameterReference(negate + 1, value);
+                    IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
+                    integer = negate;
+                }
             }
 
             IrParameter* gep = IrParametersCreate(ctx->ir, 3);
@@ -266,6 +290,9 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
     switch(exp->operator.type) {
         case TOKEN_NEGATE: {
             IrParameter* operand = astLowerExpression(exp->operand, ctx);
+            if(constantFold && operand->kind == IR_PARAMETER_CONSTANT) {
+                return constFoldUnary(operand, IR_INS_NEGATE, ctx);
+            }
             IrParameter* params = IrParametersCreate(ctx->ir, 2);
             IrParameterNewVReg(ctx->fn, params);
             IrParameterReference(params + 1, operand);
@@ -274,6 +301,9 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
         }; break;
         case TOKEN_COMPLIMENT: {
             IrParameter* operand = astLowerExpression(exp->operand, ctx);
+            if(constantFold && operand->kind == IR_PARAMETER_CONSTANT) {
+                return constFoldUnary(operand, IR_INS_NOT, ctx);
+            }
             IrParameter* params = IrParametersCreate(ctx->ir, 2);
             IrParameterNewVReg(ctx->fn, params);
             IrParameterReference(params + 1, operand);
@@ -282,6 +312,11 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
         }; break;
         case TOKEN_NOT: {
             IrParameter* operand = astLowerExpression(exp->operand, ctx);
+            if(constantFold && operand->kind == IR_PARAMETER_CONSTANT) {
+                IrParameter* zero = IrParameterCreate(ctx->ir);
+                IrParameterConstant(zero, 0, 8);
+                return constFoldCompare(zero, operand, IR_COMPARE_EQUAL, ctx);
+            }
             IrParameter* params = IrParametersCreate(ctx->ir, 3);
             IrParameterNewVReg(ctx->fn, params);
             IrParameterConstant(params + 1, 0, 8);
@@ -401,11 +436,15 @@ static IrParameter* maybePointerArith(ASTBinaryExpression* exp, IrOpcode op, low
     }
 
     if(op == IR_INS_SUB) {
-        IrParameter* negate = IrParametersCreate(ctx->ir, 2);
-        IrParameterNewVReg(ctx->fn, negate);
-        IrParameterReference(negate + 1, integer);
-        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
-        integer = negate;
+        if(constantFold && integer->kind == IR_PARAMETER_CONSTANT) {
+            integer = constFoldUnary(integer, IR_INS_NEGATE, ctx);
+        } else {
+            IrParameter* negate = IrParametersCreate(ctx->ir, 2);
+            IrParameterNewVReg(ctx->fn, negate);
+            IrParameterReference(negate + 1, integer);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
+            integer = negate;
+        }
     }
 
     IrParameter* gep = IrParametersCreate(ctx->ir, 3);
