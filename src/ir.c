@@ -331,12 +331,22 @@ void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
 
 void IrTypePrint(IrType* ir) {
     switch(ir->kind) {
-        case IR_TYPE_INTEGER:
-            printf("i%d", ir->as.integer);
-            break;
         case IR_TYPE_NONE:
             printf("none");
             break;
+        case IR_TYPE_INTEGER:
+            printf("i%d", ir->as.integer);
+            break;
+        case IR_TYPE_FUNCTION:
+            printf("(");
+            for(unsigned int i = 0; i < ir->as.function.parameterCount; i++) {
+                if(i != 0) printf(", ");
+                IrTypePrint(&ir->as.function.parameters[i].as.type);
+            }
+            if(ir->as.function.parameterCount > 0) printf(" ");
+            printf("-> ");
+            IrTypePrint(&ir->as.function.retType->as.type);
+            printf(")");
     }
     for(unsigned int i = 0; i < ir->pointerDepth; i++) {
         putchar('*');

@@ -330,6 +330,7 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
         bool old = ctx->convertFnDesignator;
         ctx->convertFnDesignator = false;
         AnalyseExpression(unary->operand, ctx);
+        ctx->convertFnDesignator = old;
 
         // elide &*var
         if(unary->operand->type == AST_EXPRESSION_UNARY &&
@@ -341,9 +342,9 @@ static void AnalyseUnaryExpression(ASTExpression* ast, ctx* ctx) {
            unary->operand->as.constant.type != AST_CONSTANT_EXPRESSION_LOCAL) {
             // disallow &1, &(5+6), etc
             errorAt(ctx->parser, &unary->operator, "Cannot take address of not variable");
+        } else {
+            unary->operand->as.constant.local->memoryRequired = true;
         }
-        ctx->convertFnDesignator = old;
-        unary->operand->as.constant.local->memoryRequired = true;
     } else if(unary->operator.type == TOKEN_SIZEOF) {
         if(!unary->isSizeofType) {
             AnalyseExpression(unary->operand, ctx);

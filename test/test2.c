@@ -1,4 +1,6 @@
+int (*getFoo2())() {
 
+}
 
 int main() {
    int a = 5;

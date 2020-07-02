@@ -44,8 +44,9 @@ typedef struct IrType {
 
     // what sort of type is being represented
     enum {
-        IR_TYPE_INTEGER,
         IR_TYPE_NONE,
+        IR_TYPE_INTEGER,
+        IR_TYPE_FUNCTION,
     } kind;
 
     // this is a pointer to the type
@@ -55,6 +56,12 @@ typedef struct IrType {
         // the size of the integer type, eg int = i32
         // i0 means any convinient integer size
         unsigned int integer;
+
+        struct {
+            struct IrParameter* retType;
+            struct IrParameter* parameters;
+            size_t parameterCount;
+        } function;
     } as;
 } IrType;
 
