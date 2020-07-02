@@ -88,14 +88,6 @@ typedef struct IrVirtualRegister {
     IrType type;
 } IrVirtualRegister;
 
-// a global variable
-typedef struct IrGlobal {
-    size_t ID;
-
-    // the value stored in the global
-    IrConstant value;
-} IrGlobal;
-
 // a parameter to an instruction in the ir
 typedef struct IrParameter {
 
@@ -113,7 +105,7 @@ typedef struct IrParameter {
         // a constant numerical value
         IR_PARAMETER_CONSTANT,
 
-        IR_PARAMETER_GLOBAL,
+        IR_PARAMETER_TOP_LEVEL,
     } kind;
 
     // the value stored
@@ -122,7 +114,7 @@ typedef struct IrParameter {
         IrVirtualRegister* virtualRegister;
         struct IrBasicBlock* block;
         IrConstant constant;
-        IrGlobal* global;
+        struct IrTopLevel* topLevel;
     } as;
 } IrParameter;
 
@@ -222,8 +214,6 @@ typedef struct IrBasicBlock {
 
 // a function definition
 typedef struct IrFunction {
-    size_t ID;
-
     // return type, must equal types of everything returned from all
     // return instructions in the function
     IrParameter* returnType;
@@ -248,6 +238,7 @@ typedef struct IrFunction {
 // any top level declaration
 // todo: add struct definitions, etc
 typedef struct IrTopLevel {
+    size_t ID;
 
     enum {
         IR_TOP_LEVEL_GLOBAL,
@@ -259,8 +250,10 @@ typedef struct IrTopLevel {
     const char* name;
     unsigned int nameLength;
 
+    IrType type;
+
     union {
-        IrGlobal global;
+        IrConstant global;
         IrFunction function;
     } as;
 } IrTopLevel;
@@ -286,9 +279,9 @@ typedef struct IrContext {
 extern char* IrInstructionNames[IR_INS_MAX];
 extern char* IrConditionNames[IR_COMPARE_MAX];
 void IrContextCreate(IrContext* ctx, MemoryPool* pool);
-IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount);
-IrGlobal* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength);
-void IrGlobalInitialize(IrGlobal* global, size_t value, size_t size);
+IrTopLevel* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount);
+IrTopLevel* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength);
+void IrGlobalInitialize(IrTopLevel* global, size_t value, size_t size);
 IrBasicBlock* IrBasicBlockCreate(IrFunction* fn);
 IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn);
 IrParameter* IrParameterCreate(IrContext* ctx);
@@ -299,7 +292,7 @@ void IrParameterIntegerType(IrParameter* param, int size);
 void IrParameterNewVReg(IrFunction* fn, IrParameter* param);
 void IrParameterVRegRef(IrParameter* param, IrParameter* vreg);
 void IrParameterBlock(IrParameter* param, IrBasicBlock* block);
-void IrParameterGlobal(IrParameter* param, IrGlobal* global);
+void IrParameterTopLevel(IrParameter* param, IrTopLevel* top);
 void IrParameterReference(IrParameter* param, IrParameter* src);
 void IrTypeAddPointer(IrParameter* param);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);

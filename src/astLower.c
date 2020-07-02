@@ -4,7 +4,7 @@
 
 // SETTINGS
 bool constantFold = true;
-bool copyPropagation = false;
+bool copyPropagation = true;
 
 typedef struct lowerCtx {
     IrContext* ir;
@@ -587,18 +587,34 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
     SymbolLocal* sym = decl->declarator->symbol;
     const ASTVariableTypeFunction* fnType = &decl->declarator->variableType->as.function;
 
-    IrParameter* retType = astLowerType(fnType->ret, ctx);
-    IrParameter* inType = IrParametersCreate(ctx->ir, fnType->paramCount);
-    for(unsigned int i = 0; i < fnType->paramCount; i++) {
-        astLowerTypeParameter(fnType->params[i]->variableType, inType + i, ctx);
-        fnType->params[i]->symbol->toGenerateParameter = true;
-        fnType->params[i]->symbol->parameterNumber = i;
+    IrFunction* fn;
+    if(sym->vreg == NULL) {
+        IrParameter* retType = astLowerType(fnType->ret, ctx);
+        IrParameter* inType = IrParametersCreate(ctx->ir, fnType->paramCount);
+        for(unsigned int i = 0; i < fnType->paramCount; i++) {
+            astLowerTypeParameter(fnType->params[i]->variableType, inType + i, ctx);
+            fnType->params[i]->symbol->toGenerateParameter = true;
+            fnType->params[i]->symbol->parameterNumber = i;
+        }
+        IrTopLevel* topFn = IrFunctionCreate(ctx->ir, sym->name, sym->length, retType, inType, fnType->paramCount);
+        fn = &topFn->as.function;
+
+        sym->vreg = IrParameterCreate(ctx->ir);
+        sym->vregToAlloca = true;
+        IrParameterTopLevel(sym->vreg, topFn);
+        topFn->type.kind = IR_TYPE_FUNCTION;
+        topFn->type.pointerDepth = 0;
+        topFn->type.as.function.parameterCount = fnType->paramCount;
+        topFn->type.as.function.parameters = inType;
+        topFn->type.as.function.retType = retType;
+    } else {
+        fn = &sym->vreg->as.topLevel->as.function;
     }
 
-    IrFunction* fn = IrFunctionCreate(ctx->ir, sym->name, sym->length, retType, inType, fnType->paramCount);
-    ctx->fn = fn;
-
-    astLowerFnCompound(decl->fn, ctx);
+    if(decl->fn != NULL) {
+        ctx->fn = fn;
+        astLowerFnCompound(decl->fn, ctx);
+    }
 }
 
 static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
@@ -629,18 +645,18 @@ static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
 static void astLowerGlobal(ASTInitDeclarator* decl, lowerCtx* ctx) {
     SymbolLocal* sym = decl->declarator->symbol;
 
-    IrGlobal* globl;
+    IrTopLevel* globl;
     if(sym->vreg == NULL) {
         globl = IrGlobalPrototypeCreate(ctx->ir, sym->name, sym->length);
         sym->vreg = IrParameterCreate(ctx->ir);
         sym->vregToAlloca = true;
-        IrParameterGlobal(sym->vreg, globl);
-        astLowerTypeArr(decl->declarator->variableType, &globl->value.type, ctx);
+        IrParameterTopLevel(sym->vreg, globl);
+        astLowerTypeArr(decl->declarator->variableType, &globl->type, ctx);
     } else {
-        globl = sym->vreg->as.global;
+        globl = sym->vreg->as.topLevel;
     }
 
-    if(globl->value.undefined && decl->initializer != NULL) {
+    if(globl->as.global.undefined && decl->initializer != NULL) {
         IrGlobalInitialize(globl, decl->initializer->as.constant.tok.numberValue, 32);
     }
 }

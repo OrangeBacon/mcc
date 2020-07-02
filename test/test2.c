@@ -1,8 +1,8 @@
-int (*getFoo2())() {
-
-}
+int main();
+int (*fn)();
 
 int main() {
+   fn = main;
    int a = 5;
    int *b = &a;
    b++;

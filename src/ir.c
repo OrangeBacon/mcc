@@ -38,12 +38,12 @@ void IrContextCreate(IrContext* ctx, MemoryPool* pool) {
     memoryArrayAlloc(&ctx->phi, pool, 128*MiB, sizeof(IrPhi));
 }
 
-IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount) {
+IrTopLevel* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int nameLength, IrParameter* returnType, IrParameter* inType, size_t parameterCount) {
     IrTopLevel* top = memoryArrayPush(&ctx->topLevel);
     top->name = name;
     top->nameLength = nameLength;
     top->kind = IR_TOP_LEVEL_FUNCTION;
-    top->as.function.ID = ctx->topLevel.itemCount - 1;
+    top->ID = ctx->topLevel.itemCount - 1;
     top->as.function.blockCount = 0;
     top->as.function.parameterCount = 0;
     top->as.function.returnType = returnType;
@@ -52,26 +52,26 @@ IrFunction* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int name
     top->as.function.lastBlock = NULL;
     top->as.function.parameterCount = parameterCount;
     top->as.function.parameters = inType;
-    return &top->as.function;
+    return top;
 }
 
-IrGlobal* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength) {
+IrTopLevel* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength) {
     IrTopLevel* top = memoryArrayPush(&ctx->topLevel);
     top->name = name;
     top->nameLength = nameLength;
     top->kind = IR_TOP_LEVEL_GLOBAL;
-    top->as.global.ID = ctx->topLevel.itemCount - 1;
-    top->as.global.value.undefined = true;
+    top->ID = ctx->topLevel.itemCount - 1;
+    top->as.global.undefined = true;
 
-    return &top->as.global;
+    return top;
 }
 
-void IrGlobalInitialize(IrGlobal* global, size_t value, size_t size) {
-    global->value.value = value;
-    global->value.undefined = false;
-    global->value.type.kind = IR_TYPE_INTEGER;
-    global->value.type.pointerDepth = 0;
-    global->value.type.as.integer = size;
+void IrGlobalInitialize(IrTopLevel* top, size_t value, size_t size) {
+    top->as.global.value = value;
+    top->as.global.undefined = false;
+    top->as.global.type.kind = IR_TYPE_INTEGER;
+    top->as.global.type.pointerDepth = 0;
+    top->as.global.type.as.integer = size;
 }
 
 IrBasicBlock* IrBasicBlockCreate(IrFunction* fn) {
@@ -182,9 +182,9 @@ void IrParameterBlock(IrParameter* param, IrBasicBlock* block) {
     param->as.block = block;
 }
 
-void IrParameterGlobal(IrParameter* param, IrGlobal* global) {
-    param->kind = IR_PARAMETER_GLOBAL;
-    param->as.global = global;
+void IrParameterTopLevel(IrParameter* param, IrTopLevel* top) {
+    param->kind = IR_PARAMETER_TOP_LEVEL;
+    param->as.topLevel = top;
 }
 
 void IrParameterReference(IrParameter* param, IrParameter* src) {
@@ -193,8 +193,8 @@ void IrParameterReference(IrParameter* param, IrParameter* src) {
             IrParameterBlock(param, src->as.block); break;
         case IR_PARAMETER_CONSTANT:
             *param = *src; break;
-        case IR_PARAMETER_GLOBAL:
-            IrParameterGlobal(param, src->as.global); break;
+        case IR_PARAMETER_TOP_LEVEL:
+            IrParameterTopLevel(param, src->as.topLevel); break;
         case IR_PARAMETER_REGISTER:
             IrParameterVRegRef(param, src); break;
         case IR_PARAMETER_TYPE:
@@ -208,8 +208,8 @@ static IrType* IrParameterGetType(IrParameter* param) {
             printf("blocks do not have a type"); exit(0);
         case IR_PARAMETER_CONSTANT:
             return &param->as.constant.type;
-        case IR_PARAMETER_GLOBAL:
-            return &param->as.global->value.type;
+        case IR_PARAMETER_TOP_LEVEL:
+            return &param->as.topLevel->type;
         case IR_PARAMETER_REGISTER:
             return &param->as.virtualRegister->type;
         case IR_PARAMETER_TYPE:
@@ -354,11 +354,11 @@ void IrTypePrint(IrType* ir) {
 }
 
 void IrGlobalPrint(IrTopLevel* ir) {
-    IrGlobal* global = &ir->as.global;
-    printf("global %.*s $%lld : ", ir->nameLength, ir->name, global->ID);
-    IrTypePrint(&global->value.type);
-    if(!global->value.undefined) {
-        printf(" = %d\n\n", global->value.value);
+    IrConstant* global = &ir->as.global;
+    printf("global %.*s $%lld : ", ir->nameLength, ir->name, ir->ID);
+    IrTypePrint(&ir->type);
+    if(!global->undefined) {
+        printf(" = %d\n\n", global->value);
     } else {
         printf("\n\n");
     }
@@ -386,8 +386,8 @@ void IrParameterPrint(IrParameter* param, bool printType) {
         case IR_PARAMETER_BLOCK:
             printf("@%lld", param->as.block->ID);
             break;
-        case IR_PARAMETER_GLOBAL:
-            printf("$%lld", param->as.global->ID);
+        case IR_PARAMETER_TOP_LEVEL:
+            printf("$%lld", param->as.topLevel->ID);
             break;
     }
 
@@ -405,8 +405,8 @@ void IrParameterPrint(IrParameter* param, bool printType) {
         case IR_PARAMETER_BLOCK:
             printf("block");
             break;
-        case IR_PARAMETER_GLOBAL:
-            IrTypePrint(&param->as.global->value.type);
+        case IR_PARAMETER_TOP_LEVEL:
+            IrTypePrint(&param->as.topLevel->type);
             break;
 
         case IR_PARAMETER_TYPE: break; // unreachable;
@@ -505,7 +505,7 @@ unsigned int intLength(unsigned int num) {
 
 void IrFunctionPrint(IrTopLevel* ir) {
     IrFunction* fn = &ir->as.function;
-    printf("function %.*s $%lld(", ir->nameLength, ir->name, fn->ID);
+    printf("function %.*s $%lld(", ir->nameLength, ir->name, ir->ID);
     for(unsigned int i = 0; i < fn->parameterCount; i++) {
         if(i != 0) printf(", ");
         IrParameterPrint(&fn->parameters[i], false);
