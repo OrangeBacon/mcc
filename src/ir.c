@@ -358,8 +358,14 @@ void IrTypePrint(IrType* ir) {
 
 void IrGlobalPrint(IrTopLevel* ir) {
     IrConstant* global = &ir->as.global;
-    printf("global %.*s $%lld : ", ir->nameLength, ir->name, ir->ID);
+    printf("global %.*s : ", ir->nameLength, ir->name);
+    IrType realType = ir->type;
+    realType.pointerDepth--;
+    IrTypePrint(&realType);
+
+    printf(" -> $%lld : ", ir->ID);
     IrTypePrint(&ir->type);
+
     if(!global->undefined) {
         printf(" = %d\n\n", global->value);
     } else {
@@ -509,13 +515,8 @@ unsigned int intLength(unsigned int num) {
 
 void IrFunctionPrint(IrTopLevel* ir) {
     IrFunction* fn = &ir->as.function;
-    printf("function %.*s $%lld(", ir->nameLength, ir->name, ir->ID);
-    for(unsigned int i = 0; i < fn->parameterCount; i++) {
-        if(i != 0) printf(", ");
-        IrParameterPrint(&fn->parameters[i], false);
-    }
-    printf(") : ");
-    IrParameterPrint(fn->returnType, false);
+    printf("function %.*s $%lld", ir->nameLength, ir->name, ir->ID);
+    IrTypePrint(&ir->type);
 
     if(fn->blockCount == 0) {
         printf("\n\n");

@@ -177,7 +177,21 @@ static IrParameter* basicArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* 
     } else if(target->type == AST_EXPRESSION_UNARY
               && target->as.unary.operator.type == TOKEN_STAR) {
         // dereference
-        storeLocation = astLowerExpression(target->as.unary.operand, ctx);
+        ASTExpression* targetVariable = target;
+
+        // if assigning to global variable
+        // update if adding another lvalue
+        while(true) {
+            if(targetVariable->type == AST_EXPRESSION_CONSTANT) break;
+            if(targetVariable->type == AST_EXPRESSION_UNARY) {
+                targetVariable = targetVariable->as.unary.operand;
+            }
+        }
+        if(targetVariable->as.constant.local->scopeDepth == 0) {
+            storeLocation = astLowerExpression(target, ctx);
+        } else {
+            storeLocation = astLowerExpression(target->as.unary.operand, ctx);
+        }
         generateLoad = true;
     } else {
         // extend if new lvalue added
@@ -687,6 +701,7 @@ static void astLowerGlobal(ASTInitDeclarator* decl, lowerCtx* ctx) {
         sym->vregToAlloca = true;
         IrParameterTopLevel(sym->vreg, globl);
         astLowerTypeArr(decl->declarator->variableType, &globl->type, ctx);
+        globl->type.pointerDepth++;
     } else {
         globl = sym->vreg->as.topLevel;
     }
