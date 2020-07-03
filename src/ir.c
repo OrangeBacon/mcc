@@ -260,6 +260,9 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
         case IR_INS_CAST:
             *ret = instruction->params[0].as.type;
             break;
+        case IR_INS_CALL:
+            *ret = IrParameterGetType(&instruction->params[0])->as.function.retType->as.type;
+            break;
 
         // no return value
         case IR_INS_RETURN:
@@ -436,6 +439,7 @@ char* IrInstructionNames[IR_INS_MAX] = {
     [IR_INS_STORE] = "store",
     [IR_INS_GET_ELEMENT_POINTER] = "get element pointer",
     [IR_INS_CAST] = "cast",
+    [IR_INS_CALL] = "call",
 };
 
 char* IrConditionNames[IR_COMPARE_MAX] = {
@@ -512,6 +516,12 @@ void IrFunctionPrint(IrTopLevel* ir) {
     }
     printf(") : ");
     IrParameterPrint(fn->returnType, false);
+
+    if(fn->blockCount == 0) {
+        printf("\n\n");
+        return;
+    }
+
     printf(" {\n");
 
     unsigned int instrCount = 0;

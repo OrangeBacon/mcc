@@ -303,7 +303,7 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
                     return param;
                 }
             }
-            if(!exp->local->vregToAlloca) {
+            if(!exp->local->vregToAlloca || exp->local->scopeDepth == 0) {
                 return exp->local->vreg;
             }
             IrParameter* load = IrParametersCreate(ctx->ir, 2);
@@ -537,6 +537,22 @@ static IrParameter* astLowerCast(ASTCastExpression* exp, lowerCtx* ctx) {
     return params;
 }
 
+static IrParameter* astLowerCall(ASTCallExpression* exp, lowerCtx* ctx) {
+    IrParameter* target = astLowerExpression(exp->target, ctx);
+
+    IrParameter* params = IrParametersCreate(ctx->ir, 2 + exp->paramCount);
+    IrParameterNewVReg(ctx->fn, params);
+    IrParameterReference(params + 1, target);
+
+    for(unsigned int i = 0; i < exp->paramCount; i++) {
+        IrParameterReference(params + i + 2, astLowerExpression(exp->params[i], ctx));
+    }
+
+    IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_CALL, params, 2 + exp->paramCount);
+
+    return params;
+}
+
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_EXPRESSION_ASSIGN:
@@ -551,6 +567,8 @@ static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
             return astLowerPostfix(exp, ctx);
         case AST_EXPRESSION_CAST:
             return astLowerCast(&exp->as.cast, ctx);
+        case AST_EXPRESSION_CALL:
+            return astLowerCall(&exp->as.call, ctx);
         default:
             error("Unsupported expression");
     }
