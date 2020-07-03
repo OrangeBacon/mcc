@@ -600,6 +600,13 @@ static void astLowerJump(ASTJumpStatement* ast, lowerCtx* ctx) {
     }
 }
 
+static void astLowerBlockItem(ASTBlockItem* ast, lowerCtx* ctx);
+static void astLowerCompound(ASTCompoundStatement* ast, lowerCtx* ctx) {
+    for(unsigned int i = 0; i < ast->itemCount; i++) {
+        astLowerBlockItem(ast->items[i], ctx);
+    }
+}
+
 static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
     switch(ast->type) {
         case AST_STATEMENT_JUMP:
@@ -607,6 +614,10 @@ static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
             break;
         case AST_STATEMENT_EXPRESSION:
             astLowerExpression(ast->as.expression, ctx);
+            break;
+        case AST_STATEMENT_COMPOUND:
+            astLowerCompound(ast->as.compound, ctx);
+        case AST_STATEMENT_NULL:
             break;
         default:
             error("Unsupported statement");
