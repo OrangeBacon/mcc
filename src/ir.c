@@ -202,7 +202,7 @@ void IrParameterReference(IrParameter* param, IrParameter* src) {
     }
 }
 
-static IrType* IrParameterGetType(IrParameter* param) {
+IrType* IrParameterGetType(IrParameter* param) {
     switch(param->kind) {
         case IR_PARAMETER_BLOCK:
             printf("blocks do not have a type"); exit(0);
@@ -544,4 +544,28 @@ void IrContextPrint(IrContext* ctx) {
     for(unsigned int i = 0; i < ctx->topLevel.itemCount; i++) {
         IrTopLevelPrint(ctx, i);
     }
+}
+
+bool IrTypeEqual(IrType* a, IrType* b) {
+    if(a->kind != b->kind) return false;
+    if(a->pointerDepth != b->pointerDepth) return false;
+
+    switch(a->kind) {
+        case IR_TYPE_NONE: return true;
+        case IR_TYPE_INTEGER: return a->as.integer == b->as.integer;
+        case IR_TYPE_FUNCTION:
+            if(a->as.function.parameterCount != b->as.function.parameterCount)
+                return false;
+            if(!IrTypeEqual(&a->as.function.retType->as.type, &b->as.function.retType->as.type))
+                return false;
+            for(unsigned int i = 0; i < a->as.function.parameterCount; i++) {
+                if(!IrTypeEqual(&a->as.function.parameters[i].as.type,
+                                &b->as.function.parameters[i].as.type)) {
+                    return false;
+                }
+            }
+            return true;
+    }
+
+    printf("unreachable type equality\n"); exit(1);
 }

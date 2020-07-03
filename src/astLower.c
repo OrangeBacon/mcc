@@ -522,6 +522,21 @@ static IrParameter* astLowerPostfix(ASTExpression* exp, lowerCtx* ctx) {
     return basicArithAssign(exp, opcode, ctx);
 }
 
+static IrParameter* astLowerCast(ASTCastExpression* exp, lowerCtx* ctx) {
+    IrParameter* value = astLowerExpression(exp->expression, ctx);
+
+    IrParameter* castType = astLowerType(exp->type->variableType, ctx);
+    if(IrTypeEqual(IrParameterGetType(value), &castType->as.type)) return value;
+
+    IrParameter* params = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, params);
+    params[1] = *castType;
+    IrParameterReference(params + 2, value);
+    IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_CAST, params, 3);
+
+    return params;
+}
+
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_EXPRESSION_ASSIGN:
@@ -534,6 +549,8 @@ static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
             return astLowerBinary(&exp->as.binary, ctx);
         case AST_EXPRESSION_POSTFIX:
             return astLowerPostfix(exp, ctx);
+        case AST_EXPRESSION_CAST:
+            return astLowerCast(&exp->as.cast, ctx);
         default:
             error("Unsupported expression");
     }

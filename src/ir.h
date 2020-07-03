@@ -303,4 +303,7 @@ IrParameter* IrBlockSetPredecessors(IrBasicBlock* block, size_t count);
 
 void IrContextPrint(IrContext* ctx);
 
+bool IrTypeEqual(IrType* a, IrType* b);
+IrType* IrParameterGetType(IrParameter* param);
+
 #endif
