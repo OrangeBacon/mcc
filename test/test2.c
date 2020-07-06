@@ -23,6 +23,7 @@ int main() {
    int a = 5;
    int *b = &a;
    int c = (*b);
+   int size = sizeof(size);
 
    {
       int var = 0;
@@ -32,7 +33,7 @@ int main() {
    }
 
    int (*testFn)(int, int, int, int, int, int, int, int, int, int j) = test;
-   putchar(testFn(1,2,3,4,5,6,7, 8, 9,72));
+   putchar(testFn(1,2,3,4,5,6,7, sizeof(int*), 9,72));
    getFoo2();
 
    return a + c + (int)b;

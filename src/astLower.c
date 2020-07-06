@@ -391,6 +391,14 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
             IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, params, 2);
             return params;
         }; break;
+        case TOKEN_SIZEOF: {
+            IrParameter* params = IrParametersCreate(ctx->ir, 2);
+            IrParameterNewVReg(ctx->fn, params);
+            if(exp->isSizeofType) astLowerTypeParameter(exp->typeExpr, params + 1, ctx);
+            else astLowerTypeParameter(exp->operand->exprType, params + 1, ctx);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_SIZEOF, params, 2);
+            return params;
+        }; break;
         default:
             error("Unsupported unary");
     }

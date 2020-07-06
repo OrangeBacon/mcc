@@ -155,6 +155,7 @@ typedef enum IrOpcode {
     IR_INS_GET_ELEMENT_POINTER,
     IR_INS_CAST,
     IR_INS_CALL,
+    IR_INS_SIZEOF,
     IR_INS_MAX, // largest opcode number;
 } IrOpcode;
 
