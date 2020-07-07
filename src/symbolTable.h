@@ -95,4 +95,47 @@ SymbolExitList* SymbolTableExit(SymbolTable* table);
         tableSet(&(table), (char*)(key), (length), (void*)(value)); \
     } while(0)
 
+
+// SSA variable lookup hash table
+
+typedef struct PairKey {
+    struct IrBasicBlock* key1;
+    struct SymbolLocal* key2;
+    uint32_t hash;
+} PairKey;
+
+typedef struct PairEntry {
+    PairKey key;
+
+    void* value;
+} PairEntry;
+
+typedef struct PairTable {
+    // hash table
+    ARRAY_DEFINE(PairEntry, entry);
+
+    size_t valueSize;
+} PairTable;
+
+void pairAdjustCapacity(PairTable* table, unsigned int capacity);
+void pairTableSet(PairTable* table, struct IrBasicBlock* key1, struct SymbolLocal* key2, void* value);
+void* pairTableGet(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2);
+bool pairPableHas(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2);
+
+#define PAIRTABLE_INIT(table, vType) \
+    do { \
+        (table).valueSize = sizeof(vType); \
+        ARRAY_ZERO((table), entry); \
+        pairAdjustCapacity(&(table), 8); \
+    } while(0)
+
+#define PAIRTABLE_SET(table, key1, key2, value) \
+    do { \
+        if(sizeof(value) != (table).valueSize) { \
+            printf("Seting pairtable member based on incorrect value size, correct " \
+                "is %zu, got %zu", (table).valueSize, sizeof(value)); \
+        } \
+        pairTableSet(&(table), (key1), (key2), (void*)(value)); \
+    } while(0)
+
 #endif

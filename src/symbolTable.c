@@ -1,6 +1,7 @@
 #include "symbolTable.h"
 
 #include <string.h>
+#include <math.h>
 
 static uint32_t stringHash(const char* str, unsigned int length) {
     uint32_t hash = 2166126261u;
@@ -191,7 +192,7 @@ bool tableHas(Table* table, const char* key, unsigned int length) {
     Entry* entry = findEntry(table->entrys, table->entryCapacity, &test);
 
     // if the item is in the table, its key will not be null
-    return !(entry->key.key == NULL);
+    return entry->key.key != NULL;
 }
 
 void tableRemove(Table* table, const char* key, unsigned int length) {
@@ -207,4 +208,126 @@ void tableRemove(Table* table, const char* key, unsigned int length) {
     Entry* entry = findEntry(table->entrys, table->entryCapacity, &test);
     entry->key.key = NULL;
     entry->value = NULL;
+}
+
+// find an entry in a list of entries
+static PairEntry* pairFindEntry(PairEntry* entries, int capacity, PairKey* key) {
+
+    // location to start searching
+    uint32_t index = key->hash % capacity;
+
+    while(true) {
+        // value to check
+        PairEntry* entry = &entries[index];
+
+        // if run out of entries to check or the correct entry is found,
+        // return current search item
+        if(entry->key.key1 == NULL || (entry->key.key1 == key->key1 && entry->key.key2 == key->key2)) {
+            return entry;
+        }
+
+        // get next location, wrapping round to index 0
+        index = (index + 1) % capacity;
+    }
+}
+
+// hopefully this works, I dont know how good of a hash function this actually is
+// the log2/ceil seem to optimise out, so there isn't actualy any fp math
+static uint32_t pairHash(struct IrBasicBlock* key1, struct SymbolLocal* key2) {
+    uint32_t a = ((uint64_t)key1) >> (uint32_t)ceil(log2(sizeof(struct IrBasicBlock*)));
+    uint32_t b = ((uint64_t)key2) >> (uint32_t)ceil(log2(sizeof(struct SymbolLocal*)));
+    return a ^ b;
+}
+
+void pairAdjustCapacity(PairTable* table, unsigned int capacity) {
+    // create new data section and null initialise
+    PairEntry* entries = ArenaAlloc(sizeof(*entries) * capacity);
+    for(unsigned int i = 0; i < capacity; i++) {
+        entries[i].key.key1 = NULL;
+        entries[i].value = NULL;
+    }
+
+    // copy data from the table to the new data section
+    // re-organises table for new memory size not just
+    // copying the data across.
+    if(table->entryCount > 0) {
+        for(unsigned int i = 0; i < table->entryCapacity; i++) {
+            PairEntry* entry = &table->entrys[i];
+            if(entry->key.key1 == NULL) {
+                continue;
+            }
+
+            PairEntry* dest = pairFindEntry(entries, capacity, &entry->key);
+            dest->key = entry->key;
+            dest->value = entry->value;
+        }
+    }
+
+    // set the table's data to the new data
+    table->entrys = entries;
+    table->entryCapacity = capacity;
+}
+
+void pairTableSet(PairTable* table, struct IrBasicBlock* key1, struct SymbolLocal* key2, void* value) {
+    // create the key to be inserted into the table
+    PairKey key;
+    key.key1 = key1;
+    key.key2 = key2;
+    key.hash = pairHash(key1, key2);
+
+    // make sure the table is big enough
+    if(table->entryCount + 1 > table->entryCapacity * TABLE_MAX_LOAD) {
+        int capacity = table->entryCapacity;
+        capacity = capacity < 8 ? 8 : capacity * 2;
+        pairAdjustCapacity(table, capacity);
+    }
+
+    // get the entry to be set
+    PairEntry* entry = pairFindEntry(table->entrys, table->entryCapacity, &key);
+
+    // does the entry have any content?
+    bool isNewKey = entry->key.key1 == NULL;
+    if(isNewKey) {
+        table->entryCount++;
+    }
+
+    entry->key = key;
+    entry->value = value;
+}
+
+void* pairTableGet(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2) {
+    // if nothing has been set then get will always be false
+    if(table->entrys == NULL) {
+        return false;
+    }
+
+    // create key to search for
+    PairKey key;
+    key.key1 = key1;
+    key.key2 = key2;
+    key.hash = pairHash(key1, key2);
+
+    // find location where the key should be
+    PairEntry* entry = pairFindEntry(table->entrys, table->entryCapacity, &key);
+    if(entry->key.key1 == NULL) {
+        return NULL;
+    }
+
+    return entry->value;
+}
+
+bool pairPableHas(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2) {
+    if(table->entrys == NULL) {
+        return false;
+    }
+
+    PairKey test;
+    test.key1 = key1;
+    test.key2 = key2;
+    test.hash = pairHash(key1, key2);
+
+    PairEntry* entry = pairFindEntry(table->entrys, table->entryCapacity, &test);
+
+    // if the item is in the table, its key will not be null
+    return entry->key.key1 != NULL;
 }
