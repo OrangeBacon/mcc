@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include "memory.h"
-#include "ir.h"
 
 // Hash table implementation
 
@@ -45,7 +44,7 @@ typedef struct SymbolLocal {
     // used only by the backend, not in creating the ast
     int stackOffset;
 
-    IrParameter* vreg;
+    struct IrParameter* vreg;
     int parameterNumber;
 
     bool memoryRequired : 1;
@@ -99,8 +98,8 @@ SymbolExitList* SymbolTableExit(SymbolTable* table);
 // SSA variable lookup hash table
 
 typedef struct PairKey {
-    struct IrBasicBlock* key1;
-    struct SymbolLocal* key2;
+    struct SymbolLocal* key1;
+    struct IrBasicBlock* key2;
     uint32_t hash;
 } PairKey;
 
@@ -118,9 +117,9 @@ typedef struct PairTable {
 } PairTable;
 
 void pairAdjustCapacity(PairTable* table, unsigned int capacity);
-void pairTableSet(PairTable* table, struct IrBasicBlock* key1, struct SymbolLocal* key2, void* value);
-void* pairTableGet(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2);
-bool pairPableHas(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2);
+void pairTableSet(PairTable* table, struct SymbolLocal* key1, struct IrBasicBlock* key2, void* value);
+void* pairTableGet(PairTable* table,  struct SymbolLocal* key1, struct IrBasicBlock* key2);
+bool pairPableHas(PairTable* table,  struct SymbolLocal* key1, struct IrBasicBlock* key2);
 
 #define PAIRTABLE_INIT(table, vType) \
     do { \

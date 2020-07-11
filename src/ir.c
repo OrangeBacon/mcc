@@ -35,6 +35,7 @@ void IrContextCreate(IrContext* ctx, MemoryPool* pool) {
     memoryArrayAlloc(&ctx->instructions, pool, 512*MiB, sizeof(IrInstruction));
     memoryArrayAlloc(&ctx->instParams, pool, 512*MiB, sizeof(IrParameter));
     memoryArrayAlloc(&ctx->vReg, pool, 256*MiB, sizeof(IrVirtualRegister));
+    memoryArrayAlloc(&ctx->vRegUsageData, pool, 128*MiB, sizeof(IrVirtualRegisterUsage));
     memoryArrayAlloc(&ctx->phi, pool, 128*MiB, sizeof(IrPhi));
 }
 
@@ -52,6 +53,7 @@ IrTopLevel* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int name
     top->as.function.lastBlock = NULL;
     top->as.function.parameterCount = parameterCount;
     top->as.function.parameters = inType;
+    PAIRTABLE_INIT(top->as.function.variableTable, IrParameter*);
     return top;
 }
 
@@ -81,11 +83,11 @@ IrBasicBlock* IrBasicBlockCreate(IrFunction* fn) {
     block->fn = fn;
     block->lastInstruction = NULL;
     block->instructionCount = 0;
-    block->predecessors = NULL;
-    block->predecessorCount = 0;
     block->firstPhi = NULL;
     block->phiCount = 0;
     block->lastPhi = NULL;
+    block->sealed = false;
+    ARRAY_ALLOC(IrBasicBlock*, *block, predecessor);
 
     if(fn->blockCount == 0) {
         fn->firstBlock = fn->lastBlock = block;
@@ -101,17 +103,22 @@ IrBasicBlock* IrBasicBlockCreate(IrFunction* fn) {
     return block;
 }
 
-IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, size_t params) {
+IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
     IrPhi* phi = memoryArrayPush(&ctx->phi);
     IrParameterNewVReg(block->fn, &phi->result);
     phi->next = NULL;
-    phi->parameterCount = params;
-    phi->params = memoryArrayPushN(&ctx->instParams, params);
-    phi->blocks = memoryArrayPushN(&ctx->instParams, params);
+    ARRAY_ALLOC(IrPhiParameter, *phi, param);
+    phi->incomplete = true;
+
+    phi->result.as.virtualRegister->block = block;
+    phi->var = var;
+    phi->block = block;
 
     if(block->phiCount == 0) {
+        phi->prev = NULL;
         block->firstPhi = block->lastPhi = phi;
     } else {
+        phi->prev = block->lastPhi;
         block->lastPhi->next = phi;
         block->lastPhi = phi;
     }
@@ -120,9 +127,16 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, size_t params) {
     return phi;
 }
 
-IrParameter* IrBlockSetPredecessors(IrBasicBlock* block, size_t count) {
-    block->predecessorCount = count;
-    return block->predecessors = memoryArrayPushN(&block->fn->ctx->instParams, count);
+void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand) {
+    ARRAY_PUSH(*phi, param, ((IrPhiParameter) {operand, block}));
+
+    if(phi->paramCount == 0) {
+        phi->result.as.virtualRegister->type = *IrParameterGetType(operand);
+    }
+
+    if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_REGISTER) {
+        IrVirtualRegisterAddUsage(ctx, phi->params[phi->paramCount-1].param, phi);
+    }
 }
 
 IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn) {
@@ -136,8 +150,29 @@ IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn) {
     fn->lastVReg = reg;
 
     reg->type.kind = IR_TYPE_NONE;
+    reg->users = NULL;
+    reg->useCount = 0;
 
     return reg;
+}
+
+void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, IrPhi* phi) {
+    IrVirtualRegister* reg = param->as.virtualRegister;
+    IrVirtualRegisterUsage* usage = memoryArrayPush(&ctx->vRegUsageData);
+    usage->usage = param;
+    usage->next = NULL;
+    usage->phi = phi;
+
+    if(reg->users == NULL) {
+        usage->prev = NULL;
+        reg->users = usage;
+    } else {
+        reg->users->next = usage;
+        usage->prev = reg->users;
+        reg->users = usage;
+    }
+
+    reg->useCount++;
 }
 
 IrParameter* IrParameterCreate(IrContext* ctx) {
@@ -187,6 +222,11 @@ void IrParameterTopLevel(IrParameter* param, IrTopLevel* top) {
     param->as.topLevel = top;
 }
 
+void IrParameterPhi(IrParameter* param, IrPhi* phi) {
+    param->kind = IR_PARAMETER_PHI;
+    param->as.phi = phi;
+}
+
 void IrParameterReference(IrParameter* param, IrParameter* src) {
     switch(src->kind) {
         case IR_PARAMETER_BLOCK:
@@ -197,6 +237,8 @@ void IrParameterReference(IrParameter* param, IrParameter* src) {
             IrParameterTopLevel(param, src->as.topLevel); break;
         case IR_PARAMETER_REGISTER:
             IrParameterVRegRef(param, src); break;
+        case IR_PARAMETER_PHI:
+            IrParameterPhi(param, src->as.phi); break;
         case IR_PARAMETER_TYPE:
             printf("IrBuilder error\n");exit(1);
     }
@@ -214,6 +256,8 @@ IrType* IrParameterGetType(IrParameter* param) {
             return &param->as.virtualRegister->type;
         case IR_PARAMETER_TYPE:
             return &param->as.type;
+        case IR_PARAMETER_PHI:
+            return &param->as.phi->result.as.virtualRegister->type;
     }
 
     return NULL; // unreachable
@@ -300,6 +344,15 @@ static IrInstruction* addIns(IrContext* ctx, IrBasicBlock* block, IrOpcode opcod
     return inst;
 }
 
+static void instructionVregUsageSet(IrContext* ctx, IrParameter* params, unsigned int paramCount) {
+    for(unsigned int i = 0; i < paramCount; i++) {
+        IrParameter* param = &params[i];
+        if(param->kind == IR_PARAMETER_REGISTER) {
+            IrVirtualRegisterAddUsage(ctx, param, NULL);
+        }
+    }
+}
+
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount) {
     IrInstruction* inst = addIns(ctx, block, opcode);
 
@@ -310,6 +363,7 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
     params[0].as.virtualRegister->block = block;
 
     IrInstructionSetReturnType(block->fn, inst);
+    instructionVregUsageSet(ctx, inst->params, inst->parameterCount);
 
     return inst;
 }
@@ -321,6 +375,8 @@ IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOp
     inst->params = params;
     inst->parameterCount = paramCount;
 
+    instructionVregUsageSet(ctx, inst->params, inst->parameterCount);
+
     return inst;
 }
 
@@ -331,6 +387,111 @@ void IrTypeAddPointer(IrParameter* param) {
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
     inst->hasCondition = true;
     inst->comparison = cmp;
+}
+
+// --------------- //
+// VARIABLE LOOKUP //
+// --------------- //
+
+// See Simple and Efficient Construction of Static SingleAssignment Form
+// (https://c9x.me/compile/bib/braun13cc.pdf) for more infomation
+
+void IrWriteVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block, IrParameter* value) {
+    PAIRTABLE_SET(fn->variableTable, var, block, value);
+}
+
+IrParameter* IrReadVariableRecursive();
+IrParameter* IrReadVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block) {
+    if(pairPableHas(&fn->variableTable, var, block)) {
+        // local value numbering
+        return pairTableGet(&fn->variableTable, var, block);
+    }
+
+    // global value numbering
+    return IrReadVariableRecursive(fn, var, block);
+}
+
+IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi);
+IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block) {
+    IrParameter* val;
+
+    if(!block->sealed) {
+        // incomplete CFG
+        IrPhi* phi = IrPhiCreate(fn->ctx, block, var);
+        val = &phi->result;
+    } else if(block->predecessorCount == 1) {
+        // Optimise the common case of one predecessor: No phi needed
+        val = IrReadVariable(fn, var, block->predecessors[0]);
+    } else {
+        // Break potential cycles with operandless phis
+        IrPhi* phi = IrPhiCreate(fn->ctx, block, var);
+        val = &phi->result;
+        IrWriteVariable(fn, var, block, val);
+        val = IrAddPhiOperands(fn, var, phi);
+    }
+
+    IrWriteVariable(fn, var, block, val);
+
+    return val;
+}
+
+IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
+IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi) {
+    for(unsigned int i = 0; i < phi->paramCount; i++) {
+        IrPhiAddOperand(fn->ctx, phi, phi->params[i].block, IrReadVariable(fn, var, phi->params[i].block));
+    }
+
+    return IrTryRemoveTrivialPhi(phi);
+}
+
+IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
+    IrParameter* same = NULL;
+
+    for(unsigned int i = 0; i < phi->paramCount; i++) {
+        IrPhiParameter* param = &phi->params[i];
+        if(param->param == same || (param->param->kind == IR_PARAMETER_PHI && param->param->as.phi == phi)) {
+            continue; // unique value or self-reference
+        }
+        if(same != NULL) {
+            return &phi->result; // the phi merges at least two values: not trivial
+        }
+        same = param->param;
+    }
+
+    if(same == NULL) {
+        printf("The phi is unreachable or in the start block");
+    }
+
+    // remember all users exept the phi itsself
+    IrVirtualRegister* reg = phi->result.as.virtualRegister;
+
+    // reverse iterate double linked list
+    IrVirtualRegisterUsage* usage = reg->users;
+    for(unsigned int i = 0; i < reg->useCount; i++) {
+        if(!(usage->usage->kind == IR_PARAMETER_PHI && usage->usage->as.phi == phi)) {
+            // reroute all uses of phi to same
+            *usage->usage = *same;
+            if(usage->phi != NULL) IrTryRemoveTrivialPhi(usage->phi);
+        }
+        usage = usage->prev;
+    }
+
+    // remove phi
+    IrPhi* prev = phi->prev;
+    IrPhi* next = phi->next;
+    prev->next = next;
+    next->prev = prev;
+    phi->block->phiCount--;
+
+    return same;
+}
+
+void IrSealBlock(IrFunction* fn, IrBasicBlock* block) {
+    ITER_PHIS(block, i, phi, {
+        if(phi->incomplete)
+        IrAddPhiOperands(fn, phi->var, phi);
+    });
+    block->sealed = true;
 }
 
 // ------- //
@@ -403,6 +564,9 @@ void IrParameterPrint(IrParameter* param, bool printType) {
         case IR_PARAMETER_TOP_LEVEL:
             printf("$%lld", param->as.topLevel->ID);
             break;
+        case IR_PARAMETER_PHI:
+            IrParameterPrint(&param->as.phi->result, printType);
+            break;
     }
 
     if(!printType || param->kind == IR_PARAMETER_TYPE) return;
@@ -421,6 +585,9 @@ void IrParameterPrint(IrParameter* param, bool printType) {
             break;
         case IR_PARAMETER_TOP_LEVEL:
             IrTypePrint(&param->as.topLevel->type);
+            break;
+        case IR_PARAMETER_PHI:
+            IrTypePrint(&param->as.phi->result.as.virtualRegister->type);
             break;
 
         case IR_PARAMETER_TYPE: break; // unreachable;
@@ -495,16 +662,16 @@ void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize)
         printf("(");
         for(unsigned int i = 0; i < block->predecessorCount; i++) {
             if(i > 0) printf(", ");
-            printf("@%lld", block->predecessors[i].as.block->ID);
+            printf("@%lld", block->predecessors[i]->ID);
         }
         printf("):\n");
     }
 
     ITER_PHIS(block, i, phi, {
         printf("%*s |   %%%lld = phi ", gutterSize, "", phi->result.as.virtualRegister->ID);
-        for(unsigned int j = 0; j < phi->parameterCount; j++) {
-            printf("[@%lld ", phi->blocks[j].as.block->ID);
-            IrParameterPrint(&phi->params[j], false);
+        for(unsigned int j = 0; j < phi->paramCount; j++) {
+            printf("[@%lld ", phi->params[j].block->ID);
+            IrParameterPrint(phi->params[j].param, false);
             printf("] ");
         }
         printf("\n");

@@ -233,9 +233,9 @@ static PairEntry* pairFindEntry(PairEntry* entries, int capacity, PairKey* key) 
 
 // hopefully this works, I dont know how good of a hash function this actually is
 // the log2/ceil seem to optimise out, so there isn't actualy any fp math
-static uint32_t pairHash(struct IrBasicBlock* key1, struct SymbolLocal* key2) {
-    uint32_t a = ((uint64_t)key1) >> (uint32_t)ceil(log2(sizeof(struct IrBasicBlock*)));
-    uint32_t b = ((uint64_t)key2) >> (uint32_t)ceil(log2(sizeof(struct SymbolLocal*)));
+static uint32_t pairHash(struct SymbolLocal* key1, struct IrBasicBlock* key2) {
+    uint32_t a = ((uint64_t)key1) >> (uint32_t)ceil(log2(sizeof(key1)));
+    uint32_t b = ((uint64_t)key2) >> (uint32_t)ceil(log2(sizeof(key2)));
     return a ^ b;
 }
 
@@ -268,7 +268,7 @@ void pairAdjustCapacity(PairTable* table, unsigned int capacity) {
     table->entryCapacity = capacity;
 }
 
-void pairTableSet(PairTable* table, struct IrBasicBlock* key1, struct SymbolLocal* key2, void* value) {
+void pairTableSet(PairTable* table, struct SymbolLocal* key1, struct IrBasicBlock* key2, void* value) {
     // create the key to be inserted into the table
     PairKey key;
     key.key1 = key1;
@@ -295,7 +295,7 @@ void pairTableSet(PairTable* table, struct IrBasicBlock* key1, struct SymbolLoca
     entry->value = value;
 }
 
-void* pairTableGet(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2) {
+void* pairTableGet(PairTable* table,  struct SymbolLocal* key1, struct IrBasicBlock* key2) {
     // if nothing has been set then get will always be false
     if(table->entrys == NULL) {
         return false;
@@ -316,7 +316,7 @@ void* pairTableGet(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLo
     return entry->value;
 }
 
-bool pairPableHas(PairTable* table,  struct IrBasicBlock* key1, struct SymbolLocal* key2) {
+bool pairPableHas(PairTable* table,  struct SymbolLocal* key1, struct IrBasicBlock* key2) {
     if(table->entrys == NULL) {
         return false;
     }

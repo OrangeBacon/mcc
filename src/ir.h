@@ -1,6 +1,7 @@
 #ifndef IR_H
 #define IR_H
 
+#include "symbolTable.h"
 #include "memory.h"
 
 // This file describes an SSA IR used by this compiler.  It is strictly
@@ -76,6 +77,13 @@ typedef struct IrConstant {
     IrType type;
 } IrConstant;
 
+typedef struct IrVirtualRegisterUsage {
+    struct IrVirtualRegisterUsage* prev;
+    struct IrParameter* usage;
+    struct IrPhi* phi;
+    struct IrVirtualRegisterUsage* next;
+} IrVirtualRegisterUsage;
+
 // a virtual regiser
 typedef struct IrVirtualRegister {
     size_t ID;
@@ -83,6 +91,9 @@ typedef struct IrVirtualRegister {
     // the instruction that created the register
     struct IrInstruction* location;
     struct IrBasicBlock* block;
+
+    unsigned int useCount;
+    IrVirtualRegisterUsage* users;
 
     // the type of the value in the register
     IrType type;
@@ -106,6 +117,8 @@ typedef struct IrParameter {
         IR_PARAMETER_CONSTANT,
 
         IR_PARAMETER_TOP_LEVEL,
+
+        IR_PARAMETER_PHI,
     } kind;
 
     // the value stored
@@ -115,6 +128,7 @@ typedef struct IrParameter {
         struct IrBasicBlock* block;
         IrConstant constant;
         struct IrTopLevel* topLevel;
+        struct IrPhi* phi;
     } as;
 } IrParameter;
 
@@ -182,14 +196,24 @@ typedef struct IrInstruction {
     unsigned int parameterCount;
 } IrInstruction;
 
+typedef struct IrPhiParameter {
+    IrParameter* param;
+    struct IrBasicBlock* block;
+} IrPhiParameter;
+
 typedef struct IrPhi {
     IrParameter result;
 
-    IrParameter* params;
-    IrParameter* blocks;
-    unsigned int parameterCount;
+    ARRAY_DEFINE(IrPhiParameter, param);
+
+    bool incomplete: 1;
+
+    SymbolLocal* var;
 
     struct IrPhi* next;
+    struct IrPhi* prev;
+
+    struct IrBasicBlock* block;
 } IrPhi;
 
 typedef struct IrBasicBlock {
@@ -205,12 +229,13 @@ typedef struct IrBasicBlock {
 
     struct IrFunction* fn;
 
-    struct IrParameter* predecessors;
-    size_t predecessorCount;
+    ARRAY_DEFINE(struct IrBasicBlock*, predecessor);
 
     struct IrPhi* firstPhi;
     size_t phiCount;
     struct IrPhi* lastPhi;
+
+    bool sealed : 1;
 
 } IrBasicBlock;
 
@@ -234,6 +259,8 @@ typedef struct IrFunction {
 
     // context used in creating this function
     struct IrContext* ctx;
+
+    PairTable variableTable;
 
 } IrFunction;
 
@@ -275,6 +302,8 @@ typedef struct IrContext {
 
     MemoryArray vReg;
 
+    MemoryArray vRegUsageData;
+
     MemoryArray phi;
 } IrContext;
 
@@ -300,8 +329,8 @@ void IrTypeAddPointer(IrParameter* param);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
-IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, size_t params);
-IrParameter* IrBlockSetPredecessors(IrBasicBlock* block, size_t count);
+IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var);
+void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, IrPhi* phi);
 
 void IrContextPrint(IrContext* ctx);
 
