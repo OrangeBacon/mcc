@@ -337,4 +337,11 @@ void IrContextPrint(IrContext* ctx);
 bool IrTypeEqual(IrType* a, IrType* b);
 IrType* IrParameterGetType(IrParameter* param);
 
+void IrWriteVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block, IrParameter* value);
+IrParameter* IrReadVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block);
+IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block);
+IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi);
+IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
+void IrSealBlock(IrFunction* fn, IrBasicBlock* block);
+
 #endif

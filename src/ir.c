@@ -400,7 +400,7 @@ void IrWriteVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block, IrPa
     PAIRTABLE_SET(fn->variableTable, var, block, value);
 }
 
-IrParameter* IrReadVariableRecursive();
+IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block);
 IrParameter* IrReadVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block) {
     if(pairPableHas(&fn->variableTable, var, block)) {
         // local value numbering

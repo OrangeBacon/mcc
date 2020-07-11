@@ -161,11 +161,12 @@ static IrParameter* basicArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* 
     bool generateLoad = false;
     IrParameter* storeLocation;
     IrParameter** copyPropStore;
+    SymbolLocal* sym;
 
     if(target->type == AST_EXPRESSION_CONSTANT
        && target->as.constant.type == AST_CONSTANT_EXPRESSION_LOCAL) {
         // variable name
-        SymbolLocal* sym = target->as.constant.local;
+        sym = target->as.constant.local;
         if(sym->vregToAlloca) {
             generateLoad = true;
             storeLocation = sym->vreg;
@@ -258,6 +259,7 @@ static IrParameter* basicArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* 
         IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, params, 2);
     } else {
         *copyPropStore = value;
+        IrWriteVariable(ctx->fn, sym, ctx->blk, value);
     }
 
     if(exp->type == AST_EXPRESSION_ASSIGN) {
@@ -317,8 +319,11 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
                     return param;
                 }
             }
-            if(!exp->local->vregToAlloca || exp->local->scopeDepth == 0) {
+            if(exp->local->scopeDepth == 0) {
                 return exp->local->vreg;
+            }
+            if(!exp->local->vregToAlloca) {
+                return IrReadVariable(ctx->fn, exp->local, ctx->blk);
             }
             IrParameter* load = IrParametersCreate(ctx->ir, 2);
             IrParameterNewVReg(ctx->fn, load);
@@ -696,7 +701,7 @@ static void astLowerLocal(ASTInitDeclarator* decl, lowerCtx* ctx) {
     }
 
     if(copyPropagation && !decl->declarator->symbol->memoryRequired) {
-        decl->declarator->symbol->vreg = value;
+        IrWriteVariable(ctx->fn, decl->declarator->symbol, ctx->blk, value);
         decl->declarator->symbol->vregToAlloca = false;
     } else {
         IrParameter* alloca = IrParametersCreate(ctx->ir, 3);
