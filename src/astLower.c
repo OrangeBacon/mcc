@@ -620,6 +620,70 @@ static void astLowerCompound(ASTCompoundStatement* ast, lowerCtx* ctx) {
     }
 }
 
+static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx);
+static void astLowerSelection(ASTSelectionStatement* ast, lowerCtx* ctx) {
+    IrParameter* condition = astLowerExpression(ast->condition, ctx);
+    if(constantFold && condition->kind == IR_PARAMETER_CONSTANT) {
+        if(condition->as.constant.value == 0) {
+            if(ast->type == AST_SELECTION_STATEMENT_IF) {
+                return;
+            } else {
+                astLowerStatement(ast->elseBlock, ctx);
+                return;
+            }
+        } else {
+            astLowerStatement(ast->block, ctx);
+            return;
+        }
+    }
+
+    IrBasicBlock* thenBlock = IrBasicBlockCreate(ctx->fn);
+    ARRAY_PUSH(*thenBlock, predecessor, ctx->blk);
+    IrSealBlock(ctx->fn, thenBlock);
+
+    IrBasicBlock* elseBlock = IrBasicBlockCreate(ctx->fn);
+    if(ast->type == AST_SELECTION_STATEMENT_IF) {
+        ARRAY_PUSH(*elseBlock, predecessor, thenBlock);
+    } else {
+        ARRAY_PUSH(*elseBlock, predecessor, ctx->blk);
+    }
+    IrSealBlock(ctx->fn, elseBlock);
+
+    IrParameter* jump = IrParametersCreate(ctx->ir, 3);
+    IrParameterReference(jump, condition);
+    IrParameterBlock(jump + 1, thenBlock);
+    IrParameterBlock(jump + 2, elseBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, jump, 3);
+
+    ctx->blk = thenBlock;
+    astLowerStatement(ast->block, ctx);
+
+    if(ast->type == AST_SELECTION_STATEMENT_IF) {
+        IrParameter* jump = IrParametersCreate(ctx->ir, 1);
+        IrParameterBlock(jump, elseBlock);
+        IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, jump, 1);
+        ctx->blk = elseBlock;
+    } else {
+        IrBasicBlock* retBlock = IrBasicBlockCreate(ctx->fn);
+        ARRAY_PUSH(*retBlock, predecessor, thenBlock);
+        ARRAY_PUSH(*retBlock, predecessor, elseBlock);
+        IrSealBlock(ctx->fn, retBlock);
+
+        IrParameter* thenJump = IrParametersCreate(ctx->ir, 1);
+        IrParameterBlock(thenJump, retBlock);
+        IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, thenJump, 1);
+
+        ctx->blk = elseBlock;
+        astLowerStatement(ast->elseBlock, ctx);
+
+        IrParameter* elseJump = IrParametersCreate(ctx->ir, 1);
+        IrParameterBlock(elseJump, retBlock);
+        IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, elseJump, 1);
+
+        ctx->blk = retBlock;
+    }
+}
+
 static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
     switch(ast->type) {
         case AST_STATEMENT_JUMP:
@@ -630,6 +694,9 @@ static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
             break;
         case AST_STATEMENT_COMPOUND:
             astLowerCompound(ast->as.compound, ctx);
+            break;
+        case AST_STATEMENT_SELECTION:
+            astLowerSelection(ast->as.selection, ctx);
         case AST_STATEMENT_NULL:
             break;
         default:

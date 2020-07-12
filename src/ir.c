@@ -108,7 +108,7 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
     IrParameterNewVReg(block->fn, &phi->result);
     phi->next = NULL;
     ARRAY_ALLOC(IrPhiParameter, *phi, param);
-    phi->incomplete = true;
+    phi->incomplete = false;
 
     phi->result.as.virtualRegister->block = block;
     phi->var = var;
@@ -419,6 +419,7 @@ IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBl
         // incomplete CFG
         IrPhi* phi = IrPhiCreate(fn->ctx, block, var);
         val = &phi->result;
+        phi->incomplete = true;
     } else if(block->predecessorCount == 1) {
         // Optimise the common case of one predecessor: No phi needed
         val = IrReadVariable(fn, var, block->predecessors[0]);
@@ -437,8 +438,9 @@ IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBl
 
 IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
 IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi) {
-    for(unsigned int i = 0; i < phi->paramCount; i++) {
-        IrPhiAddOperand(fn->ctx, phi, phi->params[i].block, IrReadVariable(fn, var, phi->params[i].block));
+    for(unsigned int i = 0; i < phi->block->predecessorCount; i++) {
+        IrBasicBlock* pred = phi->block->predecessors[i];
+        IrPhiAddOperand(fn->ctx, phi, pred, IrReadVariable(fn, var, pred));
     }
 
     return IrTryRemoveTrivialPhi(phi);
@@ -457,11 +459,11 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
         }
         same = param->param;
     }
-
+/*
     if(same == NULL) {
         printf("The phi is unreachable or in the start block");
     }
-
+*/
     // remember all users exept the phi itsself
     IrVirtualRegister* reg = phi->result.as.virtualRegister;
 
@@ -470,7 +472,7 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     for(unsigned int i = 0; i < reg->useCount; i++) {
         if(!(usage->usage->kind == IR_PARAMETER_PHI && usage->usage->as.phi == phi)) {
             // reroute all uses of phi to same
-            *usage->usage = *same;
+            *usage->usage = same != NULL? *same : (IrParameter){0};
             if(usage->phi != NULL) IrTryRemoveTrivialPhi(usage->phi);
         }
         usage = usage->prev;
@@ -479,8 +481,8 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     // remove phi
     IrPhi* prev = phi->prev;
     IrPhi* next = phi->next;
-    prev->next = next;
-    next->prev = prev;
+    if(prev) prev->next = next;
+    if(next) next->prev = prev;
     phi->block->phiCount--;
 
     return same;
