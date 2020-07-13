@@ -330,6 +330,7 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
 IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var);
+void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand);
 void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, IrPhi* phi);
 
 void IrContextPrint(IrContext* ctx);

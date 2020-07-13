@@ -631,6 +631,60 @@ static IrParameter* astLowerCall(ASTCallExpression* exp, lowerCtx* ctx) {
     return params;
 }
 
+static IrParameter* astLowerTernary(ASTTernaryExpression* exp, lowerCtx* ctx) {
+    IrParameter* condition = astLowerExpression(exp->operand1, ctx);
+
+    if(constantFold && condition->kind == IR_PARAMETER_CONSTANT) {
+        if(condition->as.constant.value == 0) {
+            return astLowerExpression(exp->operand2, ctx);
+        } else {
+            return astLowerExpression(exp->operand3, ctx);
+        }
+    }
+
+    IrBasicBlock* thenBlock = IrBasicBlockCreate(ctx->fn);
+    ARRAY_PUSH(*thenBlock, predecessor, ctx->blk);
+    IrSealBlock(ctx->fn, thenBlock);
+
+    IrBasicBlock* elseBlock = IrBasicBlockCreate(ctx->fn);
+    ARRAY_PUSH(*elseBlock, predecessor, ctx->blk);
+    IrSealBlock(ctx->fn, elseBlock);
+
+    IrBasicBlock* retBlock = IrBasicBlockCreate(ctx->fn);
+    ARRAY_PUSH(*retBlock, predecessor, thenBlock);
+    ARRAY_PUSH(*retBlock, predecessor, elseBlock);
+    IrSealBlock(ctx->fn, retBlock);
+
+    IrParameter* jump = IrParametersCreate(ctx->ir, 3);
+    IrParameterReference(jump, condition);
+    IrParameterBlock(jump + 1, thenBlock);
+    IrParameterBlock(jump + 2, elseBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, jump, 3);
+
+    ctx->blk = thenBlock;
+    IrParameter* thenValue = astLowerExpression(exp->operand2, ctx);
+
+    IrParameter* thenJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(thenJump, retBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, thenJump, 1);
+
+    ctx->blk = elseBlock;
+    IrParameter* elseValue = astLowerExpression(exp->operand3, ctx);
+
+    IrParameter* elseJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(elseJump, retBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, elseJump, 1);
+
+    ctx->blk = retBlock;
+
+    IrPhi* value = IrPhiCreate(ctx->ir, ctx->blk, NULL);
+    IrPhiAddOperand(ctx->ir, value, thenBlock, thenValue);
+    IrPhiAddOperand(ctx->ir, value, elseBlock, elseValue);
+    value->incomplete = false;
+
+    return &value->result;
+}
+
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
     switch(exp->type) {
         case AST_EXPRESSION_ASSIGN:
@@ -647,6 +701,8 @@ static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx) {
             return astLowerCast(&exp->as.cast, ctx);
         case AST_EXPRESSION_CALL:
             return astLowerCall(&exp->as.call, ctx);
+        case AST_EXPRESSION_TERNARY:
+            return astLowerTernary(&exp->as.ternary, ctx);
         default:
             error("Unsupported expression");
     }
@@ -748,6 +804,7 @@ static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
             break;
         case AST_STATEMENT_SELECTION:
             astLowerSelection(ast->as.selection, ctx);
+            break;
         case AST_STATEMENT_NULL:
             break;
         default:

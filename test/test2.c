@@ -41,7 +41,7 @@ int main() {
       int var = 0;
       int2 = &var;
       int3 = &int2;
-      **int3 += 5;
+      **int3 += a == 3 ? 5 : add2(&a);
    }
 
    int (*testFn)(int, int, int, int, int, int, int, int, int, int j) = test;

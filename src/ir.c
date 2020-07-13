@@ -459,11 +459,7 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
         }
         same = param->param;
     }
-/*
-    if(same == NULL) {
-        printf("The phi is unreachable or in the start block");
-    }
-*/
+
     // remember all users exept the phi itsself
     IrVirtualRegister* reg = phi->result.as.virtualRegister;
 
