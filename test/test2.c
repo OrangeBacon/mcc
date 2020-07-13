@@ -19,6 +19,11 @@ int (*getFoo2())() {
 int* int2;
 int** int3;
 
+int add2(int *arg) {
+    *arg += 2;
+    return *arg;
+}
+
 int main() {
    int a = 5;
    int *b = &a;
@@ -27,9 +32,9 @@ int main() {
 
     int d = 3;
     if(size < 3) {
-        d = d + 5;
+        d += 5;
     } else {
-        d = d + 2;
+        d += 2;
     }
 
    {

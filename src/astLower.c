@@ -140,132 +140,185 @@ static IrParameter* astLowerType(const ASTVariableType* type, lowerCtx* ctx) {
 
 static IrParameter* astLowerExpression(ASTExpression* exp, lowerCtx* ctx);
 
+static IrParameter* variableArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* ctx) {
 
-// lowers =, +=, *=, etc and postfix ++/--
-static IrParameter* basicArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* ctx) {
-    bool pointerShift;
-    ASTExpression *target;
-    IrParameter* value;
+    // value of right hand side
+    IrParameter* right;
+
+    // the variable being assigned to
+    ASTExpression* leftExp;
+    SymbolLocal* leftSym;
+
     if(exp->type == AST_EXPRESSION_ASSIGN) {
-        pointerShift = exp->as.assign.pointerShift;
-        target = exp->as.assign.target;
-        value = astLowerExpression(exp->as.assign.value, ctx);
+        right = astLowerExpression(exp->as.assign.value, ctx);
+        leftExp = exp->as.assign.target;
+        leftSym = leftExp->as.constant.local;
     } else {
-        pointerShift = exp->as.postfix.pointerShift;
-        target = exp->as.postfix.operand;
-        value = IrParameterCreate(ctx->ir);
-        IrParameterConstant(value, 1, 32);
+        right = IrParameterCreate(ctx->ir);
+        IrParameterConstant(right, 1, 32);
+        leftExp = exp->as.postfix.operand;
+        leftSym = leftExp->as.constant.local;
     }
 
-    // generate assign target
-    bool generateLoad = false;
-    IrParameter* storeLocation;
-    IrParameter** copyPropStore;
-    SymbolLocal* sym;
+    // should GEP be used instead of add
+    bool usePointerArithmetic =
+        exp->type == AST_EXPRESSION_ASSIGN
+        ? exp->as.assign.pointerShift
+        : exp->as.postfix.pointerShift;
 
-    if(target->type == AST_EXPRESSION_CONSTANT
-       && target->as.constant.type == AST_CONSTANT_EXPRESSION_LOCAL) {
-        // variable name
-        sym = target->as.constant.local;
-        if(sym->vregToAlloca) {
-            generateLoad = true;
-            storeLocation = sym->vreg;
-        } else {
-            // if copy propogation should be applied to this variable
-            generateLoad = false;
-            copyPropStore = &sym->vreg;
-        }
-    } else if(target->type == AST_EXPRESSION_UNARY
-              && target->as.unary.operator.type == TOKEN_STAR) {
-        // dereference
-        ASTExpression* targetVariable = target;
-
-        // if assigning to global variable
-        // update if adding another lvalue
-        while(true) {
-            if(targetVariable->type == AST_EXPRESSION_CONSTANT) break;
-            if(targetVariable->type == AST_EXPRESSION_UNARY) {
-                targetVariable = targetVariable->as.unary.operand;
-            }
-        }
-        if(targetVariable->as.constant.local->scopeDepth == 0) {
-            storeLocation = astLowerExpression(target, ctx);
-        } else {
-            storeLocation = astLowerExpression(target->as.unary.operand, ctx);
-        }
-        generateLoad = true;
-    } else {
-        // extend if new lvalue added
-        error("Unknown lvalue");
-    }
-
-    // generate assign value
+    // the original value of the variable (used when returning value from
+    // ++ or --, so will always get set if relavant)
     IrParameter* initialValue;
-    if(op == IR_INS_MAX) {
-        // do nothing
-    } else if(constantFold
-              && value->kind == IR_PARAMETER_CONSTANT
-              && !generateLoad
-              && !pointerShift
-              && (*copyPropStore)->kind == IR_PARAMETER_CONSTANT) {
-        initialValue = *copyPropStore;
-        value = constFoldArith(*copyPropStore, value, op, ctx);
-    } else {
-        if(generateLoad) {
-            IrParameter* params = IrParametersCreate(ctx->ir, 2);
-            IrParameterNewVReg(ctx->fn, params);
-            IrParameterReference(params + 1, storeLocation);
-            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, params, 2);
-            initialValue = params;
-        } else {
-            initialValue = *copyPropStore;
-        }
 
-        if(pointerShift) {
-            IrParameter* integer = value;
+    // get thee true value to be set
+    if(op != IR_INS_MAX) {
+        initialValue = astLowerExpression(leftExp, ctx);
+
+        if(usePointerArithmetic) {
             if(op == IR_INS_SUB) {
-                if(constantFold && value->kind == IR_PARAMETER_CONSTANT) {
-                    integer = constFoldUnary(value, IR_INS_NEGATE, ctx);
+                if(constantFold && right->kind == IR_PARAMETER_CONSTANT) {
+                    right = constFoldUnary(right, IR_INS_NEGATE, ctx);
                 } else {
                     IrParameter* negate = IrParametersCreate(ctx->ir, 2);
                     IrParameterNewVReg(ctx->fn, negate);
-                    IrParameterReference(negate + 1, value);
+                    IrParameterReference(negate + 1, right);
                     IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
-                    integer = negate;
+                    right = negate;
                 }
             }
+            op = IR_INS_GET_ELEMENT_POINTER;
+        }
 
-            IrParameter* gep = IrParametersCreate(ctx->ir, 3);
-            IrParameterNewVReg(ctx->fn, gep);
-            IrParameterReference(gep + 1, initialValue);
-            IrParameterReference(gep + 2, integer);
-            IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_GET_ELEMENT_POINTER, gep, 3);
-            value = gep;
-
+        if(!usePointerArithmetic && constantFold && initialValue->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
+            // cannot constant fold GEP
+            right = constFoldArith(initialValue, right, op, ctx);
         } else {
             IrParameter* params = IrParametersCreate(ctx->ir, 3);
             IrParameterNewVReg(ctx->fn, params);
             IrParameterReference(params + 1, initialValue);
-            IrParameterReference(params + 2, value);
+            IrParameterReference(params + 2, right);
             IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
-            value = params;
+            right = params;
         }
     }
 
-    if(generateLoad) {
+    if(leftSym->vregToAlloca) {
+        if(leftSym->toGenerateParameter) {
+            astLowerExpression(leftExp, ctx);
+        }
+
         IrParameter* params = IrParametersCreate(ctx->ir, 2);
-        IrParameterReference(params, storeLocation);
-        IrParameterReference(params + 1, value);
+        IrParameterReference(params, leftSym->vreg);
+        IrParameterReference(params + 1, right);
         IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, params, 2);
     } else {
-        *copyPropStore = value;
-        IrWriteVariable(ctx->fn, sym, ctx->blk, value);
+        IrWriteVariable(ctx->fn, leftSym, ctx->blk, right);
     }
 
     if(exp->type == AST_EXPRESSION_ASSIGN) {
-        return value;
+        return right;
     }
     return initialValue;
+}
+
+static IrParameter* pointerArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* ctx) {
+    IrParameter* right;
+
+    ASTExpression* leftExp;
+    if(exp->type == AST_EXPRESSION_ASSIGN) {
+        right = astLowerExpression(exp->as.assign.value, ctx);
+        leftExp = exp->as.assign.target;
+    } else {
+        right = IrParameterCreate(ctx->ir);
+        IrParameterConstant(right, 1, 32);
+        leftExp = exp->as.postfix.operand;
+    }
+
+    // should GEP be used instead of add
+    bool usePointerArithmetic =
+        exp->type == AST_EXPRESSION_ASSIGN
+        ? exp->as.assign.pointerShift
+        : exp->as.postfix.pointerShift;
+
+    // remove dereference
+    ASTExpression* storeExp = leftExp->as.unary.operand;
+    IrParameter* address = astLowerExpression(storeExp, ctx);
+
+    // the original value of the variable (used when returning value from
+    // ++ or --, so will always get set if relavant)
+    IrParameter* initialValue;
+
+    // get thee true value to be set
+    if(op != IR_INS_MAX) {
+        initialValue = IrParametersCreate(ctx->ir, 2);
+        IrParameterNewVReg(ctx->fn, initialValue);
+        IrParameterReference(initialValue + 1, address);
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_LOAD, initialValue, 2);
+
+        if(usePointerArithmetic) {
+            if(op == IR_INS_SUB) {
+                if(constantFold && right->kind == IR_PARAMETER_CONSTANT) {
+                    right = constFoldUnary(right, IR_INS_NEGATE, ctx);
+                } else {
+                    IrParameter* negate = IrParametersCreate(ctx->ir, 2);
+                    IrParameterNewVReg(ctx->fn, negate);
+                    IrParameterReference(negate + 1, right);
+                    IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_NEGATE, negate, 2);
+                    right = negate;
+                }
+            }
+            op = IR_INS_GET_ELEMENT_POINTER;
+        }
+
+        if(!usePointerArithmetic && constantFold && initialValue->kind == IR_PARAMETER_CONSTANT && right->kind == IR_PARAMETER_CONSTANT) {
+            // cannot constant fold GEP
+            right = constFoldArith(initialValue, right, op, ctx);
+        } else {
+            IrParameter* params = IrParametersCreate(ctx->ir, 3);
+            IrParameterNewVReg(ctx->fn, params);
+            IrParameterReference(params + 1, initialValue);
+            IrParameterReference(params + 2, right);
+            IrInstructionSetCreate(ctx->ir, ctx->blk, op, params, 3);
+            right = params;
+        }
+    }
+
+    IrParameter* params = IrParametersCreate(ctx->ir, 2);
+    IrParameterReference(params, address);
+    IrParameterReference(params + 1, right);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_STORE, params, 2);
+
+    if(exp->type == AST_EXPRESSION_ASSIGN) {
+        return right;
+    }
+    return initialValue;
+}
+
+
+// lowers =, +=, *=, etc and postfix ++/--
+static IrParameter* basicArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx* ctx) {
+
+    // what is being assigned to
+    ASTExpression *target;
+
+    if(exp->type == AST_EXPRESSION_ASSIGN) {
+        // =, +=, etc.
+        target = exp->as.assign.target;
+    } else {
+        // ++, -- (postfix only - parser de-sugars prefix to +=)
+        target = exp->as.postfix.operand;
+    }
+
+    if(target->type == AST_EXPRESSION_CONSTANT) {
+        // simple assingment, eg a = 5, a += 5, a++
+        return variableArithAssign(exp, op, ctx);
+    } else if(target->type == AST_EXPRESSION_UNARY && target->as.unary.operator.type == TOKEN_STAR) {
+        // complex assigment, eg ***a = 5, *(a + 1) += 5, (*a)++
+        // (aka left is not a variable reference)
+        return pointerArithAssign(exp, op, ctx);
+    } else {
+        error("Invalid lvalue in assign");
+    }
 }
 
 static IrParameter* astLowerAssign(ASTExpression* exp, lowerCtx* ctx) {
@@ -316,11 +369,9 @@ static IrParameter* astLowerConstant(ASTConstantExpression* exp, lowerCtx* ctx) 
 
                     return param;
                 } else {
+                    IrWriteVariable(ctx->fn, exp->local, ctx->blk, param);
                     return param;
                 }
-            }
-            if(exp->local->scopeDepth == 0) {
-                return exp->local->vreg;
             }
             if(!exp->local->vregToAlloca) {
                 return IrReadVariable(ctx->fn, exp->local, ctx->blk);
