@@ -45,8 +45,7 @@ int main() {
    }
 
    int (*testFn)(int, int, int, int, int, int, int, int, int, int j) = test;
-   putchar(testFn(1,2,3,4,5,6,7, sizeof(int*), 9,72));
-   getFoo2();
+   putchar(testFn(1,2,3,4,5,6,7, sizeof(int*), 9,72)) || add2(a) && add2(*b);
 
    return a + c + (int)b + d;
 }

@@ -565,6 +565,76 @@ static IrParameter* maybePointerArith(ASTBinaryExpression* exp, IrOpcode op, low
     return gep;
 }
 
+static IrParameter* astLowerShortCircuit(ASTBinaryExpression* exp, lowerCtx* ctx, IrComparison cmp, IrParameter* earlyValue) {
+    IrBasicBlock* initialBlock = ctx->blk;
+    IrParameter* left = astLowerExpression(exp->left, ctx);
+
+    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, compare);
+    IrParameterConstant(compare + 1, 0, 8);
+    IrParameterReference(compare + 2, left);
+    IrInstruction* cmpInst =
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
+    IrInstructionCondition(cmpInst, cmp);
+
+    IrBasicBlock* rightBlock = IrBasicBlockCreate(ctx->fn);
+    ARRAY_PUSH(*rightBlock, predecessor, ctx->blk);
+    IrSealBlock(ctx->fn, rightBlock);
+
+    IrBasicBlock* retBlock = IrBasicBlockCreate(ctx->fn);
+    ARRAY_PUSH(*retBlock, predecessor, ctx->blk);
+    ARRAY_PUSH(*retBlock, predecessor, rightBlock);
+    IrSealBlock(ctx->fn, retBlock);
+
+    IrParameter* branch = IrParametersCreate(ctx->ir, 3);
+    IrParameterReference(branch, compare);
+    IrParameterBlock(branch + 1, rightBlock);
+    IrParameterBlock(branch + 2, retBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, branch, 3);
+
+    ctx->blk = rightBlock;
+    IrParameter* right = astLowerExpression(exp->right, ctx);
+
+    IrParameter* compare2 = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, compare2);
+    IrParameterConstant(compare2 + 1, 0, 8);
+    IrParameterReference(compare2 + 2, right);
+    IrInstruction* cmpInst2 =
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare2, 3);
+    IrInstructionCondition(cmpInst2, IR_COMPARE_NOT_EQUAL);
+
+    IrParameter* jump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(jump, retBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, jump, 1);
+
+    ctx->blk = retBlock;
+
+    IrPhi* phi = IrPhiCreate(ctx->ir, ctx->blk, NULL);
+    IrPhiAddOperand(ctx->ir, phi, initialBlock, earlyValue);
+    IrPhiAddOperand(ctx->ir, phi, rightBlock, compare2);
+    phi->incomplete = false;
+
+    IrParameter* value = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, value);
+    IrParameterIntegerType(value + 1, 32);
+    IrParameterReference(value + 2, &phi->result);
+    IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_CAST, value, 3);
+
+    return value;
+}
+
+static IrParameter* astLowerOr(ASTBinaryExpression* exp, lowerCtx* ctx) {
+    IrParameter* one = IrParameterCreate(ctx->ir);
+    IrParameterConstant(one, 1, 8);
+    return astLowerShortCircuit(exp, ctx, IR_COMPARE_EQUAL, one);
+}
+
+static IrParameter* astLowerAnd(ASTBinaryExpression* exp, lowerCtx* ctx) {
+    IrParameter* zero = IrParameterCreate(ctx->ir);
+    IrParameterConstant(zero, 0, 8);
+    return astLowerShortCircuit(exp, ctx, IR_COMPARE_NOT_EQUAL, zero);
+}
+
 static IrParameter* astLowerBinary(ASTBinaryExpression* exp, lowerCtx* ctx) {
     switch(exp->operator.type) {
         case TOKEN_PLUS: return maybePointerArith(exp, IR_INS_ADD, ctx);
@@ -583,6 +653,8 @@ static IrParameter* astLowerBinary(ASTBinaryExpression* exp, lowerCtx* ctx) {
         case TOKEN_GREATER: return basicCompare(exp, IR_COMPARE_GREATER, ctx);
         case TOKEN_GREATER_EQUAL: return basicCompare(exp, IR_COMPARE_GREATER_EQUAL, ctx);
         case TOKEN_PERCENT: return basicArith(exp, IR_INS_SREM, ctx);
+        case TOKEN_OR_OR: return astLowerOr(exp, ctx);
+        case TOKEN_AND_AND: return astLowerAnd(exp, ctx);
         case TOKEN_COMMA:
             astLowerExpression(exp->left, ctx);
             return astLowerExpression(exp->right, ctx);

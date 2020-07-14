@@ -130,7 +130,7 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
 void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand) {
     ARRAY_PUSH(*phi, param, ((IrPhiParameter) {operand, block}));
 
-    if(phi->paramCount == 0) {
+    if(phi->paramCount == 1) {
         phi->result.as.virtualRegister->type = *IrParameterGetType(operand);
     }
 
@@ -666,7 +666,9 @@ void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize)
     }
 
     ITER_PHIS(block, i, phi, {
-        printf("%*s |   %%%lld = phi ", gutterSize, "", phi->result.as.virtualRegister->ID);
+        printf("%*s |   ", gutterSize, "");
+        IrParameterPrint(&phi->result, true);
+        printf(" = phi ");
         for(unsigned int j = 0; j < phi->paramCount; j++) {
             printf("[@%lld ", phi->params[j].block->ID);
             IrParameterPrint(phi->params[j].param, false);
