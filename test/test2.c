@@ -37,6 +37,10 @@ int main() {
         d += 2;
     }
 
+    while(a > d) {
+        a--;
+    }
+
    {
       int var = 0;
       int2 = &var;

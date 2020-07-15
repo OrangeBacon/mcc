@@ -127,15 +127,29 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
     return phi;
 }
 
+static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instruction);
 void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand) {
+    IrVirtualRegister* vreg = phi->result.as.virtualRegister;
+
     ARRAY_PUSH(*phi, param, ((IrPhiParameter) {operand, block}));
 
     if(phi->paramCount == 1) {
-        phi->result.as.virtualRegister->type = *IrParameterGetType(operand);
+        vreg->type = *IrParameterGetType(operand);
+
+        // refresh return types incase it depended upon the type of the phi
+        // which was previously null
+        IrVirtualRegisterUsage* usage = vreg->users;
+        for(unsigned int i = 0; i < vreg->useCount; i++) {
+            if(!usage->isPhi) {
+                IrInstruction* inst = usage->as.instruction;
+                IrInstructionSetReturnType(block->fn, inst);
+            }
+            usage = usage->prev;
+        }
     }
 
     if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_REGISTER) {
-        IrVirtualRegisterAddUsage(ctx, phi->params[phi->paramCount-1].param, phi);
+        IrVirtualRegisterAddUsage(ctx, phi->params[phi->paramCount-1].param, phi, true);
     }
 }
 
@@ -156,12 +170,13 @@ IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn) {
     return reg;
 }
 
-void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, IrPhi* phi) {
+void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, void* source, bool isPhi) {
     IrVirtualRegister* reg = param->as.virtualRegister;
     IrVirtualRegisterUsage* usage = memoryArrayPush(&ctx->vRegUsageData);
     usage->usage = param;
     usage->next = NULL;
-    usage->phi = phi;
+    usage->as.phi = source;
+    usage->isPhi = isPhi;
 
     if(reg->users == NULL) {
         usage->prev = NULL;
@@ -340,15 +355,18 @@ static IrInstruction* addIns(IrContext* ctx, IrBasicBlock* block, IrOpcode opcod
     block->lastInstruction = inst;
     inst->hasCondition = false;
     inst->opcode = opcode;
+    inst->returnTypeSet = false;
 
     return inst;
 }
 
-static void instructionVregUsageSet(IrContext* ctx, IrParameter* params, unsigned int paramCount) {
+static void instructionVregUsageSet(IrContext* ctx, IrInstruction* inst) {
+    unsigned int paramCount = inst->parameterCount;
+    IrParameter* params = inst->params;
     for(unsigned int i = 0; i < paramCount; i++) {
         IrParameter* param = &params[i];
         if(param->kind == IR_PARAMETER_REGISTER) {
-            IrVirtualRegisterAddUsage(ctx, param, NULL);
+            IrVirtualRegisterAddUsage(ctx, param, inst, false);
         }
     }
 }
@@ -363,7 +381,7 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
     params[0].as.virtualRegister->block = block;
 
     IrInstructionSetReturnType(block->fn, inst);
-    instructionVregUsageSet(ctx, inst->params, inst->parameterCount);
+    instructionVregUsageSet(ctx, inst);
 
     return inst;
 }
@@ -375,7 +393,7 @@ IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOp
     inst->params = params;
     inst->parameterCount = paramCount;
 
-    instructionVregUsageSet(ctx, inst->params, inst->parameterCount);
+    instructionVregUsageSet(ctx, inst);
 
     return inst;
 }
@@ -466,10 +484,10 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     // reverse iterate double linked list
     IrVirtualRegisterUsage* usage = reg->users;
     for(unsigned int i = 0; i < reg->useCount; i++) {
-        if(!(usage->usage->kind == IR_PARAMETER_PHI && usage->usage->as.phi == phi)) {
+        if(!(usage->isPhi && usage->as.phi == phi)) {
             // reroute all uses of phi to same
             *usage->usage = same != NULL? *same : (IrParameter){0};
-            if(usage->phi != NULL) IrTryRemoveTrivialPhi(usage->phi);
+            if(usage->isPhi) IrTryRemoveTrivialPhi(usage->as.phi);
         }
         usage = usage->prev;
     }
@@ -700,7 +718,8 @@ void IrFunctionPrint(IrTopLevel* ir) {
 
     unsigned int instrCount = 0;
     ITER_BLOCKS(fn, i, block, {
-        instrCount += block->instructionCount;
+        instrCount = instrCount > block->lastInstruction->ID
+            ? instrCount : block->lastInstruction->ID;
     });
 
     unsigned int gutterSize = intLength(instrCount);

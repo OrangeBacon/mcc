@@ -80,7 +80,13 @@ typedef struct IrConstant {
 typedef struct IrVirtualRegisterUsage {
     struct IrVirtualRegisterUsage* prev;
     struct IrParameter* usage;
-    struct IrPhi* phi;
+
+    bool isPhi : 1;
+    union {
+        struct IrPhi* phi;
+        struct IrInstruction* instruction;
+    } as;
+
     struct IrVirtualRegisterUsage* next;
 } IrVirtualRegisterUsage;
 
@@ -184,6 +190,7 @@ typedef struct IrInstruction {
     IrComparison comparison : 3;
     bool hasReturn : 1;
     bool hasCondition : 1;
+    bool returnTypeSet : 1;
 
     // what the operation is (todo: more operations, this is just an example)
     IrOpcode opcode;
@@ -331,7 +338,7 @@ IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOp
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
 IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var);
 void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand);
-void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, IrPhi* phi);
+void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, void* source, bool isPhi);
 
 void IrContextPrint(IrContext* ctx);
 

@@ -10,6 +10,9 @@ typedef struct lowerCtx {
     IrContext* ir;
     IrFunction* fn;
     IrBasicBlock* blk;
+
+    IrBasicBlock* breakLocation;
+    IrBasicBlock* continueLocation;
 } lowerCtx;
 
 static _Noreturn void error(const char* s) {
@@ -784,7 +787,8 @@ static void astLowerJump(ASTJumpStatement* ast, lowerCtx* ctx) {
     switch(ast->type) {
         case AST_JUMP_STATEMENT_RETURN: {
             IrParameter* param = IrParameterCreate(ctx->ir);
-            IrParameterReference(param, astLowerExpression(ast->expr, ctx));
+            IrParameter* expr = astLowerExpression(ast->expr, ctx);
+            IrParameterReference(param, expr);
             IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_RETURN, param, 1);
         }; break;
         default:
@@ -863,6 +867,77 @@ static void astLowerSelection(ASTSelectionStatement* ast, lowerCtx* ctx) {
     }
 }
 
+static void astLowerWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
+    // while
+    //   initial block
+    //     jump block 1
+    //   block 1
+    //     condition
+    //     jump if block 2 block 3
+    //   block 2
+    //     statment
+    //   seal block 1, block 2
+    //     jump block 1
+    //   block 3
+    //     exit block (set, do not use)
+    // continue -> block 1
+    // break -> block 3
+
+    IrBasicBlock* conditionBlock = IrBasicBlockCreate(ctx->fn);
+    IrBasicBlock* statementBlock = IrBasicBlockCreate(ctx->fn);
+    IrBasicBlock* exitBlock = IrBasicBlockCreate(ctx->fn);
+
+    ARRAY_PUSH(*conditionBlock, predecessor, ctx->blk);
+    ARRAY_PUSH(*conditionBlock, predecessor, statementBlock);
+    ARRAY_PUSH(*statementBlock, predecessor, conditionBlock);
+    ARRAY_PUSH(*exitBlock, predecessor, conditionBlock);
+
+    IrParameter* startJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(startJump, conditionBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, startJump, 1);
+
+    ctx->blk = conditionBlock;
+    IrParameter* condition = astLowerExpression(ast->control, ctx);
+
+    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, compare);
+    IrParameterConstant(compare + 1, 0, 8);
+    IrParameterReference(compare + 2, condition);
+    IrInstruction* compareInstruction =
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
+    IrInstructionCondition(compareInstruction, IR_COMPARE_NOT_EQUAL);
+
+    IrParameter* compareJump = IrParametersCreate(ctx->ir, 3);
+    IrParameterReference(compareJump, compare);
+    IrParameterBlock(compareJump + 1, statementBlock);
+    IrParameterBlock(compareJump + 2, exitBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, compareJump, 3);
+
+    ctx->blk = statementBlock;
+    astLowerStatement(ast->body, ctx);
+
+    IrSealBlock(ctx->fn, conditionBlock);
+    IrSealBlock(ctx->fn, statementBlock);
+    IrSealBlock(ctx->fn, exitBlock);
+
+    IrParameter* afterJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(afterJump, conditionBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, afterJump, 1);
+
+    ctx->blk = exitBlock;
+}
+
+static void astLowerIteration(ASTIterationStatement* ast, lowerCtx* ctx) {
+    switch(ast->type) {
+        case AST_ITERATION_STATEMENT_WHILE:
+            astLowerWhile(ast, ctx); break;
+        case AST_ITERATION_STATEMENT_DO:
+        case AST_ITERATION_STATEMENT_FOR_DECL:
+        case AST_ITERATION_STATEMENT_FOR_EXPR:
+            error("Not implemented iteration");
+    }
+}
+
 static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
     switch(ast->type) {
         case AST_STATEMENT_JUMP:
@@ -877,6 +952,8 @@ static void astLowerStatement(ASTStatement* ast, lowerCtx* ctx) {
         case AST_STATEMENT_SELECTION:
             astLowerSelection(ast->as.selection, ctx);
             break;
+        case AST_STATEMENT_ITERATION:
+            astLowerIteration(ast->as.iteration, ctx);
         case AST_STATEMENT_NULL:
             break;
         default:
@@ -934,6 +1011,8 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
     if(decl->fn != NULL) {
         ctx->fn = fn;
         astLowerFnCompound(decl->fn, ctx);
+        // finish all phis in the function
+        IrSealBlock(ctx->fn, ctx->blk);
     }
 }
 
