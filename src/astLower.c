@@ -927,11 +927,72 @@ static void astLowerWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     ctx->blk = exitBlock;
 }
 
+static void astLowerDoWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
+    // do while
+    //   initial block
+    //     jump block 1
+    //   block 1
+    //     statement
+    //     jump block 2
+    //   block 2
+    //     expression
+    //     compare
+    //     branch true -> 1, false -> 3
+    //   block 3
+    //     exit block
+    // continue = block 2
+    // break = block 3
+
+    IrBasicBlock* statementBlock = IrBasicBlockCreate(ctx->fn);
+    IrBasicBlock* conditionBlock = IrBasicBlockCreate(ctx->fn);
+    IrBasicBlock* exitBlock = IrBasicBlockCreate(ctx->fn);
+
+    ARRAY_PUSH(*statementBlock, predecessor, ctx->blk);
+    ARRAY_PUSH(*statementBlock, predecessor, conditionBlock);
+    ARRAY_PUSH(*conditionBlock, predecessor, statementBlock);
+    ARRAY_PUSH(*exitBlock, predecessor, conditionBlock);
+
+    IrParameter* startJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(startJump, statementBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, startJump, 1);
+
+    ctx->blk = statementBlock;
+    astLowerStatement(ast->body, ctx);
+
+    IrSealBlock(ctx->fn, conditionBlock);
+    IrSealBlock(ctx->fn, statementBlock);
+    IrSealBlock(ctx->fn, exitBlock);
+
+    IrParameter* afterJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(afterJump, conditionBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, afterJump, 1);
+
+    ctx->blk = conditionBlock;
+    IrParameter* condition = astLowerExpression(ast->control, ctx);
+
+    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, compare);
+    IrParameterConstant(compare + 1, 0, 8);
+    IrParameterReference(compare + 2, condition);
+    IrInstruction* compareInstruction =
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
+    IrInstructionCondition(compareInstruction, IR_COMPARE_NOT_EQUAL);
+
+    IrParameter* compareJump = IrParametersCreate(ctx->ir, 3);
+    IrParameterReference(compareJump, compare);
+    IrParameterBlock(compareJump + 1, statementBlock);
+    IrParameterBlock(compareJump + 2, exitBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, compareJump, 3);
+
+    ctx->blk = exitBlock;
+}
+
 static void astLowerIteration(ASTIterationStatement* ast, lowerCtx* ctx) {
     switch(ast->type) {
         case AST_ITERATION_STATEMENT_WHILE:
             astLowerWhile(ast, ctx); break;
         case AST_ITERATION_STATEMENT_DO:
+            astLowerDoWhile(ast, ctx); break;
         case AST_ITERATION_STATEMENT_FOR_DECL:
         case AST_ITERATION_STATEMENT_FOR_EXPR:
             error("Not implemented iteration");

@@ -37,9 +37,9 @@ int main() {
         d += 2;
     }
 
-    while(a > d) {
+    do {
         a--;
-    }
+    } while(a > 10);
 
    {
       int var = 0;
