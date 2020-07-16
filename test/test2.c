@@ -41,6 +41,12 @@ int main() {
         a--;
     } while(a > 10);
 
+    int i = 100;
+    for (int i = 0; i < 10; i = i + 1) {
+        int i;
+    }
+
+
    {
       int var = 0;
       int2 = &var;

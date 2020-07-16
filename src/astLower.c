@@ -980,9 +980,90 @@ static void astLowerDoWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
 
     IrParameter* compareJump = IrParametersCreate(ctx->ir, 3);
     IrParameterReference(compareJump, compare);
+    IrParameterBlock(compareJump + 1, exitBlock);
+    IrParameterBlock(compareJump + 2, statementBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, compareJump, 3);
+
+    ctx->blk = exitBlock;
+}
+
+static void astLowerDeclaration(ASTDeclaration* decl, lowerCtx* ctx);
+static void astLowerFor(ASTIterationStatement* ast, lowerCtx* ctx) {
+    // for loop
+    //   initial block
+    //     initial statement
+    //     jump condition block
+    //   condition block
+    //     condition
+    //     compare not equal 0
+    //     jump if true -> statement false -> exit
+    //   statement block
+    //     statement
+    //     jump post block
+    //   post block
+    //     post statement
+    //     jump condition block
+    //   exit block
+    //     (empty)
+    // continue = post block
+    // break = exit block
+
+    IrBasicBlock* conditionBlock = IrBasicBlockCreate(ctx->fn);
+    IrBasicBlock* statementBlock = IrBasicBlockCreate(ctx->fn);
+    IrBasicBlock* postBlock = IrBasicBlockCreate(ctx->fn);
+    IrBasicBlock* exitBlock = IrBasicBlockCreate(ctx->fn);
+
+    ARRAY_PUSH(*conditionBlock, predecessor, ctx->blk);
+    ARRAY_PUSH(*conditionBlock, predecessor, postBlock);
+    ARRAY_PUSH(*statementBlock, predecessor, conditionBlock);
+    ARRAY_PUSH(*postBlock, predecessor, statementBlock);
+    ARRAY_PUSH(*exitBlock, predecessor, conditionBlock);
+
+    if(ast->type == AST_ITERATION_STATEMENT_FOR_DECL) {
+        astLowerDeclaration(ast->preDecl, ctx);
+    } else {
+        if(ast->preExpr) astLowerExpression(ast->preExpr, ctx);
+    }
+
+    IrParameter* startJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(startJump, conditionBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, startJump, 1);
+
+    ctx->blk = conditionBlock;
+    IrParameter* condition = astLowerExpression(ast->control, ctx);
+
+    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, compare);
+    IrParameterConstant(compare + 1, 0, 8);
+    IrParameterReference(compare + 2, condition);
+    IrInstruction* compareInstruction =
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
+    IrInstructionCondition(compareInstruction, IR_COMPARE_NOT_EQUAL);
+
+    IrParameter* compareJump = IrParametersCreate(ctx->ir, 3);
+    IrParameterReference(compareJump, compare);
     IrParameterBlock(compareJump + 1, statementBlock);
     IrParameterBlock(compareJump + 2, exitBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, compareJump, 3);
+
+    ctx->blk = statementBlock;
+    astLowerStatement(ast->body, ctx);
+
+    IrSealBlock(ctx->fn, conditionBlock);
+    IrSealBlock(ctx->fn, statementBlock);
+    IrSealBlock(ctx->fn, postBlock);
+    IrSealBlock(ctx->fn, exitBlock);
+
+    IrParameter* statementJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(statementJump, postBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, statementJump, 1);
+
+    ctx->blk = postBlock;
+    if(ast->post) astLowerExpression(ast->post, ctx);
+
+    IrParameter* postJump = IrParametersCreate(ctx->ir, 1);
+    IrParameterBlock(postJump, conditionBlock);
+    IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, postJump, 1);
 
     ctx->blk = exitBlock;
 }
@@ -995,7 +1076,7 @@ static void astLowerIteration(ASTIterationStatement* ast, lowerCtx* ctx) {
             astLowerDoWhile(ast, ctx); break;
         case AST_ITERATION_STATEMENT_FOR_DECL:
         case AST_ITERATION_STATEMENT_FOR_EXPR:
-            error("Not implemented iteration");
+            astLowerFor(ast, ctx); break;
     }
 }
 

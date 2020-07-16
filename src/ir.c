@@ -718,8 +718,11 @@ void IrFunctionPrint(IrTopLevel* ir) {
 
     unsigned int instrCount = 0;
     ITER_BLOCKS(fn, i, block, {
-        instrCount = instrCount > block->lastInstruction->ID
-            ? instrCount : block->lastInstruction->ID;
+        if(block->instructionCount > 0) {
+            // (max function)
+            instrCount = instrCount > block->lastInstruction->ID
+                ? instrCount : block->lastInstruction->ID;
+        }
     });
 
     unsigned int gutterSize = intLength(instrCount);
