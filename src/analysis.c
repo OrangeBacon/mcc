@@ -232,7 +232,6 @@ static void AnalyseBinaryExpression(ASTExpression* ast, ctx* ctx) {
 }
 
 static void AnalyseCallExpression(ASTExpression* ast, ctx* ctx) {
-    // TODO - indirect call check
     // TODO - difference between int a() and int a(void)
 
     ASTCallExpression* call = &ast->as.call;
