@@ -95,7 +95,11 @@ typedef struct IrVirtualRegister {
     size_t ID;
 
     // the instruction that created the register
-    struct IrInstruction* location;
+    bool isPhi;
+    union {
+        struct IrInstruction* inst;
+        struct IrPhi* phi;
+    } loc;
     struct IrBasicBlock* block;
 
     unsigned int useCount;
@@ -214,6 +218,7 @@ typedef struct IrPhi {
     ARRAY_DEFINE(IrPhiParameter, param);
 
     bool incomplete: 1;
+    bool used : 1;
 
     SymbolLocal* var;
 
@@ -331,6 +336,7 @@ void IrParameterNewVReg(IrFunction* fn, IrParameter* param);
 void IrParameterVRegRef(IrParameter* param, IrParameter* vreg);
 void IrParameterBlock(IrParameter* param, IrBasicBlock* block);
 void IrParameterTopLevel(IrParameter* param, IrTopLevel* top);
+void IrParameterPhi(IrParameter* param, IrPhi* phi);
 void IrParameterReference(IrParameter* param, IrParameter* src);
 void IrTypeAddPointer(IrParameter* param);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);

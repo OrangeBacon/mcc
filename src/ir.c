@@ -109,10 +109,13 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
     phi->next = NULL;
     ARRAY_ALLOC(IrPhiParameter, *phi, param);
     phi->incomplete = false;
+    phi->used = true;
 
     phi->result.as.virtualRegister->block = block;
     phi->var = var;
     phi->block = block;
+    phi->result.as.virtualRegister->isPhi = true;
+    phi->result.as.virtualRegister->loc.phi = phi;
 
     if(block->phiCount == 0) {
         phi->prev = NULL;
@@ -377,7 +380,8 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
     inst->hasReturn = true;
     inst->params = params + 1;
     inst->parameterCount = paramCount - 1;
-    params[0].as.virtualRegister->location = inst;
+    params[0].as.virtualRegister->isPhi = false;
+    params[0].as.virtualRegister->loc.inst = inst;
     params[0].as.virtualRegister->block = block;
 
     IrInstructionSetReturnType(block->fn, inst);
@@ -469,7 +473,12 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
 
     for(unsigned int i = 0; i < phi->paramCount; i++) {
         IrPhiParameter* param = &phi->params[i];
-        if(param->param == same || (param->param->kind == IR_PARAMETER_PHI && param->param->as.phi == phi)) {
+        if (
+            param->param == same ||
+            (param->param->kind == IR_PARAMETER_REGISTER &&
+                param->param->as.virtualRegister->isPhi &&
+                param->param->as.virtualRegister->loc.phi == phi)
+        ) {
             continue; // unique value or self-reference
         }
         if(same != NULL) {
@@ -493,21 +502,17 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     }
 
     // remove phi
-    IrPhi* prev = phi->prev;
-    IrPhi* next = phi->next;
-    if(prev) prev->next = next;
-    if(next) next->prev = prev;
-    phi->block->phiCount--;
+    phi->used = false;
 
     return same;
 }
 
 void IrSealBlock(IrFunction* fn, IrBasicBlock* block) {
     if(block->sealed) return;
-    ITER_PHIS(block, i, phi, {
-        if(phi->incomplete)
-        IrAddPhiOperands(fn, phi->var, phi);
-    });
+    IrPhi* phi = (block)->firstPhi;
+    for(unsigned int i = 0; i < (block)->phiCount; i++, phi = phi->next) {
+        if(phi->incomplete && phi->used) IrAddPhiOperands(fn, phi->var, phi);
+    }
     block->sealed = true;
 }
 
@@ -685,6 +690,7 @@ void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize)
     }
 
     ITER_PHIS(block, i, phi, {
+        if(!phi->used) continue;
         printf("%*s |   ", gutterSize, "");
         IrParameterPrint(&phi->result, true);
         printf(" = phi ");

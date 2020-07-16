@@ -443,6 +443,9 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
             return exp->operand->as.constant.local->vreg;
         }; break;
         case TOKEN_STAR: {
+            if(exp->elide) {
+                return astLowerExpression(exp->operand, ctx);
+            }
             IrParameter* operand = astLowerExpression(exp->operand, ctx);
             IrParameter* params = IrParametersCreate(ctx->ir, 2);
             IrParameterNewVReg(ctx->fn, params);
@@ -696,13 +699,15 @@ static IrParameter* astLowerCall(ASTCallExpression* exp, lowerCtx* ctx) {
     IrParameter* target = astLowerExpression(exp->target, ctx);
 
     IrParameter* params = IrParametersCreate(ctx->ir, 2 + exp->paramCount);
-    IrParameterNewVReg(ctx->fn, params);
     IrParameterReference(params + 1, target);
 
     for(unsigned int i = 0; i < exp->paramCount; i++) {
         IrParameterReference(params + i + 2, astLowerExpression(exp->params[i], ctx));
     }
 
+    // create new register after arguments so ir is created in
+    // more readable order
+    IrParameterNewVReg(ctx->fn, params);
     IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_CALL, params, 2 + exp->paramCount);
 
     return params;
