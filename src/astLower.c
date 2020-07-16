@@ -791,8 +791,16 @@ static void astLowerJump(ASTJumpStatement* ast, lowerCtx* ctx) {
             IrParameterReference(param, expr);
             IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_RETURN, param, 1);
         }; break;
-        default:
-            error("Unsupported jump");
+        case AST_JUMP_STATEMENT_BREAK: {
+            IrParameter* param = IrParameterCreate(ctx->ir);
+            IrParameterBlock(param, ctx->breakLocation);
+            IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, param, 1);
+        }; break;
+        case AST_JUMP_STATEMENT_CONTINUE: {
+            IrParameter* param = IrParameterCreate(ctx->ir);
+            IrParameterBlock(param, ctx->continueLocation);
+            IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, param, 1);
+        }; break;
     }
 }
 
@@ -880,8 +888,8 @@ static void astLowerWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     //     jump block 1
     //   block 3
     //     exit block (set, do not use)
-    // continue -> block 1
     // break -> block 3
+    // continue -> block 1
 
     IrBasicBlock* conditionBlock = IrBasicBlockCreate(ctx->fn);
     IrBasicBlock* statementBlock = IrBasicBlockCreate(ctx->fn);
@@ -914,7 +922,13 @@ static void astLowerWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, compareJump, 3);
 
     ctx->blk = statementBlock;
+    IrBasicBlock* oldBreak = ctx->breakLocation;
+    IrBasicBlock* oldContinue = ctx->continueLocation;
+    ctx->breakLocation = exitBlock;
+    ctx->continueLocation = conditionBlock;
     astLowerStatement(ast->body, ctx);
+    ctx->breakLocation = oldBreak;
+    ctx->continueLocation = oldContinue;
 
     IrSealBlock(ctx->fn, conditionBlock);
     IrSealBlock(ctx->fn, statementBlock);
@@ -957,7 +971,13 @@ static void astLowerDoWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, startJump, 1);
 
     ctx->blk = statementBlock;
+    IrBasicBlock* oldBreak = ctx->breakLocation;
+    IrBasicBlock* oldContinue = ctx->continueLocation;
+    ctx->breakLocation = exitBlock;
+    ctx->continueLocation = conditionBlock;
     astLowerStatement(ast->body, ctx);
+    ctx->breakLocation = oldBreak;
+    ctx->continueLocation = oldContinue;
 
     IrSealBlock(ctx->fn, conditionBlock);
     IrSealBlock(ctx->fn, statementBlock);
@@ -1047,7 +1067,13 @@ static void astLowerFor(ASTIterationStatement* ast, lowerCtx* ctx) {
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, compareJump, 3);
 
     ctx->blk = statementBlock;
+    IrBasicBlock* oldBreak = ctx->breakLocation;
+    IrBasicBlock* oldContinue = ctx->continueLocation;
+    ctx->breakLocation = exitBlock;
+    ctx->continueLocation = conditionBlock;
     astLowerStatement(ast->body, ctx);
+    ctx->breakLocation = oldBreak;
+    ctx->continueLocation = oldContinue;
 
     IrSealBlock(ctx->fn, conditionBlock);
     IrSealBlock(ctx->fn, statementBlock);

@@ -46,6 +46,10 @@ int main() {
         int i;
     }
 
+    for(;;) {
+        break;
+    }
+
 
    {
       int var = 0;
