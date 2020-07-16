@@ -594,6 +594,7 @@ static IrParameter* astLowerShortCircuit(ASTBinaryExpression* exp, lowerCtx* ctx
     IrParameterBlock(branch + 1, rightBlock);
     IrParameterBlock(branch + 2, retBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, branch, 3);
+    IrSealBlock(ctx->fn, ctx->blk);
 
     ctx->blk = rightBlock;
     IrParameter* right = astLowerExpression(exp->right, ctx);
@@ -609,6 +610,7 @@ static IrParameter* astLowerShortCircuit(ASTBinaryExpression* exp, lowerCtx* ctx
     IrParameter* jump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(jump, retBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, jump, 1);
+    IrSealBlock(ctx->fn, ctx->blk);
 
     ctx->blk = retBlock;
 
@@ -735,6 +737,7 @@ static IrParameter* astLowerTernary(ASTTernaryExpression* exp, lowerCtx* ctx) {
     IrParameterBlock(jump + 1, thenBlock);
     IrParameterBlock(jump + 2, elseBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, jump, 3);
+    IrSealBlock(ctx->fn, ctx->blk);
 
     ctx->blk = thenBlock;
     IrParameter* thenValue = astLowerExpression(exp->operand2, ctx);
@@ -742,6 +745,7 @@ static IrParameter* astLowerTernary(ASTTernaryExpression* exp, lowerCtx* ctx) {
     IrParameter* thenJump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(thenJump, retBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, thenJump, 1);
+    IrSealBlock(ctx->fn, ctx->blk);
 
     ctx->blk = elseBlock;
     IrParameter* elseValue = astLowerExpression(exp->operand3, ctx);
@@ -749,6 +753,7 @@ static IrParameter* astLowerTernary(ASTTernaryExpression* exp, lowerCtx* ctx) {
     IrParameter* elseJump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(elseJump, retBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, elseJump, 1);
+    IrSealBlock(ctx->fn, ctx->blk);
 
     ctx->blk = retBlock;
 
@@ -795,11 +800,13 @@ static void astLowerJump(ASTJumpStatement* ast, lowerCtx* ctx) {
             IrParameter* param = IrParameterCreate(ctx->ir);
             IrParameterBlock(param, ctx->breakLocation);
             IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, param, 1);
+            IrSealBlock(ctx->fn, ctx->blk);
         }; break;
         case AST_JUMP_STATEMENT_CONTINUE: {
             IrParameter* param = IrParameterCreate(ctx->ir);
             IrParameterBlock(param, ctx->continueLocation);
             IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, param, 1);
+            IrSealBlock(ctx->fn, ctx->blk);
         }; break;
     }
 }
@@ -845,6 +852,7 @@ static void astLowerSelection(ASTSelectionStatement* ast, lowerCtx* ctx) {
     IrParameterBlock(jump + 1, thenBlock);
     IrParameterBlock(jump + 2, elseBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, jump, 3);
+    IrSealBlock(ctx->fn, ctx->blk);
 
     ctx->blk = thenBlock;
     astLowerStatement(ast->block, ctx);
@@ -853,6 +861,7 @@ static void astLowerSelection(ASTSelectionStatement* ast, lowerCtx* ctx) {
         IrParameter* jump = IrParametersCreate(ctx->ir, 1);
         IrParameterBlock(jump, elseBlock);
         IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, jump, 1);
+        IrSealBlock(ctx->fn, ctx->blk);
         ctx->blk = elseBlock;
     } else {
         IrBasicBlock* retBlock = IrBasicBlockCreate(ctx->fn);
@@ -863,6 +872,7 @@ static void astLowerSelection(ASTSelectionStatement* ast, lowerCtx* ctx) {
         IrParameter* thenJump = IrParametersCreate(ctx->ir, 1);
         IrParameterBlock(thenJump, retBlock);
         IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, thenJump, 1);
+        IrSealBlock(ctx->fn, ctx->blk);
 
         ctx->blk = elseBlock;
         astLowerStatement(ast->elseBlock, ctx);

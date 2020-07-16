@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
         IrContext ctx;
         IrContextCreate(&ctx, &pool);
 
-        ASTPrint(parser.ast);
+        //ASTPrint(parser.ast);
         astLower(parser.ast, &ctx);
         IrContextPrint(&ctx);
     } else {
