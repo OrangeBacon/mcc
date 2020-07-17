@@ -945,13 +945,13 @@ static void astLowerWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     ctx->breakLocation = oldBreak;
     ctx->continueLocation = oldContinue;
 
-    IrSealBlock(ctx->fn, conditionBlock);
-    IrSealBlock(ctx->fn, statementBlock);
-    IrSealBlock(ctx->fn, exitBlock);
-
     IrParameter* afterJump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(afterJump, conditionBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, afterJump, 1);
+
+    IrSealBlock(ctx->fn, conditionBlock);
+    IrSealBlock(ctx->fn, statementBlock);
+    IrSealBlock(ctx->fn, exitBlock);
 
     ctx->blk = exitBlock;
 }
@@ -994,10 +994,6 @@ static void astLowerDoWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     ctx->breakLocation = oldBreak;
     ctx->continueLocation = oldContinue;
 
-    IrSealBlock(ctx->fn, conditionBlock);
-    IrSealBlock(ctx->fn, statementBlock);
-    IrSealBlock(ctx->fn, exitBlock);
-
     IrParameter* afterJump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(afterJump, conditionBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, afterJump, 1);
@@ -1018,6 +1014,10 @@ static void astLowerDoWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     IrParameterBlock(compareJump + 1, exitBlock);
     IrParameterBlock(compareJump + 2, statementBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP_IF, compareJump, 3);
+
+    IrSealBlock(ctx->fn, conditionBlock);
+    IrSealBlock(ctx->fn, statementBlock);
+    IrSealBlock(ctx->fn, exitBlock);
 
     ctx->blk = exitBlock;
 }
@@ -1090,11 +1090,6 @@ static void astLowerFor(ASTIterationStatement* ast, lowerCtx* ctx) {
     ctx->breakLocation = oldBreak;
     ctx->continueLocation = oldContinue;
 
-    IrSealBlock(ctx->fn, conditionBlock);
-    IrSealBlock(ctx->fn, statementBlock);
-    IrSealBlock(ctx->fn, postBlock);
-    IrSealBlock(ctx->fn, exitBlock);
-
     IrParameter* statementJump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(statementJump, postBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, statementJump, 1);
@@ -1105,6 +1100,11 @@ static void astLowerFor(ASTIterationStatement* ast, lowerCtx* ctx) {
     IrParameter* postJump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(postJump, conditionBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, postJump, 1);
+
+    IrSealBlock(ctx->fn, conditionBlock);
+    IrSealBlock(ctx->fn, statementBlock);
+    IrSealBlock(ctx->fn, postBlock);
+    IrSealBlock(ctx->fn, exitBlock);
 
     ctx->blk = exitBlock;
 }
