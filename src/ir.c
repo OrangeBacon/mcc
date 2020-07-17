@@ -539,8 +539,12 @@ void IrTypePrint(IrType* ir) {
             IrTypePrint(&ir->as.function.retType->as.type);
             printf(")");
     }
-    for(unsigned int i = 0; i < ir->pointerDepth; i++) {
-        putchar('*');
+    if(ir->pointerDepth > 10) {
+        printf("*?");
+    } else {
+        for(unsigned int i = 0; i < ir->pointerDepth; i++) {
+            putchar('*');
+        }
     }
 }
 
