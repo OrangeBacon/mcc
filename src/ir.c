@@ -530,10 +530,9 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
 
 void IrSealBlock(IrFunction* fn, IrBasicBlock* block) {
     if(block->sealed) return;
-    IrPhi* phi = (block)->firstPhi;
-    for(unsigned int i = 0; i < (block)->phiCount; i++, phi = phi->next) {
+    ITER_PHIS(block, i, phi, {
         if(phi->incomplete && phi->used) IrAddPhiOperands(fn, phi->var, phi);
-    }
+    });
     block->sealed = true;
 }
 

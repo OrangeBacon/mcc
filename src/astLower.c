@@ -1167,8 +1167,7 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
     SymbolLocal* sym = decl->declarator->symbol;
     const ASTVariableTypeFunction* fnType = &decl->declarator->variableType->as.function;
 
-    IrFunction* fn;
-    if(sym->vreg == NULL) {
+    if(decl->fn != NULL) {
         IrParameter* retType = astLowerType(fnType->ret, ctx);
         IrParameter* inType = IrParametersCreate(ctx->ir, fnType->paramCount);
         for(unsigned int i = 0; i < fnType->paramCount; i++) {
@@ -1177,7 +1176,7 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
             fnType->params[i]->symbol->parameterNumber = i;
         }
         IrTopLevel* topFn = IrFunctionCreate(ctx->ir, sym->name, sym->length, retType, inType, fnType->paramCount);
-        fn = &topFn->as.function;
+        IrFunction* fn = &topFn->as.function;
 
         sym->vreg = IrParameterCreate(ctx->ir);
         sym->vregToAlloca = true;
@@ -1187,11 +1186,7 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
         topFn->type.as.function.parameterCount = fnType->paramCount;
         topFn->type.as.function.parameters = inType;
         topFn->type.as.function.retType = retType;
-    } else {
-        fn = &sym->vreg->as.topLevel->as.function;
-    }
 
-    if(decl->fn != NULL) {
         ctx->fn = fn;
         astLowerFnCompound(decl->fn, ctx);
         // finish all phis in the function
