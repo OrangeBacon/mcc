@@ -3,6 +3,8 @@
 #include <math.h>
 #include <assert.h>
 
+bool optimisePhis = true;
+
 // --------- //
 // UTILITIES //
 // --------- //
@@ -130,27 +132,16 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
     return phi;
 }
 
+static void IrPhiSetReturnType(IrPhi* phi);
 static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instruction);
-void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand) {
-    IrVirtualRegister* vreg = phi->result.as.virtualRegister;
 
+void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand) {
     ARRAY_PUSH(*phi, param, ((IrPhiParameter) {0}));
     phi->params[phi->paramCount-1].block = block;
     IrParameterReference(&phi->params[phi->paramCount-1].param, operand);
 
     if(phi->paramCount == 1) {
-        vreg->type = *IrParameterGetType(operand);
-
-        // refresh return types incase it depended upon the type of the phi
-        // which was previously null
-        IrVirtualRegisterUsage* usage = vreg->users;
-        for(unsigned int i = 0; i < vreg->useCount; i++) {
-            if(!usage->isPhi) {
-                IrInstruction* inst = usage->as.instruction;
-                IrInstructionSetReturnType(block->fn, inst);
-            }
-            usage = usage->prev;
-        }
+        IrPhiSetReturnType(phi);
     }
 
     if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_REGISTER) {
@@ -283,8 +274,43 @@ IrType* IrParameterGetType(IrParameter* param) {
     return NULL; // unreachable
 }
 
+static void IrPhiSetReturnType(IrPhi* phi) {
+    if(phi->returnTypeSet) return;
+
+    IrParameter* param1 = &phi->params[0].param;
+    if(param1->kind == IR_PARAMETER_REGISTER && !param1->as.virtualRegister->hasType) {
+        return;
+    }
+
+    IrVirtualRegister* vreg = phi->result.as.virtualRegister;
+    vreg->type = *IrParameterGetType(&phi->params[0].param);
+    vreg->hasType = true;
+    phi->returnTypeSet = true;
+
+    IrVirtualRegisterUsage* usage = vreg->users;
+    for(unsigned int i = 0; i < vreg->useCount; i++) {
+        if(usage->isPhi) {
+            IrPhiSetReturnType(usage->as.phi);
+        } else {
+            IrInstruction* inst = usage->as.instruction;
+            IrInstructionSetReturnType(phi->block->fn, inst);
+        }
+        usage = usage->prev;
+    }
+}
+
 static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instruction) {
-    IrType* ret = &instruction->params[-1].as.virtualRegister->type;
+    if(instruction->returnTypeSet || !instruction->hasReturn) return;
+
+    for(unsigned int i = 0; i < instruction->parameterCount; i++) {
+        IrParameter* param = &instruction->params[i];
+        if(param->kind == IR_PARAMETER_REGISTER && !param->as.virtualRegister->hasType) {
+            return;
+        }
+    }
+
+    IrVirtualRegister* vreg = instruction->params[-1].as.virtualRegister;
+    IrType* ret = &vreg->type;
     switch(instruction->opcode) {
         case IR_INS_PARAMETER:
             *ret = fn->parameters[instruction->params[0].as.constant.value].as.type;
@@ -343,6 +369,20 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
         // should be unreachable
         case IR_INS_MAX:
             break;
+    }
+
+    instruction->params[-1].as.virtualRegister->hasType = true;
+    instruction->returnTypeSet = true;
+
+    IrVirtualRegisterUsage* usage = vreg->users;
+    for(unsigned int i = 0; i < vreg->useCount; i++) {
+        if(usage->isPhi) {
+            IrPhiSetReturnType(usage->as.phi);
+        } else {
+            IrInstruction* inst = usage->as.instruction;
+            IrInstructionSetReturnType(fn, inst);
+        }
+        usage = usage->prev;
     }
 }
 
@@ -490,6 +530,7 @@ bool IrParameterEqual(IrParameter* a, IrParameter* b) {
 }
 
 IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
+    if(!optimisePhis) return &phi->result;
     IrParameter* same = NULL;
 
     for(unsigned int i = 0; i < phi->paramCount; i++) {

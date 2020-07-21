@@ -105,6 +105,8 @@ typedef struct IrVirtualRegister {
     unsigned int useCount;
     IrVirtualRegisterUsage* users;
 
+    bool hasType : 1;
+
     // the type of the value in the register
     IrType type;
 } IrVirtualRegister;
@@ -219,6 +221,7 @@ typedef struct IrPhi {
 
     bool incomplete: 1;
     bool used : 1;
+    bool returnTypeSet : 1;
 
     SymbolLocal* var;
 
