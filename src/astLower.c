@@ -1101,10 +1101,10 @@ static void astLowerFor(ASTIterationStatement* ast, lowerCtx* ctx) {
     IrParameterBlock(postJump, conditionBlock);
     IrInstructionVoidCreate(ctx->ir, ctx->blk, IR_INS_JUMP, postJump, 1);
 
-    IrSealBlock(ctx->fn, conditionBlock);
-    IrSealBlock(ctx->fn, statementBlock);
-    IrSealBlock(ctx->fn, postBlock);
     IrSealBlock(ctx->fn, exitBlock);
+    IrSealBlock(ctx->fn, postBlock);
+    IrSealBlock(ctx->fn, statementBlock);
+    IrSealBlock(ctx->fn, conditionBlock);
 
     ctx->blk = exitBlock;
 }

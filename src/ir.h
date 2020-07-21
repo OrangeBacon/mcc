@@ -208,7 +208,7 @@ typedef struct IrInstruction {
 } IrInstruction;
 
 typedef struct IrPhiParameter {
-    IrParameter* param;
+    IrParameter param;
     struct IrBasicBlock* block;
 } IrPhiParameter;
 

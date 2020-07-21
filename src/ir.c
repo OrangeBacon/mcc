@@ -134,7 +134,9 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
 void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand) {
     IrVirtualRegister* vreg = phi->result.as.virtualRegister;
 
-    ARRAY_PUSH(*phi, param, ((IrPhiParameter) {operand, block}));
+    ARRAY_PUSH(*phi, param, ((IrPhiParameter) {0}));
+    phi->params[phi->paramCount-1].block = block;
+    IrParameterReference(&phi->params[phi->paramCount-1].param, operand);
 
     if(phi->paramCount == 1) {
         vreg->type = *IrParameterGetType(operand);
@@ -152,7 +154,7 @@ void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParamete
     }
 
     if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_REGISTER) {
-        IrVirtualRegisterAddUsage(ctx, phi->params[phi->paramCount-1].param, phi, true);
+        IrVirtualRegisterAddUsage(ctx, &phi->params[phi->paramCount-1].param, phi, true);
     }
 }
 
@@ -468,23 +470,42 @@ IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi) {
     return IrTryRemoveTrivialPhi(phi);
 }
 
+bool IrParameterEqual(IrParameter* a, IrParameter* b) {
+    if(a == NULL || b == NULL) return false;
+    if(a->kind != b->kind) return false;
+
+    switch(a->kind) {
+        case IR_PARAMETER_BLOCK: return a->as.block == b->as.block;
+        case IR_PARAMETER_PHI: return a->as.phi == b->as.phi;
+        case IR_PARAMETER_REGISTER: return a->as.virtualRegister == b->as.virtualRegister;
+        case IR_PARAMETER_TOP_LEVEL: return a->as.topLevel == b->as.topLevel;
+        case IR_PARAMETER_TYPE: return IrTypeEqual(&a->as.type, &b->as.type);
+        case IR_PARAMETER_CONSTANT: return
+            a->as.constant.undefined == b->as.constant.undefined &&
+            a->as.constant.value == b->as.constant.undefined &&
+            IrTypeEqual(&a->as.constant.type, &b->as.constant.type);
+    }
+
+    printf("Unreachable\n"); exit(0);
+}
+
 IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     IrParameter* same = NULL;
 
     for(unsigned int i = 0; i < phi->paramCount; i++) {
         IrPhiParameter* param = &phi->params[i];
         if (
-            param->param == same ||
-            (param->param->kind == IR_PARAMETER_REGISTER &&
-                param->param->as.virtualRegister->isPhi &&
-                param->param->as.virtualRegister->loc.phi == phi)
+            IrParameterEqual(&param->param, same) ||
+            (param->param.kind == IR_PARAMETER_REGISTER &&
+                param->param.as.virtualRegister->isPhi &&
+                param->param.as.virtualRegister->loc.phi == phi)
         ) {
             continue; // unique value or self-reference
         }
         if(same != NULL) {
             return &phi->result; // the phi merges at least two values: not trivial
         }
-        same = param->param;
+        same = &param->param;
     }
 
     // remember all users exept the phi itsself
@@ -700,7 +721,7 @@ void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize)
         printf(" = phi ");
         for(unsigned int j = 0; j < phi->paramCount; j++) {
             printf("[@%lld ", phi->params[j].block->ID);
-            IrParameterPrint(phi->params[j].param, false);
+            IrParameterPrint(&phi->params[j].param, false);
             printf("] ");
         }
         printf("\n");
