@@ -684,16 +684,16 @@ void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutt
         IrParameterPrint(param, true);
         printf(" = ");
     }
-    printf("%s ", IrInstructionNames[inst->opcode]);
+    printf("%s", IrInstructionNames[inst->opcode]);
 
     if(inst->hasCondition) {
-        printf("%s ", IrConditionNames[inst->comparison]);
+        printf(" %s", IrConditionNames[inst->comparison]);
     }
 
     for(unsigned int i = 0; i < inst->parameterCount; i++) {
         IrParameter* param = inst->params + i;
-        IrParameterPrint(param, false);
         printf(" ");
+        IrParameterPrint(param, false);
     }
 
     printf("\n");
@@ -717,11 +717,11 @@ void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize)
         if(!phi->used) continue;
         printf("%*s |   ", gutterSize, "");
         IrParameterPrint(&phi->result, true);
-        printf(" = phi ");
+        printf(" = phi");
         for(unsigned int j = 0; j < phi->paramCount; j++) {
-            printf("[@%lld ", phi->params[j].block->ID);
+            printf(" [@%lld ", phi->params[j].block->ID);
             IrParameterPrint(&phi->params[j].param, false);
-            printf("] ");
+            printf("]");
         }
         printf("\n");
     });
