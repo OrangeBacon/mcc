@@ -1,4 +1,4 @@
-int fib(int);
+int fib(int x);
 int putchar(int);
 int* malloc(int);
 
