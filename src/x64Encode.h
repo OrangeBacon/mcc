@@ -91,11 +91,11 @@ typedef enum x64ConditionCode {
 } x64ConditionCode;
 
 typedef struct x64Register {
-    bool isVreg;
-    union {
-        struct IrVirtualRegister* vreg;
-        x64BaseRegister reg;
-    } as;
+    bool hasVreg : 1;
+    bool rasPhysicalReg : 1;
+
+    struct IrVirtualRegister* vreg;
+    x64BaseRegister reg;
 } x64Register;
 
 typedef enum x64ReducedModField {
@@ -110,7 +110,10 @@ typedef enum x64ReducedModField {
 typedef struct x64RegisterOperand {
     x64ReducedModField mod;
 
+    // sib base, modr/m.r/m, direct write reg
     x64Register base;
+
+    // sib index, direct read reg
     x64Register index;
     union {
         uint32_t disp32;
@@ -147,7 +150,8 @@ typedef struct x64Operand {
 
 typedef struct x64Instruction {
     x64Opcode opcode;
-    x64Operand operands[4];
+    uint8_t operandCount;
+    x64Operand* operands;
 } x64Instruction;
 
 void x64InstructionPrint(unsigned int idx, x64Instruction* inst, unsigned int gutterSize);
@@ -155,13 +159,26 @@ void x64InstructionPrint(unsigned int idx, x64Instruction* inst, unsigned int gu
 /*
 op %0
 op rax
+op %0=rax
+op ->%0
+op ->rdx
+op ->%0=rax
 op %0->%1
 op %0->rax
+op %0=rax->rbx=%1
 op rax->%1
 op rax->rax // equiv: op *rax
 op [%0+%1*2+3]
 op [rip+main]
 */
+
+// more complex examples?
+// cqo %0=rax, ->rdx=%1
+//   reads from %0, which must be in rax, writes %1 in rdx
+// idiv %0=rax->rax=%3, %1=rdx->rdx=%4, %2=rcx
+//   reads from %0 in rax, %1 in rdx, %2 in rcx, writes %2 in rax, %3 in rdx
+// == cqoidiv(%3, %4, %0, %2)
+// cqoidiv(divRes, remRes, dividend, divisor)
 
 /*
 

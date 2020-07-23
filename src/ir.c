@@ -120,10 +120,8 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
     phi->result.as.virtualRegister->loc.phi = phi;
 
     if(block->phiCount == 0) {
-        phi->prev = NULL;
         block->firstPhi = block->lastPhi = phi;
     } else {
-        phi->prev = block->lastPhi;
         block->lastPhi->next = phi;
         block->lastPhi = phi;
     }
@@ -170,7 +168,6 @@ void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, void* source,
     IrVirtualRegister* reg = param->as.virtualRegister;
     IrVirtualRegisterUsage* usage = memoryArrayPush(&ctx->vRegUsageData);
     usage->usage = param;
-    usage->next = NULL;
     usage->as.phi = source;
     usage->isPhi = isPhi;
 
@@ -178,7 +175,6 @@ void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, void* source,
         usage->prev = NULL;
         reg->users = usage;
     } else {
-        reg->users->next = usage;
         usage->prev = reg->users;
         reg->users = usage;
     }
@@ -387,25 +383,78 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
     }
 }
 
-static IrInstruction* addIns(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode) {
+IrInstruction* IrInstructionAppend(IrContext* ctx, IrBasicBlock* block) {
     IrInstruction* inst = memoryArrayPush(&ctx->instructions);
 
     if(block->lastInstruction == NULL) {
-        inst->ID = 0;
+        inst->prev = NULL;
         block->firstInstruction = inst;
     } else {
+        inst->prev = block->lastInstruction;
         block->lastInstruction->next = inst;
-        inst->ID = block->lastInstruction->ID + 1;
     }
+    inst->ID = block->maxInstructionCount;
     block->instructionCount++;
+    block->maxInstructionCount++;
     block->lastInstruction = inst;
 
-    inst->kind = IR_INSTRUCTION_SSA;
-    inst->as.ssa.hasCondition = false;
-    inst->as.ssa.opcode = opcode;
-    inst->as.ssa.returnTypeSet = false;
+    inst->block = block;
 
     return inst;
+}
+
+IrInstruction* IrInstructionInsertAfter(IrContext* ctx, IrInstruction* prev) {
+    IrBasicBlock* block = prev->block;
+    IrInstruction* next = prev->next;
+
+    IrInstruction* new = memoryArrayPush(&ctx->instructions);
+    new->block = block;
+    new->prev = prev;
+    new->next = next;
+    new->ID = block->maxInstructionCount;
+
+    prev->next = new;
+    if(next) next->prev = new;
+    if(block->lastInstruction == prev) block->lastInstruction = new;
+
+    block->instructionCount++;
+    block->maxInstructionCount++;
+
+    return new;
+}
+
+IrInstruction* IrInstructionInsertBefore(IrContext* ctx, IrInstruction* next) {
+    IrBasicBlock* block = next->block;
+    IrInstruction* prev = next->prev;
+
+    IrInstruction* new = memoryArrayPush(&ctx->instructions);
+    new->block = block;
+    new->prev = prev;
+    new->next = next;
+    new->ID = block->maxInstructionCount;
+
+    next->prev = new;
+    if(prev) prev->next = new;
+    if(block->firstInstruction == next) block->firstInstruction = new;
+
+    block->instructionCount++;
+    block->maxInstructionCount++;
+
+    return new;
+}
+
+void IrInstructionRemove(IrInstruction* inst) {
+    IrInstruction* prev = inst->prev;
+    IrInstruction* next = inst->next;
+    IrBasicBlock* block = inst->block;
+
+    if(prev) prev->next = next;
+    if(next) next->prev = prev;
+
+    if(block->firstInstruction == inst) block->firstInstruction = next;
+    if(block->lastInstruction == inst)  block->lastInstruction  = prev;
+
+    block->instructionCount--;
 }
 
 static void instructionVregUsageSet(IrContext* ctx, IrInstruction* inst) {
@@ -420,8 +469,12 @@ static void instructionVregUsageSet(IrContext* ctx, IrInstruction* inst) {
 }
 
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount) {
-    IrInstruction* inst = addIns(ctx, block, opcode);
+    IrInstruction* inst = IrInstructionAppend(ctx, block);
 
+    inst->kind = IR_INSTRUCTION_SSA;
+    inst->as.ssa.hasCondition = false;
+    inst->as.ssa.returnTypeSet = false;
+    inst->as.ssa.opcode = opcode;
     inst->as.ssa.hasReturn = true;
     inst->as.ssa.params = params + 1;
     inst->as.ssa.parameterCount = paramCount - 1;
@@ -436,8 +489,12 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
 }
 
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount) {
-    IrInstruction* inst = addIns(ctx, block, opcode);
+    IrInstruction* inst = IrInstructionAppend(ctx, block);
 
+    inst->kind = IR_INSTRUCTION_SSA;
+    inst->as.ssa.hasCondition = false;
+    inst->as.ssa.returnTypeSet = false;
+    inst->as.ssa.opcode = opcode;
     inst->as.ssa.hasReturn = false;
     inst->as.ssa.params = params;
     inst->as.ssa.parameterCount = paramCount;

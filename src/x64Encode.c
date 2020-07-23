@@ -1,4 +1,5 @@
 #include "x64Encode.h"
+#include "ir.h"
 
 char* x64OpcodeNames[x64_MAX_OPCODE] = {
     [x64_PUSH] = "push",
@@ -52,3 +53,17 @@ void x64InstructionPrint(unsigned int idx, x64Instruction* inst, unsigned int gu
     (void)inst;
     (void)gutterSize;
 }
+/*
+void push(IrContext* ctx,x64Operand op) {
+    memoryArrayPush(ctx->x64);
+}
+
+void test(IrContext* ctx, IrParameter* param) {
+    replace();
+    insert_after();
+    insert_before();
+    remove();
+    push(ctx, reg(x64_AX));
+    setcc(ctx, x64_LESS, reg(ctx, x64_BX), vreg(ctx, param));
+}
+*/

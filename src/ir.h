@@ -88,7 +88,6 @@ typedef struct IrVirtualRegisterUsage {
         struct IrInstruction* instruction;
     } as;
 
-    struct IrVirtualRegisterUsage* next;
 } IrVirtualRegisterUsage;
 
 // a virtual regiser
@@ -215,6 +214,10 @@ typedef struct IrInstruction {
 
     // the instruction after this one
     struct IrInstruction* next;
+    struct IrInstruction* prev;
+
+    // where it is allocated
+    struct IrBasicBlock* block;
 
     IrInstructionType kind;
 
@@ -241,21 +244,20 @@ typedef struct IrPhi {
     SymbolLocal* var;
 
     struct IrPhi* next;
-    struct IrPhi* prev;
 
     struct IrBasicBlock* block;
 } IrPhi;
 
 typedef struct IrBasicBlock {
+    struct IrBasicBlock* next;
     size_t ID;
 
     // first instruction in the block
     IrInstruction* firstInstruction;
     size_t instructionCount;
+    size_t maxInstructionCount;
 
     IrInstruction* lastInstruction;
-
-    struct IrBasicBlock* next;
 
     struct IrFunction* fn;
 
@@ -357,6 +359,10 @@ void IrParameterTopLevel(IrParameter* param, IrTopLevel* top);
 void IrParameterPhi(IrParameter* param, IrPhi* phi);
 void IrParameterReference(IrParameter* param, IrParameter* src);
 void IrTypeAddPointer(IrParameter* param);
+IrInstruction* IrInstructionAppend(IrContext* ctx, IrBasicBlock* block);
+IrInstruction* IrInstructionInsertAfter(IrContext* ctx, IrInstruction* prev);
+IrInstruction* IrInstructionInsertBefore(IrContext* ctx, IrInstruction* prev);
+void IrInstructionRemove(IrInstruction* inst);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
