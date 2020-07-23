@@ -144,7 +144,7 @@ void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParamete
         IrPhiSetReturnType(phi);
     }
 
-    if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_REGISTER) {
+    if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_VREG) {
         IrVirtualRegisterAddUsage(ctx, &phi->params[phi->paramCount-1].param, phi, true);
     }
 }
@@ -214,12 +214,12 @@ void IrParameterIntegerType(IrParameter* param, int size) {
 
 void IrParameterNewVReg(IrFunction* fn, IrParameter* param) {
     IrVirtualRegister* reg = IrVirtualRegisterCreate(fn);
-    param->kind = IR_PARAMETER_REGISTER;
+    param->kind = IR_PARAMETER_VREG;
     param->as.virtualRegister = reg;
 }
 
 void IrParameterVRegRef(IrParameter* param, IrParameter* vreg) {
-    param->kind = IR_PARAMETER_REGISTER;
+    param->kind = IR_PARAMETER_VREG;
     param->as.virtualRegister = vreg->as.virtualRegister;
 }
 
@@ -246,7 +246,7 @@ void IrParameterReference(IrParameter* param, IrParameter* src) {
             *param = *src; break;
         case IR_PARAMETER_TOP_LEVEL:
             IrParameterTopLevel(param, src->as.topLevel); break;
-        case IR_PARAMETER_REGISTER:
+        case IR_PARAMETER_VREG:
             IrParameterVRegRef(param, src); break;
         case IR_PARAMETER_PHI:
             IrParameterPhi(param, src->as.phi); break;
@@ -263,7 +263,7 @@ IrType* IrParameterGetType(IrParameter* param) {
             return &param->as.constant.type;
         case IR_PARAMETER_TOP_LEVEL:
             return &param->as.topLevel->type;
-        case IR_PARAMETER_REGISTER:
+        case IR_PARAMETER_VREG:
             return &param->as.virtualRegister->type;
         case IR_PARAMETER_TYPE:
             return &param->as.type;
@@ -278,7 +278,7 @@ static void IrPhiSetReturnType(IrPhi* phi) {
     if(phi->returnTypeSet) return;
 
     IrParameter* param1 = &phi->params[0].param;
-    if(param1->kind == IR_PARAMETER_REGISTER && !param1->as.virtualRegister->hasType) {
+    if(param1->kind == IR_PARAMETER_VREG && !param1->as.virtualRegister->hasType) {
         return;
     }
 
@@ -300,20 +300,21 @@ static void IrPhiSetReturnType(IrPhi* phi) {
 }
 
 static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instruction) {
-    if(instruction->returnTypeSet || !instruction->hasReturn) return;
+    SSAInstruction* inst = &instruction->as.ssa;
+    if(inst->returnTypeSet || !inst->hasReturn) return;
 
-    for(unsigned int i = 0; i < instruction->parameterCount; i++) {
-        IrParameter* param = &instruction->params[i];
-        if(param->kind == IR_PARAMETER_REGISTER && !param->as.virtualRegister->hasType) {
+    for(unsigned int i = 0; i < inst->parameterCount; i++) {
+        IrParameter* param = &inst->params[i];
+        if(param->kind == IR_PARAMETER_VREG && !param->as.virtualRegister->hasType) {
             return;
         }
     }
 
-    IrVirtualRegister* vreg = instruction->params[-1].as.virtualRegister;
+    IrVirtualRegister* vreg = inst->params[-1].as.virtualRegister;
     IrType* ret = &vreg->type;
-    switch(instruction->opcode) {
+    switch(inst->opcode) {
         case IR_INS_PARAMETER:
-            *ret = fn->parameters[instruction->params[0].as.constant.value].as.type;
+            *ret = fn->parameters[inst->params[0].as.constant.value].as.type;
             break;
         case IR_INS_ADD:
         case IR_INS_SUB:
@@ -326,7 +327,7 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
         case IR_INS_AND:
         case IR_INS_XOR:
         case IR_INS_NEGATE:
-            *ret = *IrParameterGetType(&instruction->params[0]);
+            *ret = *IrParameterGetType(&inst->params[0]);
             break;
         case IR_INS_COMPARE:
         case IR_INS_NOT:
@@ -335,23 +336,23 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
             ret->as.integer = 8;
             break;
         case IR_INS_ALLOCA:
-            *ret = instruction->params[0].as.type;
+            *ret = inst->params[0].as.type;
             ret->pointerDepth++;
             break;
         case IR_INS_LOAD:
-            *ret = *IrParameterGetType(&instruction->params[0]);
+            *ret = *IrParameterGetType(&inst->params[0]);
             ret->pointerDepth--;
             break;
         case IR_INS_GET_ELEMENT_POINTER: {
             // note: this only works as gep is only used for pointer arithmetic
             // &a + 1, etc
-            *ret = *IrParameterGetType(&instruction->params[0]);
+            *ret = *IrParameterGetType(&inst->params[0]);
         }; break;
         case IR_INS_CAST:
-            *ret = instruction->params[0].as.type;
+            *ret = inst->params[0].as.type;
             break;
         case IR_INS_CALL:
-            *ret = IrParameterGetType(&instruction->params[0])->as.function.retType->as.type;
+            *ret = IrParameterGetType(&inst->params[0])->as.function.retType->as.type;
             break;
         case IR_INS_SIZEOF:
             ret->kind = IR_TYPE_INTEGER;
@@ -371,8 +372,8 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
             break;
     }
 
-    instruction->params[-1].as.virtualRegister->hasType = true;
-    instruction->returnTypeSet = true;
+    inst->params[-1].as.virtualRegister->hasType = true;
+    inst->returnTypeSet = true;
 
     IrVirtualRegisterUsage* usage = vreg->users;
     for(unsigned int i = 0; i < vreg->useCount; i++) {
@@ -398,19 +399,21 @@ static IrInstruction* addIns(IrContext* ctx, IrBasicBlock* block, IrOpcode opcod
     }
     block->instructionCount++;
     block->lastInstruction = inst;
-    inst->hasCondition = false;
-    inst->opcode = opcode;
-    inst->returnTypeSet = false;
+
+    inst->kind = IR_INSTRUCTION_SSA;
+    inst->as.ssa.hasCondition = false;
+    inst->as.ssa.opcode = opcode;
+    inst->as.ssa.returnTypeSet = false;
 
     return inst;
 }
 
 static void instructionVregUsageSet(IrContext* ctx, IrInstruction* inst) {
-    unsigned int paramCount = inst->parameterCount;
-    IrParameter* params = inst->params;
+    unsigned int paramCount = inst->as.ssa.parameterCount;
+    IrParameter* params = inst->as.ssa.params;
     for(unsigned int i = 0; i < paramCount; i++) {
         IrParameter* param = &params[i];
-        if(param->kind == IR_PARAMETER_REGISTER) {
+        if(param->kind == IR_PARAMETER_VREG) {
             IrVirtualRegisterAddUsage(ctx, param, inst, false);
         }
     }
@@ -419,9 +422,9 @@ static void instructionVregUsageSet(IrContext* ctx, IrInstruction* inst) {
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount) {
     IrInstruction* inst = addIns(ctx, block, opcode);
 
-    inst->hasReturn = true;
-    inst->params = params + 1;
-    inst->parameterCount = paramCount - 1;
+    inst->as.ssa.hasReturn = true;
+    inst->as.ssa.params = params + 1;
+    inst->as.ssa.parameterCount = paramCount - 1;
     params[0].as.virtualRegister->isPhi = false;
     params[0].as.virtualRegister->loc.inst = inst;
     params[0].as.virtualRegister->block = block;
@@ -435,9 +438,9 @@ IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpc
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount) {
     IrInstruction* inst = addIns(ctx, block, opcode);
 
-    inst->hasReturn = false;
-    inst->params = params;
-    inst->parameterCount = paramCount;
+    inst->as.ssa.hasReturn = false;
+    inst->as.ssa.params = params;
+    inst->as.ssa.parameterCount = paramCount;
 
     instructionVregUsageSet(ctx, inst);
 
@@ -449,8 +452,8 @@ void IrTypeAddPointer(IrParameter* param) {
 }
 
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
-    inst->hasCondition = true;
-    inst->comparison = cmp;
+    inst->as.ssa.hasCondition = true;
+    inst->as.ssa.comparison = cmp;
 }
 
 // --------------- //
@@ -517,7 +520,7 @@ bool IrParameterEqual(IrParameter* a, IrParameter* b) {
     switch(a->kind) {
         case IR_PARAMETER_BLOCK: return a->as.block == b->as.block;
         case IR_PARAMETER_PHI: return a->as.phi == b->as.phi;
-        case IR_PARAMETER_REGISTER: return a->as.virtualRegister == b->as.virtualRegister;
+        case IR_PARAMETER_VREG: return a->as.virtualRegister == b->as.virtualRegister;
         case IR_PARAMETER_TOP_LEVEL: return a->as.topLevel == b->as.topLevel;
         case IR_PARAMETER_TYPE: return IrTypeEqual(&a->as.type, &b->as.type);
         case IR_PARAMETER_CONSTANT: return
@@ -537,7 +540,7 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
         IrPhiParameter* param = &phi->params[i];
         if (
             IrParameterEqual(&param->param, same) ||
-            (param->param.kind == IR_PARAMETER_REGISTER &&
+            (param->param.kind == IR_PARAMETER_VREG &&
                 param->param.as.virtualRegister->isPhi &&
                 param->param.as.virtualRegister->loc.phi == phi)
         ) {
@@ -639,7 +642,7 @@ void IrParameterPrint(IrParameter* param, bool printType) {
         case IR_PARAMETER_TYPE:
             IrTypePrint(&param->as.type);
             break;
-        case IR_PARAMETER_REGISTER:
+        case IR_PARAMETER_VREG:
             printf("%%%lld", param->as.virtualRegister->ID);
             break;
         case IR_PARAMETER_CONSTANT:
@@ -661,7 +664,7 @@ void IrParameterPrint(IrParameter* param, bool printType) {
     printf(" : ");
 
     switch(param->kind) {
-        case IR_PARAMETER_REGISTER:
+        case IR_PARAMETER_VREG:
             IrTypePrint(&param->as.virtualRegister->type);
             break;
         case IR_PARAMETER_CONSTANT:
@@ -717,8 +720,7 @@ char* IrConditionNames[IR_COMPARE_MAX] = {
     [IR_COMPARE_LESS_EQUAL] = "less equal",
 };
 
-void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutterSize) {
-
+void SSAInstructionPrint(unsigned int idx, SSAInstruction* inst, unsigned int gutterSize) {
     printf("%*d |   ", gutterSize, idx);
     if(inst->hasReturn) {
         IrParameter* param = inst->params - 1;
@@ -738,6 +740,17 @@ void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutt
     }
 
     printf("\n");
+}
+
+void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutterSize) {
+    switch(inst->kind) {
+        case IR_INSTRUCTION_SSA:
+            SSAInstructionPrint(idx, &inst->as.ssa, gutterSize);
+            break;
+        case IR_INSTRUCTION_X64:
+            x64InstructionPrint(idx, &inst->as.x64, gutterSize);
+            break;
+    }
 }
 
 void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize) {

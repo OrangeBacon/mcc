@@ -3,6 +3,7 @@
 
 #include "symbolTable.h"
 #include "memory.h"
+#include "x64Encode.h"
 
 // This file describes an SSA IR used by this compiler.  It is strictly
 // statically typed, each virtual register has a datatype, unlike LLVMIR.  This
@@ -120,7 +121,7 @@ typedef struct IrParameter {
         IR_PARAMETER_TYPE,
 
         // a virtual register
-        IR_PARAMETER_REGISTER,
+        IR_PARAMETER_VREG,
 
         // a basic block reference for jump instructions
         IR_PARAMETER_BLOCK,
@@ -185,13 +186,7 @@ typedef enum IrOpcode {
     IR_INS_MAX, // largest opcode number;
 } IrOpcode;
 
-// each instruction inside a basic block
-typedef struct IrInstruction {
-    size_t ID;
-
-    // the instruction after this one
-    struct IrInstruction* next;
-
+typedef struct SSAInstruction {
     // flags
     IrComparison comparison : 3;
     bool hasReturn : 1;
@@ -207,6 +202,26 @@ typedef struct IrInstruction {
 
     // number of parameters in the list
     unsigned int parameterCount;
+} SSAInstruction;
+
+typedef enum IrInstructionType {
+    IR_INSTRUCTION_SSA,
+    IR_INSTRUCTION_X64,
+} IrInstructionType;
+
+// each instruction inside a basic block
+typedef struct IrInstruction {
+    size_t ID;
+
+    // the instruction after this one
+    struct IrInstruction* next;
+
+    IrInstructionType kind;
+
+    union {
+        SSAInstruction ssa;
+        x64Instruction x64;
+    } as;
 } IrInstruction;
 
 typedef struct IrPhiParameter {
