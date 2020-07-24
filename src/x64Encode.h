@@ -10,6 +10,7 @@
 // for more infomation
 
 typedef enum x64BaseRegister {
+    x64_REG_UNDEFINED,
     x64_AX,
     x64_CX,
     x64_DX,
@@ -26,7 +27,6 @@ typedef enum x64BaseRegister {
     x64_R13,
     x64_R14,
     x64_R15,
-    x64_REG_UNDEFINED,
 } x64BaseRegister;
 
 typedef enum x64Opcode {
@@ -91,42 +91,58 @@ typedef enum x64ConditionCode {
 } x64ConditionCode;
 
 typedef struct x64Register {
-    bool hasVreg : 1;
-    bool rasPhysicalReg : 1;
-
     struct IrVirtualRegister* vreg;
     x64BaseRegister reg;
 } x64Register;
 
 typedef enum x64ReducedModField {
     x64_INDIRECT,
-    x64_DISP,
-    x64_SYMBOL,
     x64_DIRECT_W,
     x64_DIRECT_R,
     x64_DIRECT_RW,
+    x64_MAX_REDUCED_MOD,
 } x64ReducedModField;
 
-typedef struct x64RegisterOperand {
-    x64ReducedModField mod;
+typedef enum x64Scale {
+    x64_SCALE_1,
+    x64_SCALE_2,
+    x64_SCALE_4,
+    x64_SCALE_8,
+} x64Scale;
 
-    // sib base, modr/m.r/m, direct write reg
+typedef struct x64RegisterOperand {
+    _Static_assert(x64_MAX_REDUCED_MOD >= 4, "x64ReduceMod member count too large");
+    uint8_t mod : 2; // enum x64ReducedMod
+    uint8_t scale : 2; // 1/2/4/8
+    bool ripRelative : 1;
+    bool usesSymbol: 1;
+
+    // sib base, modr/m.r/m, direct read reg
     x64Register base;
 
-    // sib index, direct read reg
+    // sib index, direct write reg
     x64Register index;
     union {
         uint32_t disp32;
         struct IrTopLevel* topLevel;
     } disp;
-
-    int scale : 2; // 1/2/4/8
-    bool ripRelative : 1;
 } x64RegisterOperand;
 
+typedef enum x64ImmediateSize {
+    x64_IMM8,
+    x64_IMM16,
+    x64_IMM32,
+    x64_IMM_SYMBOL,
+} x64ImmediateSize;
+
 typedef struct x64ImmediateOperand {
-    int size : 2; // 8/16/32/64
-    uint32_t value;
+    x64ImmediateSize size;
+    union {
+        uint8_t imm8;
+        uint16_t imm16;
+        uint32_t imm32;
+        struct IrBasicBlock* block;
+    } as;
 } x64ImmediateOperand;
 
 typedef enum x64OperandType {
@@ -139,7 +155,6 @@ typedef enum x64OperandType {
 // undefined if condition code used beyond argument 1
 typedef struct x64Operand {
     enum x64OperandType type;
-    bool valid;
 
     union {
         x64RegisterOperand reg;
@@ -165,11 +180,14 @@ op ->rdx
 op ->%0=rax
 op %0->%1
 op %0->rax
-op %0=rax->rbx=%1
+op %0=rax->rax=%1 // equiv: op %0=rax=>%1
 op rax->%1
 op rax->rax // equiv: op *rax
 op [%0+%1*2+3]
 op [rip+main]
+op 8'5
+op 16'257
+op 32'784563
 */
 
 // more complex examples?

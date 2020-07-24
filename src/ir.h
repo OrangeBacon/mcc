@@ -71,7 +71,7 @@ typedef struct IrType {
 // todo: possibly add top level instruction calls, eg allowing
 // `int a = 5 + 6` to be represented
 typedef struct IrConstant {
-    int value;
+    int32_t value;
     bool undefined;
 
     // the type of the constant
