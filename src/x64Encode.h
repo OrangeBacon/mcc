@@ -3,11 +3,16 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "memory.h"
 
 // See Intel® 64 and IA-32 Architectures Software Developer’s Manual ->
 //   Volume 1: Basic Architecture
 //   Volume 2: Instruction Set Reference
 // for more infomation
+
+typedef struct x64Context {
+    MemoryArray operands;
+} x64Context;
 
 typedef enum x64BaseRegister {
     x64_REG_UNDEFINED,
@@ -146,6 +151,7 @@ typedef struct x64ImmediateOperand {
 } x64ImmediateOperand;
 
 typedef enum x64OperandType {
+    x64_INVALID_OPERAND = 0,
     x64_REGISTER,
     x64_IMMEDIATE,
     x64_CONDITION_CODE,
@@ -237,5 +243,8 @@ registers {
     [64] = {RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8 , R9 , R10 , R11 , R12 , R13 , R14 , R15 }
 }
 */
+
+struct IrContext;
+void x64LowerIr(struct IrContext* ctx);
 
 #endif
