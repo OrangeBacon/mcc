@@ -1199,6 +1199,7 @@ static void astLowerFunction(ASTInitDeclarator* decl, lowerCtx* ctx) {
         astLowerFnCompound(decl->fn, ctx);
         // finish all phis in the function
         IrSealBlock(ctx->fn, ctx->blk);
+        IrTryRemoveTrivialBlocks(fn);
     }
 }
 

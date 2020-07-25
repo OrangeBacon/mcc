@@ -78,17 +78,14 @@ typedef struct IrConstant {
     IrType type;
 } IrConstant;
 
-typedef struct IrVirtualRegisterUsage {
-    struct IrVirtualRegisterUsage* prev;
-    struct IrParameter* usage;
+typedef struct IrUsageData {
+    struct IrUsageData* prev;
+    void* usageLocation;
 
     bool isPhi : 1;
-    union {
-        struct IrPhi* phi;
-        struct IrInstruction* instruction;
-    } as;
+    void* source;
 
-} IrVirtualRegisterUsage;
+} IrUsageData;
 
 // a virtual regiser
 typedef struct IrVirtualRegister {
@@ -103,7 +100,7 @@ typedef struct IrVirtualRegister {
     struct IrBasicBlock* block;
 
     unsigned int useCount;
-    IrVirtualRegisterUsage* users;
+    IrUsageData* users;
 
     bool hasType : 1;
 
@@ -228,6 +225,8 @@ typedef struct IrInstruction {
 } IrInstruction;
 
 typedef struct IrPhiParameter {
+    bool ignore;
+
     IrParameter param;
     struct IrBasicBlock* block;
 } IrPhiParameter;
@@ -258,6 +257,9 @@ typedef struct IrBasicBlock {
     size_t maxInstructionCount;
 
     IrInstruction* lastInstruction;
+
+    unsigned int useCount;
+    IrUsageData* users;
 
     struct IrFunction* fn;
 
@@ -334,7 +336,7 @@ typedef struct IrContext {
 
     MemoryArray vReg;
 
-    MemoryArray vRegUsageData;
+    MemoryArray usageData;
 
     MemoryArray phi;
 } IrContext;
@@ -346,7 +348,6 @@ IrTopLevel* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int name
 IrTopLevel* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength);
 void IrGlobalInitialize(IrTopLevel* global, size_t value, size_t size);
 IrBasicBlock* IrBasicBlockCreate(IrFunction* fn);
-IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn);
 IrParameter* IrParameterCreate(IrContext* ctx);
 IrParameter* IrParametersCreate(IrContext* ctx, size_t count);
 void IrParameterConstant(IrParameter* param, int value, int dataSize);
@@ -368,7 +369,6 @@ IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOp
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
 IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var);
 void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand);
-void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, void* source, bool isPhi);
 
 void IrContextPrint(IrContext* ctx);
 
@@ -381,5 +381,6 @@ IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBl
 IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi);
 IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
 void IrSealBlock(IrFunction* fn, IrBasicBlock* block);
+void IrTryRemoveTrivialBlocks(IrFunction* fn);
 
 #endif
