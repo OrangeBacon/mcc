@@ -116,6 +116,7 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
     ARRAY_ALLOC(IrPhiParameter, *phi, param);
     phi->incomplete = false;
     phi->used = true;
+    phi->tryRemoveProcessing = false;
 
     phi->result.as.virtualRegister->block = block;
     phi->var = var;
@@ -688,21 +689,19 @@ static void IrParameterReplaceVreg(IrFunction* fn, IrParameter* old, IrParameter
         }
 
         // phi elimination
-        if(usage->sourceType == IR_USAGE_PHI && ((IrPhi*)usage->source)->used) {
+        if(usage->sourceType == IR_USAGE_PHI && ((IrPhi*)usage->source)->used && (!reg->isPhi || usage->source != reg->loc.phi)) {
             IrTryRemoveTrivialPhi(usage->source);
         }
         usage = usage->prev;
     }
 }
 
-int depth = 0;
 static IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
-    depth++;
-
-    if(!optimisePhis || depth > 100) {
-        depth--;
+    if(!optimisePhis || !phi->used || phi->tryRemoveProcessing) {
         return &phi->result;
     }
+
+    phi->tryRemoveProcessing = true;
 
     IrParameter* same = NULL;
 
@@ -719,7 +718,7 @@ static IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
             continue; // unique value or self-reference
         }
         if(same != NULL) {
-            depth--;
+            phi->tryRemoveProcessing = false;
             return &phi->result; // the phi merges at least two values: not trivial
         }
         same = &param->param;
@@ -730,7 +729,6 @@ static IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     // remove phi
     phi->used = false;
 
-    depth--;
     return same;
 }
 

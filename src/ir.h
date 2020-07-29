@@ -242,6 +242,7 @@ typedef struct IrPhi {
     bool incomplete: 1;
     bool used : 1;
     bool returnTypeSet : 1;
+    bool tryRemoveProcessing : 1;
 
     SymbolLocal* var;
 
