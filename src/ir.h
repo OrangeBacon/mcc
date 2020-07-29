@@ -132,8 +132,6 @@ typedef struct IrParameter {
         IR_PARAMETER_CONSTANT,
 
         IR_PARAMETER_TOP_LEVEL,
-
-        IR_PARAMETER_PHI,
     } kind;
 
     // the value stored
@@ -143,7 +141,6 @@ typedef struct IrParameter {
         struct IrBasicBlock* block;
         IrConstant constant;
         struct IrTopLevel* topLevel;
-        struct IrPhi* phi;
     } as;
 } IrParameter;
 
@@ -356,23 +353,16 @@ IrTopLevel* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int name
 IrTopLevel* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength);
 void IrGlobalInitialize(IrTopLevel* global, size_t value, size_t size);
 IrBasicBlock* IrBasicBlockCreate(IrFunction* fn);
-void IrBasicBlockAddPredecessor(IrBasicBlock* block, IrBasicBlock* pred);
 IrParameter* IrParameterCreate(IrContext* ctx);
 IrParameter* IrParametersCreate(IrContext* ctx, size_t count);
 void IrParameterConstant(IrParameter* param, int value, int dataSize);
 void IrParameterUndefined(IrParameter* param);
 void IrParameterIntegerType(IrParameter* param, int size);
 void IrParameterNewVReg(IrFunction* fn, IrParameter* param);
-void IrParameterVRegRef(IrParameter* param, IrParameter* vreg);
 void IrParameterBlock(IrParameter* param, IrBasicBlock* block);
 void IrParameterTopLevel(IrParameter* param, IrTopLevel* top);
-void IrParameterPhi(IrParameter* param, IrPhi* phi);
 void IrParameterReference(IrParameter* param, IrParameter* src);
-void IrTypeAddPointer(IrParameter* param);
-IrInstruction* IrInstructionAppend(IrContext* ctx, IrBasicBlock* block);
-IrInstruction* IrInstructionInsertAfter(IrContext* ctx, IrInstruction* prev);
-IrInstruction* IrInstructionInsertBefore(IrContext* ctx, IrInstruction* prev);
-void IrInstructionRemove(IrInstruction* inst);
+IrType* IrParameterGetType(IrParameter* param);
 IrInstruction* IrInstructionSetCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOpcode opcode, IrParameter* params, size_t paramCount);
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp);
@@ -382,13 +372,9 @@ void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParamete
 void IrContextPrint(IrContext* ctx);
 
 bool IrTypeEqual(IrType* a, IrType* b);
-IrType* IrParameterGetType(IrParameter* param);
 
 void IrWriteVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block, IrParameter* value);
 IrParameter* IrReadVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block);
-IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block);
-IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi);
-IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
 void IrSealBlock(IrFunction* fn, IrBasicBlock* block);
 void IrTryRemoveTrivialBlocks(IrFunction* fn);
 

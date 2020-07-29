@@ -161,7 +161,7 @@ static void IrBasicBlockAddUsage(IrContext* ctx, IrBasicBlock* block, void* loc,
     block->useCount++;
 }
 
-void IrBasicBlockAddPredecessor(IrBasicBlock* block, IrBasicBlock* pred) {
+static void IrBasicBlockAddPredecessor(IrBasicBlock* block, IrBasicBlock* pred) {
     IrUsageData* data = memoryArrayPush(&block->fn->ctx->usageData);
     data->source = pred;
     data->prev = NULL;
@@ -191,11 +191,35 @@ void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParamete
         IrPhiSetReturnType(phi);
     }
 
-    if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_VREG) {
+    if(operand->kind == IR_PARAMETER_VREG) {
         IrVirtualRegisterAddUsage(ctx, &param->param, phi, IR_USAGE_PHI);
     }
 
     IrBasicBlockAddUsage(ctx, block, param, phi, IR_USAGE_PHI);
+}
+
+bool IrTypeEqual(IrType* a, IrType* b) {
+    if(a->kind != b->kind) return false;
+    if(a->pointerDepth != b->pointerDepth) return false;
+
+    switch(a->kind) {
+        case IR_TYPE_NONE: return true;
+        case IR_TYPE_INTEGER: return a->as.integer == b->as.integer;
+        case IR_TYPE_FUNCTION:
+            if(a->as.function.parameterCount != b->as.function.parameterCount)
+                return false;
+            if(!IrTypeEqual(&a->as.function.retType->as.type, &b->as.function.retType->as.type))
+                return false;
+            for(unsigned int i = 0; i < a->as.function.parameterCount; i++) {
+                if(!IrTypeEqual(&a->as.function.parameters[i].as.type,
+                                &b->as.function.parameters[i].as.type)) {
+                    return false;
+                }
+            }
+            return true;
+    }
+
+    printf("unreachable type equality\n"); exit(1);
 }
 
 static IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn) {
@@ -247,7 +271,7 @@ void IrParameterNewVReg(IrFunction* fn, IrParameter* param) {
     param->as.virtualRegister = reg;
 }
 
-void IrParameterVRegRef(IrParameter* param, IrParameter* vreg) {
+static void IrParameterVRegRef(IrParameter* param, IrParameter* vreg) {
     param->kind = IR_PARAMETER_VREG;
     param->as.virtualRegister = vreg->as.virtualRegister;
 }
@@ -262,11 +286,6 @@ void IrParameterTopLevel(IrParameter* param, IrTopLevel* top) {
     param->as.topLevel = top;
 }
 
-void IrParameterPhi(IrParameter* param, IrPhi* phi) {
-    param->kind = IR_PARAMETER_PHI;
-    param->as.phi = phi;
-}
-
 void IrParameterReference(IrParameter* param, IrParameter* src) {
     switch(src->kind) {
         case IR_PARAMETER_BLOCK:
@@ -277,8 +296,6 @@ void IrParameterReference(IrParameter* param, IrParameter* src) {
             IrParameterTopLevel(param, src->as.topLevel); break;
         case IR_PARAMETER_VREG:
             IrParameterVRegRef(param, src); break;
-        case IR_PARAMETER_PHI:
-            IrParameterPhi(param, src->as.phi); break;
         case IR_PARAMETER_TYPE:
             printf("IrBuilder error\n");exit(1);
     }
@@ -296,8 +313,6 @@ IrType* IrParameterGetType(IrParameter* param) {
             return &param->as.virtualRegister->type;
         case IR_PARAMETER_TYPE:
             return &param->as.type;
-        case IR_PARAMETER_PHI:
-            return &param->as.phi->result.as.virtualRegister->type;
     }
 
     return NULL; // unreachable
@@ -560,10 +575,6 @@ IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOp
     return inst;
 }
 
-void IrTypeAddPointer(IrParameter* param) {
-    param->as.type.pointerDepth++;
-}
-
 void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
     inst->as.ssa.hasCondition = true;
     inst->as.ssa.comparison = cmp;
@@ -580,7 +591,7 @@ void IrWriteVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block, IrPa
     PAIRTABLE_SET(fn->variableTable, var, block, value);
 }
 
-IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block);
+static IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block);
 IrParameter* IrReadVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block) {
     if(pairPableHas(&fn->variableTable, var, block)) {
         // local value numbering
@@ -591,8 +602,8 @@ IrParameter* IrReadVariable(IrFunction* fn, SymbolLocal* var, IrBasicBlock* bloc
     return IrReadVariableRecursive(fn, var, block);
 }
 
-IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi);
-IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block) {
+static IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi);
+static IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBlock* block) {
     IrParameter* val;
 
     if(!block->sealed) {
@@ -616,8 +627,8 @@ IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBl
     return val;
 }
 
-IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
-IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi) {
+static IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
+static IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi) {
     IrUsageData* predData = phi->block->predecessors;
     for(unsigned int i = 0; i < phi->block->predCount; i++) {
         IrBasicBlock* pred = predData->source;
@@ -629,13 +640,12 @@ IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi) {
     return IrTryRemoveTrivialPhi(phi);
 }
 
-bool IrParameterEqual(IrParameter* a, IrParameter* b) {
+static bool IrParameterEqual(IrParameter* a, IrParameter* b) {
     if(a == NULL || b == NULL) return false;
     if(a->kind != b->kind) return false;
 
     switch(a->kind) {
         case IR_PARAMETER_BLOCK: return a->as.block == b->as.block;
-        case IR_PARAMETER_PHI: return a->as.phi == b->as.phi;
         case IR_PARAMETER_VREG: return a->as.virtualRegister == b->as.virtualRegister;
         case IR_PARAMETER_TOP_LEVEL: return a->as.topLevel == b->as.topLevel;
         case IR_PARAMETER_TYPE: return IrTypeEqual(&a->as.type, &b->as.type);
@@ -648,8 +658,45 @@ bool IrParameterEqual(IrParameter* a, IrParameter* b) {
     printf("Unreachable\n"); exit(0);
 }
 
+// replace the usage of one vreg with another parameteer of any type
+static void IrParameterReplaceVreg(IrFunction* fn, IrParameter* old, IrParameter* new) {
+    // replace register inside the variable table
+    for(unsigned int i = 0; i < fn->variableTable.entryCount; i++) {
+        PairEntry* entry = &fn->variableTable.entrys[i];
+        if(entry->key.key1 == NULL) {
+            continue;
+        }
+        IrParameter* param = entry->value;
+        if(IrParameterEqual(param, old)) {
+            entry->value = new;
+        }
+    }
+
+    // remember all users exept the phi itsself
+    IrVirtualRegister* reg = old->as.virtualRegister;
+
+    // reverse iterate double linked list
+    IrUsageData* usage = reg->users;
+    for(unsigned int i = 0; i < reg->useCount; i++) {
+        // reroute all uses of phi to new
+        IrParameter* param = usage->usageLocation;
+        *param = new != NULL? *new : (IrParameter){0};
+
+        // update usages of replacement register
+        if(new->kind == IR_PARAMETER_VREG) {
+            IrVirtualRegisterAddUsage(fn->ctx, param, usage->source, usage->sourceType);
+        }
+
+        // phi elimination
+        if(usage->sourceType == IR_USAGE_PHI && ((IrPhi*)usage->source)->used) {
+            IrTryRemoveTrivialPhi(usage->source);
+        }
+        usage = usage->prev;
+    }
+}
+
 int depth = 0;
-IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
+static IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     depth++;
 
     if(!optimisePhis || depth > 100) {
@@ -657,8 +704,6 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
         return &phi->result;
     }
 
-
-    IrContext* ctx = phi->block->fn->ctx;
     IrParameter* same = NULL;
 
     for(unsigned int i = 0; i < phi->paramCount; i++) {
@@ -680,40 +725,7 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
         same = &param->param;
     }
 
-    // replace register inside the variable table
-    IrFunction* fn = phi->block->fn;
-    for(unsigned int i = 0; i < fn->variableTable.entryCount; i++) {
-        PairEntry* entry = &fn->variableTable.entrys[i];
-        if(entry->key.key1 == NULL) {
-            continue;
-        }
-        IrParameter* param = entry->value;
-        if(entry->key.key2 == phi->block && IrParameterEqual(param, &phi->result)) {
-            entry->value = same;
-        }
-    }
-
-    // remember all users exept the phi itsself
-    IrVirtualRegister* reg = phi->result.as.virtualRegister;
-
-    // reverse iterate double linked list
-    IrUsageData* usage = reg->users;
-    for(unsigned int i = 0; i < reg->useCount; i++) {
-        // reroute all uses of phi to same
-        IrParameter* param = usage->usageLocation;
-        *param = same != NULL? *same : (IrParameter){0};
-
-        // update usages of replacement register
-        if(same->kind == IR_PARAMETER_VREG) {
-            IrVirtualRegisterAddUsage(ctx, param, usage->source, usage->sourceType);
-        }
-
-        // phi elimination
-        if(usage->sourceType == IR_USAGE_PHI && ((IrPhi*)usage->source)->used) {
-            IrTryRemoveTrivialPhi(usage->source);
-        }
-        usage = usage->prev;
-    }
+    IrParameterReplaceVreg(phi->block->fn, &phi->result, same);
 
     // remove phi
     phi->used = false;
@@ -782,7 +794,7 @@ void IrTryRemoveTrivialBlocks(IrFunction* fn) {
 // PRINTER //
 // ------- //
 
-void IrTypePrint(IrType* ir) {
+static void IrTypePrint(IrType* ir) {
     switch(ir->kind) {
         case IR_TYPE_NONE:
             printf("none");
@@ -810,7 +822,7 @@ void IrTypePrint(IrType* ir) {
     }
 }
 
-void IrGlobalPrint(IrTopLevel* ir) {
+static void IrGlobalPrint(IrTopLevel* ir) {
     IrConstant* global = &ir->as.global;
     printf("global %.*s : ", ir->nameLength, ir->name);
     IrType realType = ir->type;
@@ -827,7 +839,7 @@ void IrGlobalPrint(IrTopLevel* ir) {
     }
 }
 
-void IrConstantPrint(IrConstant* ir) {
+static void IrConstantPrint(IrConstant* ir) {
     if(ir->undefined) {
         printf("undefined");
     } else {
@@ -835,7 +847,7 @@ void IrConstantPrint(IrConstant* ir) {
     }
 }
 
-void IrParameterPrint(IrParameter* param, bool printType) {
+static void IrParameterPrint(IrParameter* param, bool printType) {
     switch(param->kind) {
         case IR_PARAMETER_TYPE:
             IrTypePrint(&param->as.type);
@@ -851,9 +863,6 @@ void IrParameterPrint(IrParameter* param, bool printType) {
             break;
         case IR_PARAMETER_TOP_LEVEL:
             printf("$%lld", param->as.topLevel->ID);
-            break;
-        case IR_PARAMETER_PHI:
-            IrParameterPrint(&param->as.phi->result, printType);
             break;
     }
 
@@ -873,9 +882,6 @@ void IrParameterPrint(IrParameter* param, bool printType) {
             break;
         case IR_PARAMETER_TOP_LEVEL:
             IrTypePrint(&param->as.topLevel->type);
-            break;
-        case IR_PARAMETER_PHI:
-            IrTypePrint(&param->as.phi->result.as.virtualRegister->type);
             break;
 
         case IR_PARAMETER_TYPE: break; // unreachable;
@@ -918,7 +924,7 @@ char* IrConditionNames[IR_COMPARE_MAX] = {
     [IR_COMPARE_LESS_EQUAL] = "less equal",
 };
 
-void SSAInstructionPrint(unsigned int idx, SSAInstruction* inst, unsigned int gutterSize) {
+static void SSAInstructionPrint(unsigned int idx, SSAInstruction* inst, unsigned int gutterSize) {
     printf("%*d |   ", gutterSize, idx);
     if(inst->hasReturn) {
         IrParameter* param = inst->params - 1;
@@ -940,7 +946,7 @@ void SSAInstructionPrint(unsigned int idx, SSAInstruction* inst, unsigned int gu
     printf("\n");
 }
 
-void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutterSize) {
+static void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutterSize) {
     switch(inst->kind) {
         case IR_INSTRUCTION_SSA:
             SSAInstructionPrint(idx, &inst->as.ssa, gutterSize);
@@ -951,7 +957,7 @@ void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutt
     }
 }
 
-void IrBasicBlockPrint(IrBasicBlock* block, unsigned int gutterSize) {
+static void IrBasicBlockPrint(IrBasicBlock* block, unsigned int gutterSize) {
     printf("%*s | @%lld", gutterSize, "", block->ID);
 
     if(block->predCount == 0) {
@@ -986,11 +992,11 @@ void IrBasicBlockPrint(IrBasicBlock* block, unsigned int gutterSize) {
     });
 }
 
-unsigned int intLength(unsigned int num) {
+static unsigned int intLength(unsigned int num) {
     return num == 0 ? 1 : floor(log10(num)) + 1;
 }
 
-void IrFunctionPrint(IrTopLevel* ir) {
+static void IrFunctionPrint(IrTopLevel* ir) {
     IrFunction* fn = &ir->as.function;
     printf("function %.*s $%lld", ir->nameLength, ir->name, ir->ID);
     IrTypePrint(&ir->type);
@@ -1020,7 +1026,7 @@ void IrFunctionPrint(IrTopLevel* ir) {
     printf("}\n\n");
 }
 
-void IrTopLevelPrint(IrContext* ctx, size_t idx) {
+static void IrTopLevelPrint(IrContext* ctx, size_t idx) {
     IrTopLevel* ir = memoryArrayGet(&ctx->topLevel, idx);
     switch(ir->kind) {
         case IR_TOP_LEVEL_GLOBAL:
@@ -1036,28 +1042,4 @@ void IrContextPrint(IrContext* ctx) {
     for(unsigned int i = 0; i < ctx->topLevel.itemCount; i++) {
         IrTopLevelPrint(ctx, i);
     }
-}
-
-bool IrTypeEqual(IrType* a, IrType* b) {
-    if(a->kind != b->kind) return false;
-    if(a->pointerDepth != b->pointerDepth) return false;
-
-    switch(a->kind) {
-        case IR_TYPE_NONE: return true;
-        case IR_TYPE_INTEGER: return a->as.integer == b->as.integer;
-        case IR_TYPE_FUNCTION:
-            if(a->as.function.parameterCount != b->as.function.parameterCount)
-                return false;
-            if(!IrTypeEqual(&a->as.function.retType->as.type, &b->as.function.retType->as.type))
-                return false;
-            for(unsigned int i = 0; i < a->as.function.parameterCount; i++) {
-                if(!IrTypeEqual(&a->as.function.parameters[i].as.type,
-                                &b->as.function.parameters[i].as.type)) {
-                    return false;
-                }
-            }
-            return true;
-    }
-
-    printf("unreachable type equality\n"); exit(1);
 }

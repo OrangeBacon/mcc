@@ -207,7 +207,6 @@ x64Operand refr(IrParameter* param) {
                 return imm32(c);
             }
         }
-        case IR_PARAMETER_PHI: return regr(&param->as.phi->result);
         case IR_PARAMETER_TOP_LEVEL: return riprel(param->as.topLevel);
         case IR_PARAMETER_VREG: return regr(param);
         case IR_PARAMETER_TYPE:
