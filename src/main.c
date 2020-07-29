@@ -15,8 +15,6 @@ int main(int argc, char** argv) {
 
     ArenaInit();
 
-    printf("Compiling: %s\n", argv[1]);
-
     Parser parser;
     ParserInit(&parser, argv[1]);
     ParserRun(&parser);

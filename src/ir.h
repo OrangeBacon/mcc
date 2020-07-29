@@ -78,11 +78,17 @@ typedef struct IrConstant {
     IrType type;
 } IrConstant;
 
+typedef enum IrUsageType {
+    IR_USAGE_PHI,
+    IR_USAGE_INSTRUCTION,
+    IR_USAGE_PREDECESSOR,
+} IrUsageType;
+
 typedef struct IrUsageData {
     struct IrUsageData* prev;
     void* usageLocation;
 
-    bool isPhi : 1;
+    IrUsageType sourceType;
     void* source;
 
 } IrUsageData;
@@ -263,7 +269,9 @@ typedef struct IrBasicBlock {
 
     struct IrFunction* fn;
 
-    ARRAY_DEFINE(struct IrBasicBlock*, predecessor);
+    unsigned int predCount;
+    IrUsageData* predecessors;
+    IrUsageData* lastPred;
 
     struct IrPhi* firstPhi;
     size_t phiCount;
@@ -348,6 +356,7 @@ IrTopLevel* IrFunctionCreate(IrContext* ctx, const char* name, unsigned int name
 IrTopLevel* IrGlobalPrototypeCreate(IrContext* ctx, const char* name, unsigned int nameLength);
 void IrGlobalInitialize(IrTopLevel* global, size_t value, size_t size);
 IrBasicBlock* IrBasicBlockCreate(IrFunction* fn);
+void IrBasicBlockAddPredecessor(IrBasicBlock* block, IrBasicBlock* pred);
 IrParameter* IrParameterCreate(IrContext* ctx);
 IrParameter* IrParametersCreate(IrContext* ctx, size_t count);
 void IrParameterConstant(IrParameter* param, int value, int dataSize);

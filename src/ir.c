@@ -3,7 +3,7 @@
 #include <math.h>
 #include <assert.h>
 
-bool optimisePhis = false;
+bool optimisePhis = true;
 bool removeAfterJump = true;
 bool removeUnusedBlocks = true;
 
@@ -91,7 +91,9 @@ IrBasicBlock* IrBasicBlockCreate(IrFunction* fn) {
     block->phiCount = 0;
     block->lastPhi = NULL;
     block->sealed = false;
-    ARRAY_ALLOC(IrBasicBlock*, *block, predecessor);
+    block->predCount = 0;
+    block->predecessors = NULL;
+    block->lastPred = NULL;
 
     if(fn->blockCount == 0) {
         fn->firstBlock = fn->lastBlock = block;
@@ -135,40 +137,46 @@ IrPhi* IrPhiCreate(IrContext* ctx, IrBasicBlock* block, SymbolLocal* var) {
 static void IrPhiSetReturnType(IrPhi* phi);
 static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instruction);
 
-static void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, void* source, bool isPhi) {
+static void IrVirtualRegisterAddUsage(IrContext* ctx, IrParameter* param, void* source, IrUsageType type) {
     IrVirtualRegister* reg = param->as.virtualRegister;
     IrUsageData* usage = memoryArrayPush(&ctx->usageData);
     usage->usageLocation = param;
     usage->source = source;
-    usage->isPhi = isPhi;
+    usage->sourceType = type;
+    usage->prev = reg->users;
 
-    if(reg->users == NULL) {
-        usage->prev = NULL;
-        reg->users = usage;
-    } else {
-        usage->prev = reg->users;
-        reg->users = usage;
-    }
-
+    reg->users = usage;
     reg->useCount++;
 }
 
-static void IrBasicBlockAddUsage(IrContext* ctx, IrBasicBlock* block, void* loc, void* source, bool isPhi) {
+static void IrBasicBlockAddUsage(IrContext* ctx, IrBasicBlock* block, void* loc, void* source, IrUsageType type) {
     IrUsageData* usage = memoryArrayPush(&ctx->usageData);
 
     usage->usageLocation = loc;
     usage->source = source;
-    usage->isPhi = isPhi;
+    usage->sourceType = type;
+    usage->prev = block->users;
 
-    if(block->users == NULL) {
-        usage->prev = NULL;
-        block->users = usage;
+    block->users = usage;
+    block->useCount++;
+}
+
+void IrBasicBlockAddPredecessor(IrBasicBlock* block, IrBasicBlock* pred) {
+    IrUsageData* data = memoryArrayPush(&block->fn->ctx->usageData);
+    data->source = pred;
+    data->prev = NULL;
+
+    if(block->predecessors == NULL) {
+        block->predecessors = data;
+        block->lastPred = data;
     } else {
-        usage->prev = block->users;
-        block->users = usage;
+        block->lastPred->prev = data;
+        block->lastPred = data;
     }
 
-    block->useCount++;
+    block->predCount++;
+
+    IrBasicBlockAddUsage(block->fn->ctx, pred, data, block, IR_USAGE_PREDECESSOR);
 }
 
 void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParameter* operand) {
@@ -184,10 +192,10 @@ void IrPhiAddOperand(IrContext* ctx, IrPhi* phi, IrBasicBlock* block, IrParamete
     }
 
     if(operand->kind == IR_PARAMETER_PHI || operand->kind == IR_PARAMETER_VREG) {
-        IrVirtualRegisterAddUsage(ctx, &param->param, phi, true);
+        IrVirtualRegisterAddUsage(ctx, &param->param, phi, IR_USAGE_PHI);
     }
 
-    IrBasicBlockAddUsage(ctx, block, param, phi, true);
+    IrBasicBlockAddUsage(ctx, block, param, phi, IR_USAGE_PHI);
 }
 
 static IrVirtualRegister* IrVirtualRegisterCreate(IrFunction* fn) {
@@ -310,9 +318,9 @@ static void IrPhiSetReturnType(IrPhi* phi) {
 
     IrUsageData* usage = vreg->users;
     for(unsigned int i = 0; i < vreg->useCount; i++) {
-        if(usage->isPhi) {
+        if(usage->sourceType == IR_USAGE_PHI) {
             IrPhiSetReturnType(usage->source);
-        } else {
+        } else if(usage->sourceType == IR_USAGE_INSTRUCTION) {
             IrInstruction* inst = usage->source;
             IrInstructionSetReturnType(phi->block->fn, inst);
         }
@@ -398,9 +406,9 @@ static void IrInstructionSetReturnType(IrFunction* fn, IrInstruction* instructio
 
     IrUsageData* usage = vreg->users;
     for(unsigned int i = 0; i < vreg->useCount; i++) {
-        if(usage->isPhi) {
+        if(usage->sourceType == IR_USAGE_PHI) {
             IrPhiSetReturnType(usage->source);
-        } else {
+        } else if(usage->sourceType == IR_USAGE_INSTRUCTION) {
             IrInstruction* inst = usage->source;
             IrInstructionSetReturnType(fn, inst);
         }
@@ -488,9 +496,9 @@ static void instructionVregUsageSet(IrContext* ctx, IrInstruction* inst) {
     for(unsigned int i = 0; i < paramCount; i++) {
         IrParameter* param = &params[i];
         if(param->kind == IR_PARAMETER_VREG) {
-            IrVirtualRegisterAddUsage(ctx, param, inst, false);
+            IrVirtualRegisterAddUsage(ctx, param, inst, IR_USAGE_INSTRUCTION);
         } else if(param->kind == IR_PARAMETER_BLOCK) {
-            IrBasicBlockAddUsage(ctx, param->as.block, param, inst, false);
+            IrBasicBlockAddUsage(ctx, param->as.block, param, inst, IR_USAGE_INSTRUCTION);
         }
     }
 }
@@ -540,6 +548,15 @@ IrInstruction* IrInstructionVoidCreate(IrContext* ctx, IrBasicBlock* block, IrOp
 
     instructionVregUsageSet(ctx, inst);
 
+    //if(instrIsSSAJump(block->lastInstruction)) return inst;
+
+    if(opcode == IR_INS_JUMP) {
+        IrBasicBlockAddPredecessor(params[0].as.block, block);
+    } else if(opcode == IR_INS_JUMP_IF) {
+        IrBasicBlockAddPredecessor(params[1].as.block, block);
+        IrBasicBlockAddPredecessor(params[2].as.block, block);
+    }
+
     return inst;
 }
 
@@ -583,9 +600,9 @@ IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBl
         IrPhi* phi = IrPhiCreate(fn->ctx, block, var);
         val = &phi->result;
         phi->incomplete = true;
-    } else if(block->predecessorCount == 1) {
+    } else if(block->predCount == 1) {
         // Optimise the common case of one predecessor: No phi needed
-        val = IrReadVariable(fn, var, block->predecessors[0]);
+        val = IrReadVariable(fn, var, block->predecessors->source);
     } else {
         // Break potential cycles with operandless phis
         IrPhi* phi = IrPhiCreate(fn->ctx, block, var);
@@ -601,9 +618,12 @@ IrParameter* IrReadVariableRecursive(IrFunction* fn, SymbolLocal* var, IrBasicBl
 
 IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi);
 IrParameter* IrAddPhiOperands(IrFunction* fn, SymbolLocal* var, IrPhi* phi) {
-    for(unsigned int i = 0; i < phi->block->predecessorCount; i++) {
-        IrBasicBlock* pred = phi->block->predecessors[i];
-        IrPhiAddOperand(fn->ctx, phi, pred, IrReadVariable(fn, var, pred));
+    IrUsageData* predData = phi->block->predecessors;
+    for(unsigned int i = 0; i < phi->block->predCount; i++) {
+        IrBasicBlock* pred = predData->source;
+        IrParameter* read = IrReadVariable(fn, var, pred);
+        IrPhiAddOperand(fn->ctx, phi, pred, read);
+        predData = predData->prev;
     }
 
     return IrTryRemoveTrivialPhi(phi);
@@ -632,10 +652,13 @@ int depth = 0;
 IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
     depth++;
 
-    if(!optimisePhis || depth > 3) {
+    if(!optimisePhis || depth > 100) {
         depth--;
         return &phi->result;
     }
+
+
+    IrContext* ctx = phi->block->fn->ctx;
     IrParameter* same = NULL;
 
     for(unsigned int i = 0; i < phi->paramCount; i++) {
@@ -657,16 +680,37 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
         same = &param->param;
     }
 
+    // replace register inside the variable table
+    IrFunction* fn = phi->block->fn;
+    for(unsigned int i = 0; i < fn->variableTable.entryCount; i++) {
+        PairEntry* entry = &fn->variableTable.entrys[i];
+        if(entry->key.key1 == NULL) {
+            continue;
+        }
+        IrParameter* param = entry->value;
+        if(entry->key.key2 == phi->block && IrParameterEqual(param, &phi->result)) {
+            entry->value = same;
+        }
+    }
+
     // remember all users exept the phi itsself
     IrVirtualRegister* reg = phi->result.as.virtualRegister;
 
     // reverse iterate double linked list
     IrUsageData* usage = reg->users;
     for(unsigned int i = 0; i < reg->useCount; i++) {
-        if(!(usage->isPhi && usage->source == phi)) {
-            // reroute all uses of phi to same
-            *(IrParameter*)usage->usageLocation = same != NULL? *same : (IrParameter){0};
-            if(usage->isPhi) IrTryRemoveTrivialPhi(usage->source);
+        // reroute all uses of phi to same
+        IrParameter* param = usage->usageLocation;
+        *param = same != NULL? *same : (IrParameter){0};
+
+        // update usages of replacement register
+        if(same->kind == IR_PARAMETER_VREG) {
+            IrVirtualRegisterAddUsage(ctx, param, usage->source, usage->sourceType);
+        }
+
+        // phi elimination
+        if(usage->sourceType == IR_USAGE_PHI && ((IrPhi*)usage->source)->used) {
+            IrTryRemoveTrivialPhi(usage->source);
         }
         usage = usage->prev;
     }
@@ -680,6 +724,7 @@ IrParameter* IrTryRemoveTrivialPhi(IrPhi* phi) {
 
 void IrSealBlock(IrFunction* fn, IrBasicBlock* block) {
     if(block->sealed) return;
+    if(block->predCount == 0) return;
     ITER_PHIS(block, i, phi, {
         if(phi->incomplete && phi->used) IrAddPhiOperands(fn, phi->var, phi);
     });
@@ -698,7 +743,9 @@ void IrTryRemoveTrivialBlocks(IrFunction* fn) {
         // check for usages of the block
         IrUsageData* data = block->users;
         for(unsigned int j = 0; j < block->useCount; j++) {
-            if(!data->isPhi) goto nextBlock;
+            if(data->sourceType != IR_USAGE_PHI && data->sourceType != IR_USAGE_PREDECESSOR) {
+                goto nextBlock;
+            }
             data = data->prev;
         }
 
@@ -708,12 +755,20 @@ void IrTryRemoveTrivialBlocks(IrFunction* fn) {
         if(fn->lastBlock == block) fn->lastBlock = prev;
         fn->blockCount--;
 
+        IrUsageData* last = NULL;
         data = block->users;
         for(unsigned int j = 0; j < block->useCount; j++) {
-            if(data->isPhi) {
+            if(data->sourceType == IR_USAGE_PHI) {
                 ((IrPhiParameter*)data->usageLocation)->ignore = true;
                 IrTryRemoveTrivialPhi(data->source);
+            } else if(data->sourceType == IR_USAGE_PREDECESSOR) {
+                IrBasicBlock* blk = data->source;
+                if(last) last->prev = data->prev;
+                if(blk->predecessors == data) blk->predecessors = data->prev;
+                if(blk->lastPred == data) blk->lastPred = last;
+                blk->predCount--;
             }
+            last = data;
             data = data->prev;
         }
 
@@ -896,16 +951,18 @@ void IrInstructionPrint(unsigned int idx, IrInstruction* inst, unsigned int gutt
     }
 }
 
-void IrBasicBlockPrint(size_t idx, IrBasicBlock* block, unsigned int gutterSize) {
-    printf("%*s | @%lld", gutterSize, "", idx);
+void IrBasicBlockPrint(IrBasicBlock* block, unsigned int gutterSize) {
+    printf("%*s | @%lld", gutterSize, "", block->ID);
 
-    if(block->predecessorCount == 0) {
+    if(block->predCount == 0) {
         printf(":\n");
     } else {
         printf("(");
-        for(unsigned int i = 0; i < block->predecessorCount; i++) {
+        IrUsageData* predData = block->predecessors;
+        for(unsigned int i = 0; i < block->predCount; i++) {
             if(i > 0) printf(", ");
-            printf("@%lld", block->predecessors[i]->ID);
+            printf("@%lld", ((IrBasicBlock*)predData->source)->ID);
+            predData = predData->prev;
         }
         printf("):\n");
     }
@@ -957,7 +1014,7 @@ void IrFunctionPrint(IrTopLevel* ir) {
     unsigned int gutterSize = intLength(instrCount);
 
     ITER_BLOCKS(fn, i, block, {
-        IrBasicBlockPrint(i, block, gutterSize);
+        IrBasicBlockPrint(block, gutterSize);
     });
 
     printf("}\n\n");
