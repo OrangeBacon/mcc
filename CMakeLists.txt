@@ -7,6 +7,7 @@ set(CFLAGS
     -Wextra
     -Werror
     -pedantic
+    -Wno-missing-field-initializers
 )
 
 add_executable(mcc
@@ -24,6 +25,7 @@ add_executable(mcc
     src/ir.c
     src/astLower.c
     src/x64Encode.c
+    src/argParser.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
