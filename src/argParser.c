@@ -2,6 +2,8 @@
 
 #include <string.h>
 #include <stdarg.h>
+#include <limits.h>
+#include <errno.h>
 
 typedef struct argParser argParser;
 typedef struct argArgument argArgument;
@@ -25,12 +27,12 @@ static void parseArgumentSigils(argArgument* arg) {
 }
 
 // emit an error
-static void argError(argParser* parser, const char* message, ...) {
+void argError(argParser* parser, const char* message, ...) {
     va_list args;
     va_start(args, message);
 
     parser->hasError = true;
-    if(parser->argc == 0) {
+    if(parser->argc < 0) {
         fprintf(stderr, "Error at end of parameters: ");
     } else {
         fprintf(stderr, "Error at parameter %d: ", parser->initialArgc - parser->argc);
@@ -59,6 +61,7 @@ static void invokeOption(argParser* parser, argArgument* arg, const char* name, 
 
 // parse something like -a or --long-arg
 static void parseOption(argParser* parser, const char* current) {
+
     parser->argc--;
     parser->argv++;
 
@@ -69,16 +72,20 @@ static void parseOption(argParser* parser, const char* current) {
         // parse --arg, atleast one leter avaliable, as this is not '--' arg
         argArgument* arg = tableGet(&parser->argumentTable, &current[2], len - 2);
         invokeOption(parser, arg, &current[2], len-2);
-        return;
 
     } else {
         // parse -abc
         for(unsigned int i = 1; i < len; i++) {
             char name = current[i];
 
+            parser->canGetArg = i == 1;
+            parser->canGetInternalArg = len != 2;
+            parser->hasGotArg = false;
+
             argArgument* arg = tableGet(&parser->shortArgTable, &name, 1);
+
             invokeOption(parser, arg, &name, 1);
-            if(parser->hasError) return;
+            if(parser->hasError || parser->hasGotArg) break;
         }
     }
 }
@@ -88,6 +95,11 @@ static void parsePosition(argParser* parser) {
     for(unsigned int i = 0; i < parser->settingCount; i++) {
         argArgument* arg = &parser->settings[i];
         if(!arg->isOption && !arg->isDone) {
+
+            parser->canGetArg = true;
+            parser->canGetInternalArg = false;
+            parser->hasGotArg = false;
+
             invokeOption(parser, arg, arg->name, strlen(arg->name));
             return;
         }
@@ -140,6 +152,7 @@ bool parseArgs(argParser* parser) {
         }
     }
 
+    parser->argc = -1;
     for(unsigned int i = 0; i < settingCount; i++) {
         argArgument* arg = &parser->settings[i];
         if(arg->isRequired) {
@@ -152,6 +165,18 @@ bool parseArgs(argParser* parser) {
 
 // get next string value from the parser
 const char* argNextString(struct argParser* parser, bool shouldEmitError) {
+    if(!parser->canGetArg) {
+        if(shouldEmitError) {
+            argError(parser, "Cannot read string argument from compressed flags");
+        }
+        return NULL;
+    }
+
+    if(parser->canGetInternalArg) {
+        parser->hasGotArg = true;
+        return &parser->argv[-1][2];
+    }
+
     if(parser->argc == 0) {
         if(shouldEmitError) {
             argError(parser, "Missing string argument for %s", parser->currentArgument->name);
@@ -159,10 +184,64 @@ const char* argNextString(struct argParser* parser, bool shouldEmitError) {
         return NULL;
     }
 
+    parser->hasGotArg = true;
+
     parser->argc--;
     const char* ret = parser->argv[0];
     parser->argv++;
     return ret;
+}
+
+int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
+    if(!parser->canGetArg) {
+        if(shouldEmitError) {
+            argError(parser, "Cannot read numeric argument from compressed flags");
+        }
+        *didError = true;
+        return 0;
+    }
+
+    if(parser->argc == 0 && !parser->canGetInternalArg) {
+        if(shouldEmitError) {
+            argError(parser, "Missing numeric argument for %s", parser->currentArgument->name);
+        }
+        *didError = true;
+        return 0;
+    }
+
+    parser->hasGotArg = true;
+
+    const char* arg = argNextString(parser, false);
+    if(arg == NULL) {
+        argError(parser, "Cannot parse NULL as integer");
+        *didError = true;
+        return 0;
+    }
+
+    char* end;
+    errno = 0;
+    intmax_t num = strtoimax(arg, &end, 0);
+
+    if(num > INT_MAX || (errno == ERANGE && num == INTMAX_MAX)) {
+        argError(parser, "Integer value too large");
+        *didError = true;
+        return 0;
+    }
+    if(num < INT_MIN || (errno == ERANGE && num == INTMAX_MIN)) {
+        argError(parser, "Integer value too small");
+        *didError = true;
+        return 0;
+    }
+
+    if(*end != '\0') {
+        if(shouldEmitError) {
+            argError(parser, "Unable to parse value as integer");
+        }
+        *didError = true;
+        return 0;
+    }
+
+    return num;
 }
 
 // callback to set boolean switch to true

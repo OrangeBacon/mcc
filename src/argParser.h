@@ -19,6 +19,9 @@ struct argParser {
     Table shortArgTable;
 
     bool hasError : 1;
+    bool canGetArg : 1;
+    bool canGetInternalArg : 1;
+    bool hasGotArg : 1;
 };
 
 struct argArgument {
@@ -40,5 +43,10 @@ bool parseArgs(struct argParser*);
 
 void argSet(struct argParser* parser, void* ctx);
 void argPush(struct argParser* parser, void* ctx);
+
+void argError(struct argParser* parser, const char* message, ...);
+
+const char* argNextString(struct argParser* parser, bool shouldEmitError);
+int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError);
 
 #endif
