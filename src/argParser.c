@@ -236,6 +236,12 @@ int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
     if(*end != '\0') {
         if(shouldEmitError) {
             argError(parser, "Unable to parse value as integer");
+        } else {
+            parser->hasGotArg = false;
+            if(!parser->canGetInternalArg) {
+                parser->argc++;
+                parser->argv--;
+            }
         }
         *didError = true;
         return 0;
