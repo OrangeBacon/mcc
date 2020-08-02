@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 #include "argParser.h"
 #include "parser.h"
@@ -7,6 +8,8 @@
 #include "memory.h"
 #include "astLower.h"
 #include "ir.h"
+#include "stream.h"
+#include "file.h"
 
 struct stringList files = {0};
 bool printAst = false;
@@ -45,6 +48,30 @@ struct argArgument topArguments[] = {
     {0},
 };
 
+streamError fileLayer(STREAM_LAYER) {
+    (void)stream;
+    (void)getNextArg;
+
+    static bool called = false;
+    if(called) return STREAM_OUT_OF_DATA;
+    called = true;
+
+    *data = readFileLen(ctx, len);
+    return STREAM_NO_ERROR;
+}
+
+streamError printLayer(STREAM_LAYER) {
+    (void)data;
+    (void)len;
+    void* value;
+    while(getNextArg(stream, &value) == STREAM_NO_ERROR) {
+        char c = *(char*)value;
+        if(c == '\0') break;
+        putc(c, ctx);
+    }
+    return STREAM_NO_ERROR;
+}
+
 int main(int argc, char** argv) {
     ArenaInit();
 
@@ -54,7 +81,20 @@ int main(int argc, char** argv) {
         topArguments,
     };
     bool hadError = parseArgs(&argparser);
-    if(hadError) return 1;
+    if(hadError) return EXIT_FAILURE;
+
+    if(translationPhaseCount != 8) {
+        for(unsigned int i = 0; i < files.dataCount; i++) {
+            struct stream data = {(struct streamFn[]){
+                {fileLayer, 1, (char*)files.datas[i]},
+                {printLayer, 0, stdout},
+                {0},
+            }};
+
+            streamRun(&data, NULL, 0);
+        }
+        return EXIT_SUCCESS;
+    }
 
     for(unsigned int i = 0; i < files.dataCount; i++) {
         Parser parser;
@@ -82,5 +122,5 @@ int main(int argc, char** argv) {
         }
     }
 
-    return hadError ? 2 : 0;
+    return hadError ? EXIT_FAILURE : EXIT_SUCCESS;
 }

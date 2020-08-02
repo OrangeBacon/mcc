@@ -4,6 +4,11 @@
 #include <stdlib.h>
 
 char* readFile(const char* name) {
+    size_t _;
+    return readFileLen(name, &_);
+}
+
+char* readFileLen(const char* name, size_t* len) {
     FILE* f = fopen(name, "r");
 
     if(f == NULL) {
@@ -18,6 +23,8 @@ char* readFile(const char* name) {
     char* buf = malloc((size + 1) * sizeof(char));
     size_t read = fread(buf, sizeof(char), size, f);
     buf[read] = '\0';
+
+    *len = read;
 
     return buf;
 }

@@ -26,6 +26,7 @@ add_executable(mcc
     src/astLower.c
     src/x64Encode.c
     src/argParser.c
+    src/stream.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
