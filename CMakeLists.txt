@@ -27,6 +27,7 @@ add_executable(mcc
     src/x64Encode.c
     src/argParser.c
     src/stream.c
+    src/driver.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})

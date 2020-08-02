@@ -7,9 +7,10 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
-#define KiB (1024)
-#define MiB (1024*KiB)
-#define GiB (1024*MiB)
+#define KiB (1024ULL)
+#define MiB (1024ULL*KiB)
+#define GiB (1024ULL*MiB)
+#define TiB (1024ULL*GiB)
 
 // section of memory
 typedef struct Area {
