@@ -8,6 +8,16 @@ int test(int, int, int, int, int, int, int, int, int, int j) {
     return j;
 }
 
+
+??=define HELLO
+
+?
+
+???
+
+??>
+
+
 int foo(int **, int (*)(int, int));
 
 int* bar(int** arg) {

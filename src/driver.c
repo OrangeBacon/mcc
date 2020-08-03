@@ -48,6 +48,77 @@ static struct argArgument topArguments[] = {
     {0},
 };
 
+typedef struct TranslationContext {
+    unsigned char* source;
+    size_t sourceLength;
+    size_t consumed;
+
+    bool trigraphs : 1;
+} TranslationContext;
+
+void TranslationContextInit(TranslationContext* ctx, const char* fileName) {
+    ctx->source = (unsigned char*)readFileLen(fileName, &ctx->sourceLength);
+    ctx->consumed = 0;
+}
+
+static unsigned char peek(TranslationContext* ctx) {
+    if(ctx->consumed >= ctx->sourceLength) return EOF;
+    return ctx->source[ctx->consumed];
+}
+
+static unsigned char peekNext(TranslationContext* ctx) {
+    if(ctx->consumed - 1 >= ctx->sourceLength) return EOF;
+    return ctx->source[ctx->consumed + 1];
+}
+
+static unsigned char advance(TranslationContext* ctx) {
+    if(ctx->consumed >= ctx->sourceLength) return EOF;
+    ctx->consumed++;
+    return ctx->source[ctx->consumed - 1];
+}
+
+static unsigned char trigraphTranslation[] = {
+    ['='] = '#',
+    ['('] = '[',
+    ['/'] = '\\',
+    [')'] = ']',
+    ['\''] = '^',
+    ['<'] = '{',
+    ['!'] = '|',
+    ['>'] = '}',
+    ['-'] = '}',
+};
+
+// implement phase 1
+// technically, this should convert the file to utf8, and probably normalise it,
+// but I am not implementing that
+static unsigned char phase1Get(TranslationContext* ctx) {
+    unsigned char c = advance(ctx);
+    if(ctx->trigraphs && c == '?') {
+        unsigned char c2 = peek(ctx);
+        if(c2 == '?') {
+            unsigned char c3 = peekNext(ctx);
+            switch(c3) {
+                case '=':
+                case '(':
+                case '/':
+                case ')':
+                case '\'':
+                case '<':
+                case '!':
+                case '>':
+                case '-':
+                    advance(ctx);
+                    advance(ctx);
+                    return trigraphTranslation[c3];
+                default: return c;
+            }
+        }
+    }
+
+    return c;
+}
+
 
 int driver(int argc, char** argv) {
     struct argParser argparser = {
@@ -59,7 +130,17 @@ int driver(int argc, char** argv) {
     if(hadError) return EXIT_FAILURE;
 
     if(translationPhaseCount != 8) {
-
+        for(unsigned int i = 0; i < files.dataCount; i++) {
+            if(translationPhaseCount == 1) {
+                TranslationContext ctx = {.trigraphs = true};
+                TranslationContextInit(&ctx, files.datas[i]);
+                char c;
+                while((c = phase1Get(&ctx)) != EOF) {
+                    putchar(c);
+                }
+            }
+        }
+        return EXIT_SUCCESS;
     }
 
     MemoryPool pool;
