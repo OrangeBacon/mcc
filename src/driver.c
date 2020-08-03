@@ -9,7 +9,6 @@
 #include "ir.h"
 #include "memory.h"
 #include "parser.h"
-#include "stream.h"
 #include "x64Encode.h"
 
 static struct stringList files = {0};
@@ -49,29 +48,6 @@ static struct argArgument topArguments[] = {
     {0},
 };
 
-static streamError fileLayer(STREAM_LAYER) {
-    (void)stream;
-    (void)getNextArg;
-
-    static bool called = false;
-    if(called) return STREAM_OUT_OF_DATA;
-    called = true;
-
-    *data = readFileLen(ctx, len);
-    return STREAM_NO_ERROR;
-}
-
-static streamError printLayer(STREAM_LAYER) {
-    (void)data;
-    (void)len;
-    void* value;
-    while(getNextArg(stream, &value) == STREAM_NO_ERROR) {
-        char c = *(char*)value;
-        if(c == '\0') break;
-        putc(c, ctx);
-    }
-    return STREAM_NO_ERROR;
-}
 
 int driver(int argc, char** argv) {
     struct argParser argparser = {
@@ -83,16 +59,7 @@ int driver(int argc, char** argv) {
     if(hadError) return EXIT_FAILURE;
 
     if(translationPhaseCount != 8) {
-        for(unsigned int i = 0; i < files.dataCount; i++) {
-            struct stream data = {(struct streamFn[]){
-                {fileLayer, 1, (char*)files.datas[i]},
-                {printLayer, 0, stdout},
-                {0},
-            }};
 
-            streamRun(&data, NULL, 0);
-        }
-        return EXIT_SUCCESS;
     }
 
     MemoryPool pool;

@@ -26,7 +26,6 @@ add_executable(mcc
     src/astLower.c
     src/x64Encode.c
     src/argParser.c
-    src/stream.c
     src/driver.c
 )
 target_include_directories(mcc PRIVATE src)
