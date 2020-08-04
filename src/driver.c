@@ -49,35 +49,48 @@ static struct argArgument topArguments[] = {
 };
 
 typedef struct TranslationContext {
-    unsigned char* source;
+    char* source;
     size_t sourceLength;
     size_t consumed;
 
-    bool trigraphs : 1;
+    size_t saveConsumed;
+
+    char phase2Previous;
+
+    bool trigraphs;
 } TranslationContext;
 
 void TranslationContextInit(TranslationContext* ctx, const char* fileName) {
-    ctx->source = (unsigned char*)readFileLen(fileName, &ctx->sourceLength);
+    ctx->source = readFileLen(fileName, &ctx->sourceLength);
     ctx->consumed = 0;
+    ctx->phase2Previous = EOF;
 }
 
-static unsigned char peek(TranslationContext* ctx) {
+static void save(TranslationContext* ctx) {
+    ctx->saveConsumed = ctx->consumed;
+}
+
+static void undo(TranslationContext* ctx) {
+    ctx->consumed = ctx->saveConsumed;
+}
+
+static char peek(TranslationContext* ctx) {
     if(ctx->consumed >= ctx->sourceLength) return EOF;
     return ctx->source[ctx->consumed];
 }
 
-static unsigned char peekNext(TranslationContext* ctx) {
+static char peekNext(TranslationContext* ctx) {
     if(ctx->consumed - 1 >= ctx->sourceLength) return EOF;
     return ctx->source[ctx->consumed + 1];
 }
 
-static unsigned char advance(TranslationContext* ctx) {
+static char advance(TranslationContext* ctx) {
     if(ctx->consumed >= ctx->sourceLength) return EOF;
     ctx->consumed++;
     return ctx->source[ctx->consumed - 1];
 }
 
-static unsigned char trigraphTranslation[] = {
+static char trigraphTranslation[] = {
     ['='] = '#',
     ['('] = '[',
     ['/'] = '\\',
@@ -92,12 +105,12 @@ static unsigned char trigraphTranslation[] = {
 // implement phase 1
 // technically, this should convert the file to utf8, and probably normalise it,
 // but I am not implementing that
-static unsigned char phase1Get(TranslationContext* ctx) {
-    unsigned char c = advance(ctx);
+static char phase1Get(TranslationContext* ctx) {
+    char c = advance(ctx);
     if(ctx->trigraphs && c == '?') {
-        unsigned char c2 = peek(ctx);
+        char c2 = peek(ctx);
         if(c2 == '?') {
-            unsigned char c3 = peekNext(ctx);
+            char c3 = peekNext(ctx);
             switch(c3) {
                 case '=':
                 case '(':
@@ -110,7 +123,7 @@ static unsigned char phase1Get(TranslationContext* ctx) {
                 case '-':
                     advance(ctx);
                     advance(ctx);
-                    return trigraphTranslation[c3];
+                    return trigraphTranslation[(unsigned char)c3];
                 default: return c;
             }
         }
@@ -119,6 +132,36 @@ static unsigned char phase1Get(TranslationContext* ctx) {
     return c;
 }
 
+static unsigned char phase2Get(TranslationContext* ctx) {
+    char c = EOF;
+    do {
+        c = phase1Get(ctx);
+        if(c == '\\') {
+            save(ctx);
+            char c1 = phase1Get(ctx);
+            if(c1 == EOF) {
+                fprintf(stderr, "Error: unexpected '\\' at end of file\n");
+                exit(EXIT_FAILURE);
+            } else if(c1 != '\n') {
+                undo(ctx);
+                ctx->phase2Previous = c;
+                return c;
+            } else {
+                continue;
+            }
+        } else if(c == EOF && ctx->phase2Previous != '\n') {
+            // error iso c
+            fprintf(stderr, "Error: ISO C11 requires newline at end of file\n");
+            exit(EXIT_FAILURE);
+        } else {
+            ctx->phase2Previous = c;
+            return c;
+        }
+    } while(c != EOF);
+
+    ctx->phase2Previous = c;
+    return c;
+}
 
 int driver(int argc, char** argv) {
     struct argParser argparser = {
@@ -136,6 +179,13 @@ int driver(int argc, char** argv) {
                 TranslationContextInit(&ctx, files.datas[i]);
                 char c;
                 while((c = phase1Get(&ctx)) != EOF) {
+                    putchar(c);
+                }
+            } else if(translationPhaseCount == 2) {
+                TranslationContext ctx = {.trigraphs = true};
+                TranslationContextInit(&ctx, files.datas[i]);
+                char c;
+                while((c = phase2Get(&ctx)) != EOF) {
                     putchar(c);
                 }
             }

@@ -1,11 +1,11 @@
-int fib(int x);
-int putchar(int);
+int fib(int x);\
+int putchar(int);\
 int* malloc(int);
 
 int fibCallCount = 0;
 
-int test(int, int, int, int, int, int, int, int, int, int j) {
-    return j;
+int test(int, int, int, int, int, int, int, int, int, int j) {\
+    return j;\
 }
 
 
@@ -25,7 +25,9 @@ int* bar(int** arg) {
 }
 
 int foo2() {
-    return fibCallCount;
+    return fibCallCount;\
+    \
+    \
 }
 
 int (*getFoo2())() {
@@ -142,4 +144,4 @@ int fib(int n) {
     } else {
         return fib(n - 1) + fib(n - 2);
     }
-}
+}\
