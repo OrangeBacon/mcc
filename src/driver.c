@@ -10,6 +10,7 @@
 #include "memory.h"
 #include "parser.h"
 #include "x64Encode.h"
+#include "lex.h"
 
 static struct stringList files = {0};
 static bool printAst = false;
@@ -48,120 +49,9 @@ static struct argArgument topArguments[] = {
     {0},
 };
 
-typedef struct TranslationContext {
-    char* source;
-    size_t sourceLength;
-    size_t consumed;
-
-    size_t saveConsumed;
-
-    char phase2Previous;
-
-    bool trigraphs;
-} TranslationContext;
-
-void TranslationContextInit(TranslationContext* ctx, const char* fileName) {
-    ctx->source = readFileLen(fileName, &ctx->sourceLength);
-    ctx->consumed = 0;
-    ctx->phase2Previous = EOF;
-}
-
-static void save(TranslationContext* ctx) {
-    ctx->saveConsumed = ctx->consumed;
-}
-
-static void undo(TranslationContext* ctx) {
-    ctx->consumed = ctx->saveConsumed;
-}
-
-static char peek(TranslationContext* ctx) {
-    if(ctx->consumed >= ctx->sourceLength) return EOF;
-    return ctx->source[ctx->consumed];
-}
-
-static char peekNext(TranslationContext* ctx) {
-    if(ctx->consumed - 1 >= ctx->sourceLength) return EOF;
-    return ctx->source[ctx->consumed + 1];
-}
-
-static char advance(TranslationContext* ctx) {
-    if(ctx->consumed >= ctx->sourceLength) return EOF;
-    ctx->consumed++;
-    return ctx->source[ctx->consumed - 1];
-}
-
-static char trigraphTranslation[] = {
-    ['='] = '#',
-    ['('] = '[',
-    ['/'] = '\\',
-    [')'] = ']',
-    ['\''] = '^',
-    ['<'] = '{',
-    ['!'] = '|',
-    ['>'] = '}',
-    ['-'] = '}',
+void (*counts[])(TranslationContext*) = {
+    runPhase1, runPhase2, runPhase3,
 };
-
-// implement phase 1
-// technically, this should convert the file to utf8, and probably normalise it,
-// but I am not implementing that
-static char phase1Get(TranslationContext* ctx) {
-    char c = advance(ctx);
-    if(ctx->trigraphs && c == '?') {
-        char c2 = peek(ctx);
-        if(c2 == '?') {
-            char c3 = peekNext(ctx);
-            switch(c3) {
-                case '=':
-                case '(':
-                case '/':
-                case ')':
-                case '\'':
-                case '<':
-                case '!':
-                case '>':
-                case '-':
-                    advance(ctx);
-                    advance(ctx);
-                    return trigraphTranslation[(unsigned char)c3];
-                default: return c;
-            }
-        }
-    }
-
-    return c;
-}
-
-static unsigned char phase2Get(TranslationContext* ctx) {
-    char c = EOF;
-    do {
-        c = phase1Get(ctx);
-        if(c == '\\') {
-            save(ctx);
-            char c1 = phase1Get(ctx);
-            if(c1 == EOF) {
-                fprintf(stderr, "Error: unexpected '\\' at end of file\n");
-                exit(EXIT_FAILURE);
-            } else if(c1 != '\n') {
-                undo(ctx);
-                ctx->phase2Previous = c;
-                return c;
-            } else {
-                continue;
-            }
-        } else if(c == EOF && ctx->phase2Previous != '\n') {
-            // error iso c
-            fprintf(stderr, "Error: ISO C11 requires newline at end of file\n");
-            exit(EXIT_FAILURE);
-        } else {
-            ctx->phase2Previous = c;
-            return c;
-        }
-    } while(c != EOF);
-
-    ctx->phase2Previous = c;
-    return c;
-}
 
 int driver(int argc, char** argv) {
     struct argParser argparser = {
@@ -169,26 +59,16 @@ int driver(int argc, char** argv) {
         argv + 1,
         topArguments,
     };
+    printf("parsing");
     bool hadError = parseArgs(&argparser);
     if(hadError) return EXIT_FAILURE;
 
+    printf("parsed");
     if(translationPhaseCount != 8) {
         for(unsigned int i = 0; i < files.dataCount; i++) {
-            if(translationPhaseCount == 1) {
-                TranslationContext ctx = {.trigraphs = true};
-                TranslationContextInit(&ctx, files.datas[i]);
-                char c;
-                while((c = phase1Get(&ctx)) != EOF) {
-                    putchar(c);
-                }
-            } else if(translationPhaseCount == 2) {
-                TranslationContext ctx = {.trigraphs = true};
-                TranslationContextInit(&ctx, files.datas[i]);
-                char c;
-                while((c = phase2Get(&ctx)) != EOF) {
-                    putchar(c);
-                }
-            }
+            TranslationContext ctx = {.trigraphs = true};
+            TranslationContextInit(&ctx, files.datas[i]);
+            counts[translationPhaseCount-1](&ctx);
         }
         return EXIT_SUCCESS;
     }
