@@ -114,12 +114,11 @@ typedef enum TokenType {
 typedef struct Token {
     TokenType type;
 
-    size_t length;
-    char* source;
-
     bool isStartOfLine;
     bool whitespaceBefore;
     bool isUsed;
+
+    SourceLocation* loc;
 
     union {
         intmax_t integer;
@@ -128,21 +127,21 @@ typedef struct Token {
     } data;
 } Token;
 
-typedef enum Phase3LexMode {
-    LEX_MODE_MAYBE_HEADER,
-    LEX_MODE_NO_HEADER
-} Phase3LexMode;
-
-typedef struct Phase3Context {
-    Phase3LexMode mode;
-    char peek;
-    char peekNext;
-} Phase3Context;
-
-void TranslationContextInit(TranslationContext* ctx, const char* fileName) {
+void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const char* fileName) {
     ctx->source = readFileLen(fileName, &ctx->sourceLength);
+    memoryArrayAlloc(&ctx->sourceArr, pool, 4*MiB, sizeof(char));
+    memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
     ctx->consumed = 0;
     ctx->phase2Previous = EOF;
+    ctx->phase3currentLocation = memoryArrayPush(&ctx->locations);
+    *ctx->phase3currentLocation = ctx->phase1Location = (SourceLocation) {
+        .fileName = fileName,
+        .column = 0,
+        .length = 0,
+        .line = 1,
+    };
+
+    ctx->phase1IgnoreNewLine = '\0';
 }
 
 static char Phase1Peek(TranslationContext* ctx) {
@@ -155,10 +154,44 @@ static char Phase1PeekNext(TranslationContext* ctx) {
     return ctx->source[ctx->consumed + 1];
 }
 
+static void Phase1NewLine(TranslationContext* ctx, char c) {
+    if(ctx->phase1IgnoreNewLine != '\0') {
+        if(c == ctx->phase1IgnoreNewLine) {
+            ctx->phase1Location.line++;
+            ctx->phase1Location.column = 1;
+        }
+        ctx->phase1IgnoreNewLine = '\0';
+    }
+    if(c == '\n') {
+        ctx->phase1IgnoreNewLine = '\r';
+        ctx->phase1Location.line++;
+        ctx->phase1Location.column = 0;
+    }
+    if(c == '\r') {
+        ctx->phase1IgnoreNewLine = '\n';
+        ctx->phase1Location.line++;
+        ctx->phase1Location.column = 0;
+    }
+}
+
 static char Phase1Advance(TranslationContext* ctx) {
     if(ctx->consumed >= ctx->sourceLength) return EOF;
     ctx->consumed++;
-    return ctx->source[ctx->consumed - 1];
+    ctx->phase1Location.length++;
+    ctx->phase1Location.column++;
+    char c = ctx->source[ctx->consumed - 1];
+    Phase1NewLine(ctx, c);
+    return c;
+}
+
+static char Phase1AdvanceOverwrite(TranslationContext* ctx) {
+    if(ctx->consumed >= ctx->sourceLength) return EOF;
+    ctx->consumed++;
+    ctx->phase1Location.length = 1;
+    ctx->phase1Location.column++;
+    char c = ctx->source[ctx->consumed - 1];
+    Phase1NewLine(ctx, c);
+    return c;
 }
 
 static char trigraphTranslation[] = {
@@ -177,7 +210,7 @@ static char trigraphTranslation[] = {
 // technically, this should convert the file to utf8, and probably normalise it,
 // but I am not implementing that
 static char Phase1Get(TranslationContext* ctx) {
-    char c = Phase1Advance(ctx);
+    char c = Phase1AdvanceOverwrite(ctx);
     if(ctx->trigraphs && c == '?') {
         char c2 = Phase1Peek(ctx);
         if(c2 == '?') {
@@ -210,30 +243,40 @@ void runPhase1(TranslationContext* ctx) {
     }
 }
 
-static void Phase2Save(TranslationContext* ctx) {
-    ctx->saveConsumed = ctx->consumed;
+static char Phase2Advance(TranslationContext* ctx) {
+    char ret = ctx->phase2Peek;
+    ctx->phase2CurrentLoc.length += ctx->phase2PeekLoc.length;
+    ctx->phase2Peek = Phase1Get(ctx);
+    ctx->phase2PeekLoc = ctx->phase1Location;
+    return ret;
 }
 
-static void Phase2Undo(TranslationContext* ctx) {
-    ctx->consumed = ctx->saveConsumed;
+static char Phase2AdvanceOverwrite(TranslationContext* ctx) {
+    char ret = ctx->phase2Peek;
+    ctx->phase2CurrentLoc = ctx->phase2PeekLoc;
+    ctx->phase2Peek = Phase1Get(ctx);
+    ctx->phase2PeekLoc = ctx->phase1Location;
+    return ret;
+}
+
+static char Phase2Peek(TranslationContext* ctx) {
+    return ctx->phase2Peek;
 }
 
 static unsigned char Phase2Get(TranslationContext* ctx) {
-    char c = EOF;
+    char c = Phase2AdvanceOverwrite(ctx);
     do {
-        c = Phase1Get(ctx);
         if(c == '\\') {
-            Phase2Save(ctx);
-            char c1 = Phase1Get(ctx);
+            char c1 = Phase2Peek(ctx);
             if(c1 == EOF) {
                 fprintf(stderr, "Error: unexpected '\\' at end of file\n");
                 exit(EXIT_FAILURE);
             } else if(c1 != '\n') {
-                Phase2Undo(ctx);
                 ctx->phase2Previous = c;
                 return c;
             } else {
-                continue;
+                Phase2Advance(ctx);
+                // exit if statement
             }
         } else if(c == EOF && ctx->phase2Previous != '\n' && ctx->phase2Previous != EOF) {
             // error iso c
@@ -243,13 +286,19 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
             ctx->phase2Previous = c;
             return c;
         }
+        c = Phase2Advance(ctx);
     } while(c != EOF);
 
     ctx->phase2Previous = c;
     return c;
 }
 
+static void Phase2Initialise(TranslationContext* ctx) {
+    Phase2AdvanceOverwrite(ctx);
+}
+
 void runPhase2(TranslationContext* ctx) {
+    Phase2Initialise(ctx);
     char c;
     while((c = Phase2Get(ctx)) != EOF) {
         putchar(c);
@@ -257,25 +306,41 @@ void runPhase2(TranslationContext* ctx) {
 }
 
 static char Phase3Advance(TranslationContext* ctx) {
-    char ret = ctx->phase3->peek;
-    ctx->phase3->peek = ctx->phase3->peekNext;
-    ctx->phase3->peekNext = Phase2Get(ctx);
+    char ret = ctx->phase3peek;
+    ctx->phase3currentLocation->length += ctx->phase3peekLoc.length;
+
+    ctx->phase3peek = ctx->phase3peekNext;
+    ctx->phase3peekLoc = ctx->phase3peekNextLoc;
+    ctx->phase3peekNext = Phase2Get(ctx);
+    ctx->phase3peekNextLoc = ctx->phase2CurrentLoc;
+
+    return ret;
+}
+
+static char Phase3AdvanceOverwrite(TranslationContext* ctx) {
+    char ret = ctx->phase3peek;
+    *ctx->phase3currentLocation = ctx->phase3peekLoc;
+
+    ctx->phase3peek = ctx->phase3peekNext;
+    ctx->phase3peekLoc = ctx->phase3peekNextLoc;
+    ctx->phase3peekNext = Phase2Get(ctx);
+    ctx->phase3peekNextLoc = ctx->phase2CurrentLoc;
     return ret;
 }
 
 static char Phase3Peek(TranslationContext* ctx) {
-    return ctx->phase3->peek;
+    return ctx->phase3peek;
 }
 
 static char Phase3PeekNext(TranslationContext* ctx) {
-    return ctx->phase3->peekNext;
+    return ctx->phase3peekNext;
 }
 
 static bool Phase3AtEnd(TranslationContext* ctx) {
-    return ctx->phase3->peek == EOF;
+    return ctx->phase3peek == EOF;
 }
 
-static void newline(Token* tok, TranslationContext* ctx, char c) {
+static void Phase3NewLine(Token* tok, TranslationContext* ctx, char c) {
     Phase3Advance(ctx);
     if(Phase3Peek(ctx) == c) {
         Phase3Advance(ctx);
@@ -296,33 +361,38 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
                 Phase3Advance(ctx);
                 break;
             case '\n':
-                newline(tok, ctx, '\r');
+                Phase3NewLine(tok, ctx, '\r');
                 break;
             case '\r':
-                newline(tok, ctx, '\n');
+                Phase3NewLine(tok, ctx, '\n');
                 break;
 
             case '/': {
                 char next = Phase3PeekNext(ctx);
                 if(next == '/') {
+                    Phase3AdvanceOverwrite(ctx);
                     char c = '\0';
                     while((c = Phase3Peek(ctx)), (c != '\n' && c != '\r' && !Phase3AtEnd(ctx))) {
                         Phase3Advance(ctx);
                     }
                     if(c == '\n') {
-                        newline(tok, ctx, '\r');
+                        Phase3NewLine(tok, ctx, '\r');
                     } else if(c == '\r') {
-                        newline(tok, ctx, '\n');
+                        Phase3NewLine(tok, ctx, '\n');
                     }
                     tok->whitespaceBefore = true;
                 } else if(next == '*') {
-                    Phase3Advance(ctx);
+                    Phase3AdvanceOverwrite(ctx);
                     Phase3Advance(ctx);
                     while(!Phase3AtEnd(ctx)) {
                         if(Phase3Peek(ctx) == '*' && Phase3PeekNext(ctx) == '/') {
                             break;
                         }
                         Phase3Advance(ctx);
+                    }
+                    if(Phase3AtEnd(ctx)) {
+                        fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->phase3currentLocation->line, ctx->phase3currentLocation->column);
+                        exit(1);
                     }
                     Phase3Advance(ctx);
                     Phase3Advance(ctx);
@@ -338,20 +408,32 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
 }
 
 static void Phase3Get(Token* tok, TranslationContext* ctx) {
+    SourceLocation* loc = memoryArrayPush(&ctx->locations);
+    *loc = *ctx->phase3currentLocation;
+    loc->length = 0;
+    ctx->phase3currentLocation = loc;
+
     skipWhitespace(tok, ctx);
-    char c = Phase3Advance(ctx);
+
+    char c = Phase3AdvanceOverwrite(ctx);
+
+    tok->loc = loc;
     tok->type = c == EOF ? TOKEN_EOF : TOKEN_UNKNOWN;
 }
 
+static void Phase3Initialise(TranslationContext* ctx) {
+    Phase2Initialise(ctx);
+    ctx->phase3mode = LEX_MODE_NO_HEADER,
+    ctx->phase3peek = '\0',
+    ctx->phase3peekNext = '\0',
+    ctx->phase3peekLoc = *ctx->phase3currentLocation,
+    ctx->phase3peekNextLoc = *ctx->phase3currentLocation,
+    Phase3AdvanceOverwrite(ctx);
+    Phase3AdvanceOverwrite(ctx);
+}
+
 void runPhase3(TranslationContext* ctx) {
-    char peek = Phase2Get(ctx);
-    char peekNext = Phase2Get(ctx);
-    Phase3Context p3 = {
-        .mode = LEX_MODE_NO_HEADER,
-        .peek = peek,
-        .peekNext = peekNext,
-    };
-    ctx->phase3 = &p3;
+    Phase3Initialise(ctx);
     Token tok;
     while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF) {
         printf("i");

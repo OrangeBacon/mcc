@@ -59,22 +59,21 @@ int driver(int argc, char** argv) {
         argv + 1,
         topArguments,
     };
-    printf("parsing");
+
     bool hadError = parseArgs(&argparser);
     if(hadError) return EXIT_FAILURE;
 
-    printf("parsed");
+    MemoryPool pool;
+    memoryPoolAlloc(&pool, 1ULL*TiB);
+
     if(translationPhaseCount != 8) {
         for(unsigned int i = 0; i < files.dataCount; i++) {
             TranslationContext ctx = {.trigraphs = true};
-            TranslationContextInit(&ctx, files.datas[i]);
+            TranslationContextInit(&ctx, &pool, files.datas[i]);
             counts[translationPhaseCount-1](&ctx);
         }
         return EXIT_SUCCESS;
     }
-
-    MemoryPool pool;
-    memoryPoolAlloc(&pool, 1ULL*TiB);
 
     for(unsigned int i = 0; i < files.dataCount; i++) {
         Parser parser;
