@@ -80,7 +80,7 @@ typedef enum TokenType {
     TOKEN_PUNC_EQUAL_EQUAL,
     TOKEN_PUNC_BANG_EQUAL,
     TOKEN_PUNC_CARET,
-    TOKEN_PUNC_PIPE,
+    TOKEN_PUNC_OR,
     TOKEN_PUNC_AND_AND,
     TOKEN_PUNC_OR_OR,
     TOKEN_PUNC_QUESTION,
@@ -101,6 +101,12 @@ typedef enum TokenType {
     TOKEN_PUNC_COMMA,
     TOKEN_PUNC_HASH,
     TOKEN_PUNC_HASH_HASH,
+    TOKEN_PUNC_LESS_COLON, // [
+    TOKEN_PUNC_COLON_LESS, // ]
+    TOKEN_PUNC_LESS_PERCENT, // {
+    TOKEN_PUNC_PERCENT_LESS, // }
+    TOKEN_PUNC_PERCENT_COLON, // #
+    TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON, // ##
     TOKEN_HEADER_NAME,
     TOKEN_PP_NUMBER,
     TOKEN_IDENTIFIER,
@@ -140,6 +146,7 @@ typedef struct Token {
         intmax_t integer;
         double floating;
         char* string;
+        char character;
     } data;
 } Token;
 
@@ -160,7 +167,6 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const cha
     };
     ctx->phase2Previous = EOF;
     ctx->phase3currentLocation = memoryArrayPush(&ctx->locations);
-    ctx->tabSize = 4; // used for indentation detection
 }
 
 // ------- //
@@ -247,7 +253,7 @@ static char trigraphTranslation[] = {
 // but I am not implementing that
 static char Phase1Get(TranslationContext* ctx) {
     char c = Phase1AdvanceOverwrite(ctx);
-    if(ctx->phase1trigraphs && c == '?') {
+    if(ctx->trigraphs && c == '?') {
         char c2 = Phase1Peek(ctx);
         if(c2 == '?') {
             char c3 = Phase1PeekNext(ctx);
@@ -498,6 +504,20 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
     }
 }
 
+static bool Phase3Match(TranslationContext* ctx, char c) {
+    if(Phase3AtEnd(ctx)) return false;
+    if(Phase3Peek(ctx) != c) return false;
+    Phase3Advance(ctx);
+    return true;
+}
+
+// this wrapper only exists because of wierd precedence with
+// a ? (b = c) : (b = d) requiring those parentheses, so this
+// is more clear to read
+static void Phase3Make(Token* tok, TokenType type) {
+    tok->type = type;
+}
+
 // character -> preprocessor token conversion
 static void Phase3Get(Token* tok, TranslationContext* ctx) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
@@ -516,7 +536,59 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
     char c = Phase3AdvanceOverwrite(ctx);
 
     switch(c) {
+        case '[': Phase3Make(tok, TOKEN_PUNC_LEFT_SQUARE); return;
+        case ']': Phase3Make(tok, TOKEN_PUNC_RIGHT_SQUARE); return;
+        case '(': Phase3Make(tok, TOKEN_PUNC_LEFT_PAREN); return;
+        case ')': Phase3Make(tok, TOKEN_PUNC_RIGHT_PAREN); return;
+        case '{': Phase3Make(tok, TOKEN_PUNC_LEFT_BRACE); return;
+        case '}': Phase3Make(tok, TOKEN_PUNC_RIGHT_BRACE); return;
+        case '?': Phase3Make(tok, TOKEN_PUNC_QUESTION); return;
+        case ':': Phase3Make(tok, TOKEN_PUNC_COLON); return;
+        case ';': Phase3Make(tok, TOKEN_PUNC_SEMICOLON); return;
+        case ',': Phase3Make(tok, TOKEN_PUNC_COMMA); return;
+        case '~': Phase3Make(tok, TOKEN_PUNC_TILDE); return;
 
+        case '*': Phase3Make(tok, Phase3Match(ctx, '=')?
+            TOKEN_PUNC_STAR_EQUAL : TOKEN_PUNC_STAR); return;
+        case '/': Phase3Make(tok, Phase3Match(ctx, '=')?
+            TOKEN_PUNC_SLASH_EQUAL : TOKEN_PUNC_SLASH); return;
+        case '%': Phase3Make(tok, Phase3Match(ctx, '=')?
+            TOKEN_PUNC_PERCENT_EQUAL : TOKEN_PUNC_PERCENT); return;
+        case '^': Phase3Make(tok, Phase3Match(ctx, '=')?
+            TOKEN_PUNC_CARET_EQUAL : TOKEN_PUNC_CARET); return;
+        case '=': Phase3Make(tok, Phase3Match(ctx, '=')?
+            TOKEN_PUNC_EQUAL_EQUAL : TOKEN_PUNC_EQUAL); return;
+        case '!': Phase3Make(tok, Phase3Match(ctx, '=')?
+            TOKEN_PUNC_BANG_EQUAL : TOKEN_PUNC_BANG); return;
+        case '#': Phase3Make(tok, Phase3Match(ctx, '#')?
+            TOKEN_PUNC_HASH_HASH : TOKEN_PUNC_HASH); return;
+
+        case '+': Phase3Make(tok,
+            Phase3Match(ctx, '|') ? TOKEN_PUNC_PLUS_PLUS :
+            Phase3Match(ctx, '=') ? TOKEN_PUNC_PLUS_EQUAL :
+            TOKEN_PUNC_PLUS); return;
+        case '|': Phase3Make(tok,
+            Phase3Match(ctx, '|') ? TOKEN_PUNC_OR_OR :
+            Phase3Match(ctx, '=') ? TOKEN_PUNC_EQUAL :
+            TOKEN_PUNC_OR); return;
+        case '&': Phase3Make(tok,
+            Phase3Match(ctx, '|') ? TOKEN_PUNC_AND_AND :
+            Phase3Match(ctx, '=') ? TOKEN_PUNC_AND_EQUAL :
+            TOKEN_PUNC_AND); return;
+        /*
+        case '-': NULL, '>', '-', '=';
+        case '<': NULL, '<', '=', '<=', ':', '%';
+        case '>': NULL, '>', '=', '>=';
+        case '.': NULL, "float", "..";
+        :>
+        %>
+        %:
+        %:%:
+        */
+
+        default: Phase3Make(tok, TOKEN_UNKNOWN);
+            tok->data.character = c;
+            return;
     }
 }
 
