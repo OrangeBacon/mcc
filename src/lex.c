@@ -125,6 +125,11 @@ typedef struct Token {
     // #define (a) - value macro
     bool whitespaceBefore;
 
+    // stores the quantity of whitespace before the token on the same
+    // line as the token (note whitespaceBefore can be true, while this
+    // is equal to 0, so need both of them)
+    size_t indent;
+
     // where the token is in the source file, used for emmitting errors
     // and debugging infomation
     SourceLocation* loc;
@@ -155,6 +160,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const cha
     };
     ctx->phase2Previous = EOF;
     ctx->phase3currentLocation = memoryArrayPush(&ctx->locations);
+    ctx->tabSize = 4; // used for indentation detection
 }
 
 // ------- //
@@ -411,6 +417,7 @@ static void Phase3NewLine(Token* tok, TranslationContext* ctx, char c) {
     }
     tok->isStartOfLine = true;
     tok->whitespaceBefore = true;
+    tok->indent = 0;
 }
 
 // skip characters until non-whitespace character encountered
@@ -418,9 +425,12 @@ static void Phase3NewLine(Token* tok, TranslationContext* ctx, char c) {
 // errors on unterminated multi-line comment
 // tracks whether a token has whitespace before it and if it is the first token
 // on a source line
+// tracks the count of prior whitespace on the same line, hopefully that can
+// be used for error better error recovery in the parser
 static void skipWhitespace(Token* tok, TranslationContext* ctx) {
     tok->whitespaceBefore = false;
     tok->isStartOfLine = false;
+    tok->indent = 0;
 
     while(true) {
         char c = Phase3Peek(ctx);
@@ -431,6 +441,8 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
             case '\f':
                 tok->whitespaceBefore = true;
                 Phase3Advance(ctx);
+                if(c == ' ') tok->indent++;
+                if(c == '\t') tok->indent += ctx->tabSize;
                 break;
             case '\n':
                 Phase3NewLine(tok, ctx, '\r');
@@ -458,10 +470,14 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
                     // multi line comment (/**/)
                     Phase3AdvanceOverwrite(ctx);
                     Phase3Advance(ctx);
+                    tok->indent += 3;
                     while(!Phase3AtEnd(ctx)) {
                         if(Phase3Peek(ctx) == '*' && Phase3PeekNext(ctx) == '/') {
                             break;
                         }
+                        if(Phase3Peek(ctx) == '\n') Phase3NewLine(tok, ctx, '\r');
+                        if(Phase3Peek(ctx) == '\r') Phase3NewLine(tok, ctx, '\r');
+                        tok->indent++;
                         Phase3Advance(ctx);
                     }
                     if(Phase3AtEnd(ctx)) {
@@ -470,6 +486,7 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
                     }
                     Phase3Advance(ctx);
                     Phase3Advance(ctx);
+                    tok->indent += 2;
                     tok->whitespaceBefore = true;
                 } else {
                     return;

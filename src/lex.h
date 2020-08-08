@@ -37,6 +37,7 @@ typedef struct TranslationContext {
     char phase3peekNext;
     SourceLocation phase3peekNextLoc;
     SourceLocation* phase3currentLocation;
+    size_t tabSize;
 
     MemoryArray sourceArr;
     MemoryArray locations;
