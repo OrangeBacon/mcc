@@ -102,9 +102,9 @@ typedef enum TokenType {
     TOKEN_PUNC_HASH,
     TOKEN_PUNC_HASH_HASH,
     TOKEN_PUNC_LESS_COLON, // [
-    TOKEN_PUNC_COLON_LESS, // ]
+    TOKEN_PUNC_COLON_GREATER, // ]
     TOKEN_PUNC_LESS_PERCENT, // {
-    TOKEN_PUNC_PERCENT_LESS, // }
+    TOKEN_PUNC_PERCENT_GREATER, // }
     TOKEN_PUNC_PERCENT_COLON, // #
     TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON, // ##
     TOKEN_HEADER_NAME,
@@ -543,7 +543,6 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
         case '{': Phase3Make(tok, TOKEN_PUNC_LEFT_BRACE); return;
         case '}': Phase3Make(tok, TOKEN_PUNC_RIGHT_BRACE); return;
         case '?': Phase3Make(tok, TOKEN_PUNC_QUESTION); return;
-        case ':': Phase3Make(tok, TOKEN_PUNC_COLON); return;
         case ';': Phase3Make(tok, TOKEN_PUNC_SEMICOLON); return;
         case ',': Phase3Make(tok, TOKEN_PUNC_COMMA); return;
         case '~': Phase3Make(tok, TOKEN_PUNC_TILDE); return;
@@ -552,8 +551,6 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             TOKEN_PUNC_STAR_EQUAL : TOKEN_PUNC_STAR); return;
         case '/': Phase3Make(tok, Phase3Match(ctx, '=')?
             TOKEN_PUNC_SLASH_EQUAL : TOKEN_PUNC_SLASH); return;
-        case '%': Phase3Make(tok, Phase3Match(ctx, '=')?
-            TOKEN_PUNC_PERCENT_EQUAL : TOKEN_PUNC_PERCENT); return;
         case '^': Phase3Make(tok, Phase3Match(ctx, '=')?
             TOKEN_PUNC_CARET_EQUAL : TOKEN_PUNC_CARET); return;
         case '=': Phase3Make(tok, Phase3Match(ctx, '=')?
@@ -562,6 +559,8 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             TOKEN_PUNC_BANG_EQUAL : TOKEN_PUNC_BANG); return;
         case '#': Phase3Make(tok, Phase3Match(ctx, '#')?
             TOKEN_PUNC_HASH_HASH : TOKEN_PUNC_HASH); return;
+        case ':': Phase3Make(tok, Phase3Match(ctx, '>')?
+            TOKEN_PUNC_COLON_GREATER : TOKEN_PUNC_COLON); return;
 
         case '+': Phase3Make(tok,
             Phase3Match(ctx, '|') ? TOKEN_PUNC_PLUS_PLUS :
@@ -575,16 +574,43 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             Phase3Match(ctx, '|') ? TOKEN_PUNC_AND_AND :
             Phase3Match(ctx, '=') ? TOKEN_PUNC_AND_EQUAL :
             TOKEN_PUNC_AND); return;
-        /*
-        case '-': NULL, '>', '-', '=';
-        case '<': NULL, '<', '=', '<=', ':', '%';
-        case '>': NULL, '>', '=', '>=';
-        case '.': NULL, "float", "..";
-        :>
-        %>
-        %:
-        %:%:
-        */
+
+        case '-': Phase3Make(tok,
+            Phase3Match(ctx, '>') ? TOKEN_PUNC_ARROW :
+            Phase3Match(ctx, '-') ? TOKEN_PUNC_MINUS_MINUS :
+            Phase3Match(ctx, '=') ? TOKEN_PUNC_MINUS_EQUAL :
+            TOKEN_PUNC_MINUS); return;
+        case '>': Phase3Make(tok,
+            Phase3Match(ctx, '=') ? TOKEN_PUNC_GREATER_EQUAL :
+            Phase3Match(ctx, '>') ? (
+                Phase3Match(ctx, '=') ?
+                TOKEN_PUNC_GREATER_GREATER_EQUAL:
+                TOKEN_PUNC_GREATER_GREATER
+            ) : TOKEN_PUNC_GREATER); return;
+
+        // TODO: header mode, eg <stdio.h>
+        case '<': Phase3Make(tok,
+            Phase3Match(ctx, '=') ? TOKEN_PUNC_LESS_EQUAL :
+            Phase3Match(ctx, ':') ? TOKEN_PUNC_LESS_COLON :
+            Phase3Match(ctx, '%') ? TOKEN_PUNC_LESS_PERCENT :
+            Phase3Match(ctx, '<') ? (
+                Phase3Match(ctx, '=') ?
+                TOKEN_PUNC_LESS_LESS_EQUAL :
+                TOKEN_PUNC_LESS_LESS
+            ) : TOKEN_PUNC_LESS); return;
+
+        // TODO: numbers, eg .05
+        case '.': Phase3Make(tok,
+            ctx->phase3peek == '.' && ctx->phase3peekNext == '.' ?
+            TOKEN_PUNC_ELIPSIS : TOKEN_PUNC_DOT); return;
+        case '%': Phase3Make(tok,
+            Phase3Match(ctx, '=') ? TOKEN_PUNC_PERCENT_EQUAL :
+            Phase3Match(ctx, '>') ? TOKEN_PUNC_PERCENT_GREATER :
+            Phase3Match(ctx, ':') ? (
+                ctx->phase3peek == '%' && ctx->phase3peekNext == ':' ?
+                TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON :
+                TOKEN_PUNC_PERCENT_COLON
+            ) : TOKEN_PUNC_PERCENT); return;
 
         default: Phase3Make(tok, TOKEN_UNKNOWN);
             tok->data.character = c;
