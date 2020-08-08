@@ -17,16 +17,14 @@ typedef enum Phase3LexMode {
     LEX_MODE_NO_HEADER
 } Phase3LexMode;
 
-
+// random data used by each translation phase that needs to be stored
 typedef struct TranslationContext {
-    // file buffer infomation
-    char* source;
-    size_t sourceLength;
-    size_t consumed;
-
+    char* phase1source;
+    size_t phase1sourceLength;
+    size_t phase1consumed;
     SourceLocation phase1Location;
     char phase1IgnoreNewLine;
-
+    bool phase1trigraphs;
 
     char phase2Peek;
     SourceLocation phase2PeekLoc;
@@ -39,8 +37,6 @@ typedef struct TranslationContext {
     char phase3peekNext;
     SourceLocation phase3peekNextLoc;
     SourceLocation* phase3currentLocation;
-
-    bool trigraphs;
 
     MemoryArray sourceArr;
     MemoryArray locations;

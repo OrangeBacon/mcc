@@ -68,7 +68,7 @@ int driver(int argc, char** argv) {
 
     if(translationPhaseCount != 8) {
         for(unsigned int i = 0; i < files.dataCount; i++) {
-            TranslationContext ctx = {.trigraphs = true};
+            TranslationContext ctx = {.phase1trigraphs = true};
             TranslationContextInit(&ctx, &pool, files.datas[i]);
             counts[translationPhaseCount-1](&ctx);
         }
