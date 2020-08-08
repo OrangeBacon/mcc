@@ -115,7 +115,6 @@ typedef enum TokenType {
     TOKEN_CHARACTER,
     TOKEN_STRING,
     TOKEN_UNKNOWN,
-    TOKEN_ERROR,
     TOKEN_EOF,
 } TokenType;
 
@@ -150,6 +149,138 @@ typedef struct Token {
     } data;
 } Token;
 
+static void TokenPrint(TranslationContext* ctx, Token* tok) {
+    if(ctx->debugPrint) {
+        printf("%llu:%llu", tok->loc->line, tok->loc->column);
+        if(tok->isStartOfLine) printf(" bol");
+        if(tok->whitespaceBefore) printf(" white=%llu", tok->indent);
+        printf(" token=%d", tok->type);
+        printf(" data(%llu) ", tok->loc->length);
+    } else {
+        if(tok->isStartOfLine && !ctx->tokenPrinterAtStart) {
+            printf("\n");
+        }
+        ctx->tokenPrinterAtStart = false;
+        if(tok->whitespaceBefore) {
+            printf("%*s", (int)tok->indent, "");
+        }
+    }
+
+    switch(tok->type) {
+        case TOKEN_KW_AUTO: printf("auto"); break;
+        case TOKEN_KW_BREAK: printf("break"); break;
+        case TOKEN_KW_CASE: printf("case"); break;
+        case TOKEN_KW_CHAR: printf("char"); break;
+        case TOKEN_KW_CONST: printf("const"); break;
+        case TOKEN_KW_CONTINUE: printf("continue"); break;
+        case TOKEN_KW_DEFAULT: printf("default"); break;
+        case TOKEN_KW_DO: printf("do"); break;
+        case TOKEN_KW_DOUBLE: printf("double"); break;
+        case TOKEN_KW_ELSE: printf("else"); break;
+        case TOKEN_KW_ENUM: printf("enum"); break;
+        case TOKEN_KW_EXTERN: printf("extern"); break;
+        case TOKEN_KW_FLOAT: printf("float"); break;
+        case TOKEN_KW_FOR: printf("for"); break;
+        case TOKEN_KW_GOTO: printf("goto"); break;
+        case TOKEN_KW_IF: printf("if"); break;
+        case TOKEN_KW_INLINE: printf("inline"); break;
+        case TOKEN_KW_INT: printf("int"); break;
+        case TOKEN_KW_LONG: printf("long"); break;
+        case TOKEN_KW_REGISTER: printf("register"); break;
+        case TOKEN_KW_RESTRICT: printf("restrict"); break;
+        case TOKEN_KW_RETURN: printf("return"); break;
+        case TOKEN_KW_SHORT: printf("short"); break;
+        case TOKEN_KW_SIGNED: printf("signed"); break;
+        case TOKEN_KW_SIZEOF: printf("sizeof"); break;
+        case TOKEN_KW_STATIC: printf("static"); break;
+        case TOKEN_KW_STRUCT: printf("struct"); break;
+        case TOKEN_KW_SWITCH: printf("switch"); break;
+        case TOKEN_KW_TYPEDEF: printf("typedef"); break;
+        case TOKEN_KW_UNION: printf("union"); break;
+        case TOKEN_KW_UNSIGNED: printf("unsigned"); break;
+        case TOKEN_KW_VOID: printf("void"); break;
+        case TOKEN_KW_VOLATILE: printf("volatile"); break;
+        case TOKEN_KW_WHILE: printf("while"); break;
+        case TOKEN_KW_ALIGNAS: printf("_Alignas"); break;
+        case TOKEN_KW_ALIGNOF: printf("_Alignof"); break;
+        case TOKEN_KW_ATOMIC: printf("_Atomic"); break;
+        case TOKEN_KW_BOOL: printf("_Bool"); break;
+        case TOKEN_KW_COMPLEX: printf("_Complex"); break;
+        case TOKEN_KW_GENERIC: printf("_Generic"); break;
+        case TOKEN_KW_IMAGINARY: printf("_Imaginary"); break;
+        case TOKEN_KW_NORETURN: printf("_Noreturn"); break;
+        case TOKEN_KW_STATICASSERT: printf("_Static_assert"); break;
+        case TOKEN_KW_THREADLOCAL: printf("_Thread_local"); break;
+        case TOKEN_PUNC_LEFT_SQUARE: printf("["); break;
+        case TOKEN_PUNC_RIGHT_SQUARE: printf("]"); break;
+        case TOKEN_PUNC_LEFT_PAREN: printf("("); break;
+        case TOKEN_PUNC_RIGHT_PAREN: printf(")"); break;
+        case TOKEN_PUNC_LEFT_BRACE: printf("{"); break;
+        case TOKEN_PUNC_RIGHT_BRACE: printf("}"); break;
+        case TOKEN_PUNC_DOT: printf("."); break;
+        case TOKEN_PUNC_ARROW: printf("->"); break;
+        case TOKEN_PUNC_PLUS_PLUS: printf("++"); break;
+        case TOKEN_PUNC_MINUS_MINUS: printf("--"); break;
+        case TOKEN_PUNC_AND: printf("&"); break;
+        case TOKEN_PUNC_STAR: printf("*"); break;
+        case TOKEN_PUNC_PLUS: printf("+"); break;
+        case TOKEN_PUNC_MINUS: printf("-"); break;
+        case TOKEN_PUNC_TILDE: printf("~"); break;
+        case TOKEN_PUNC_BANG: printf("!"); break;
+        case TOKEN_PUNC_SLASH: printf("/"); break;
+        case TOKEN_PUNC_PERCENT: printf("%%"); break;
+        case TOKEN_PUNC_LESS_LESS: printf("<<"); break;
+        case TOKEN_PUNC_GREATER_GREATER: printf(">>"); break;
+        case TOKEN_PUNC_LESS: printf("<"); break;
+        case TOKEN_PUNC_GREATER: printf(">"); break;
+        case TOKEN_PUNC_LESS_EQUAL: printf("<="); break;
+        case TOKEN_PUNC_GREATER_EQUAL: printf(">="); break;
+        case TOKEN_PUNC_EQUAL_EQUAL: printf("=="); break;
+        case TOKEN_PUNC_BANG_EQUAL: printf("!="); break;
+        case TOKEN_PUNC_CARET: printf("^"); break;
+        case TOKEN_PUNC_OR: printf("|"); break;
+        case TOKEN_PUNC_AND_AND: printf("&&"); break;
+        case TOKEN_PUNC_OR_OR: printf("||"); break;
+        case TOKEN_PUNC_QUESTION: printf("?"); break;
+        case TOKEN_PUNC_COLON: printf(":"); break;
+        case TOKEN_PUNC_SEMICOLON: printf(";"); break;
+        case TOKEN_PUNC_ELIPSIS: printf("..."); break;
+        case TOKEN_PUNC_EQUAL: printf("="); break;
+        case TOKEN_PUNC_STAR_EQUAL: printf("*="); break;
+        case TOKEN_PUNC_SLASH_EQUAL: printf("/="); break;
+        case TOKEN_PUNC_PERCENT_EQUAL: printf("%%="); break;
+        case TOKEN_PUNC_PLUS_EQUAL: printf("+="); break;
+        case TOKEN_PUNC_MINUS_EQUAL: printf("-="); break;
+        case TOKEN_PUNC_LESS_LESS_EQUAL: printf("<<="); break;
+        case TOKEN_PUNC_GREATER_GREATER_EQUAL: printf(">>="); break;
+        case TOKEN_PUNC_AND_EQUAL: printf("&="); break;
+        case TOKEN_PUNC_CARET_EQUAL: printf("^="); break;
+        case TOKEN_PUNC_PIPE_EQUAL: printf("|="); break;
+        case TOKEN_PUNC_COMMA: printf(","); break;
+        case TOKEN_PUNC_HASH: printf("#"); break;
+        case TOKEN_PUNC_HASH_HASH: printf("##"); break;
+        case TOKEN_PUNC_LESS_COLON: printf("<:"); break;
+        case TOKEN_PUNC_COLON_GREATER: printf(":>"); break;
+        case TOKEN_PUNC_LESS_PERCENT: printf("<%%"); break;
+        case TOKEN_PUNC_PERCENT_GREATER: printf("%%>"); break;
+        case TOKEN_PUNC_PERCENT_COLON: printf("%%:"); break;
+        case TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON: printf("%%:%%:"); break;
+        case TOKEN_HEADER_NAME: printf("<%s>", tok->data.string); break;
+        case TOKEN_PP_NUMBER: printf("%s", tok->data.string); break;
+        case TOKEN_IDENTIFIER: printf("%s", tok->data.string); break;
+        case TOKEN_INTEGER: printf("%llu", tok->data.integer); break;
+        case TOKEN_FLOATING: printf("%f", tok->data.floating); break;
+        case TOKEN_CHARACTER: printf("'%s'", tok->data.string); break;
+        case TOKEN_STRING: printf("\"%s\"", tok->data.string); break;
+        case TOKEN_UNKNOWN: printf("%c", tok->data.character); break;
+        case TOKEN_EOF: break;
+    }
+
+    if(ctx->debugPrint) {
+        printf("\n");
+    }
+}
+
 // Setup function
 void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const char* fileName) {
     ctx->phase1source = readFileLen(fileName, &ctx->phase1sourceLength);
@@ -157,6 +288,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const cha
     memoryArrayAlloc(&ctx->sourceArr, pool, 4*MiB, sizeof(char));
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
 
+    ctx->tokenPrinterAtStart = true;
     ctx->phase1consumed = 0;
     ctx->phase1IgnoreNewLine = '\0';
     ctx->phase1Location = (SourceLocation) {
@@ -633,6 +765,6 @@ void runPhase3(TranslationContext* ctx) {
     Phase3Initialise(ctx);
     Token tok;
     while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF) {
-        printf("i");
+        TokenPrint(ctx, &tok);
     }
 }

@@ -22,8 +22,11 @@ typedef struct TranslationContext {
     // settings
     bool trigraphs;
     size_t tabSize;
+    bool debugPrint;
 
     // state
+    bool tokenPrinterAtStart;
+
     char* phase1source;
     size_t phase1sourceLength;
     size_t phase1consumed;
