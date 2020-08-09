@@ -4,7 +4,14 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include "file.h"
+
+typedef struct LexerString {
+    char* buffer;
+    size_t capacity;
+    size_t count;
+} LexerString;
 
 // What sort of token is it, used for both preprocessor and regular
 // tokens, however not all values are valid in each scenario
@@ -144,7 +151,7 @@ typedef struct Token {
     union {
         intmax_t integer;
         double floating;
-        char* string;
+        LexerString string;
         char character;
     } data;
 } Token;
@@ -265,13 +272,13 @@ static void TokenPrint(TranslationContext* ctx, Token* tok) {
         case TOKEN_PUNC_PERCENT_GREATER: printf("%%>"); break;
         case TOKEN_PUNC_PERCENT_COLON: printf("%%:"); break;
         case TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON: printf("%%:%%:"); break;
-        case TOKEN_HEADER_NAME: printf("<%s>", tok->data.string); break;
-        case TOKEN_PP_NUMBER: printf("%s", tok->data.string); break;
-        case TOKEN_IDENTIFIER: printf("%s", tok->data.string); break;
+        case TOKEN_HEADER_NAME: printf("<%s>", tok->data.string.buffer); break;
+        case TOKEN_PP_NUMBER: printf("%s", tok->data.string.buffer); break;
+        case TOKEN_IDENTIFIER: printf("%s", tok->data.string.buffer); break;
         case TOKEN_INTEGER: printf("%llu", tok->data.integer); break;
         case TOKEN_FLOATING: printf("%f", tok->data.floating); break;
-        case TOKEN_CHARACTER: printf("'%s'", tok->data.string); break;
-        case TOKEN_STRING: printf("\"%s\"", tok->data.string); break;
+        case TOKEN_CHARACTER: printf("'%s'", tok->data.string.buffer); break;
+        case TOKEN_STRING: printf("\"%s\"", tok->data.string.buffer); break;
         case TOKEN_UNKNOWN: printf("%c", tok->data.character); break;
         case TOKEN_EOF: break;
     }
@@ -281,11 +288,31 @@ static void TokenPrint(TranslationContext* ctx, Token* tok) {
     }
 }
 
+static void LexerStringInit(LexerString* str, TranslationContext* ctx, size_t size) {
+    str->buffer = memoryArrayPushN(&ctx->stringArr, size + 1);
+    str->buffer[0] = '\0';
+    str->capacity = size;
+    str->count = 0;
+}
+
+static void LexerStringAddC(LexerString* str, TranslationContext* ctx, char c) {
+    if(str->count >= str->capacity) {
+        char* buffer = memoryArrayPushN(&ctx->stringArr, str->capacity * 2 + 1);
+        strncpy(buffer, str->buffer, str->capacity);
+        str->buffer = buffer;
+        str->capacity *= 2;
+    }
+
+    str->buffer[str->count] = c;
+    str->buffer[str->count + 1] = '\0';
+    str->count++;
+}
+
 // Setup function
 void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const char* fileName) {
     ctx->phase1source = readFileLen(fileName, &ctx->phase1sourceLength);
 
-    memoryArrayAlloc(&ctx->sourceArr, pool, 4*MiB, sizeof(char));
+    memoryArrayAlloc(&ctx->stringArr, pool, 4*MiB, sizeof(char));
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
 
     ctx->tokenPrinterAtStart = true;
@@ -570,6 +597,8 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
     tok->isStartOfLine = false;
     tok->indent = 0;
 
+    if(ctx->phase3AtStart) tok->isStartOfLine = true;
+
     while(true) {
         char c = Phase3Peek(ctx);
         switch(c) {
@@ -650,6 +679,14 @@ static void Phase3Make(Token* tok, TokenType type) {
     tok->type = type;
 }
 
+static bool isNonDigit(char c) {
+    return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+static bool isDigit(char c) {
+    return c >= '0' && c <= '9';
+}
+
 // character -> preprocessor token conversion
 static void Phase3Get(Token* tok, TranslationContext* ctx) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
@@ -695,7 +732,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             TOKEN_PUNC_COLON_GREATER : TOKEN_PUNC_COLON); return;
 
         case '+': Phase3Make(tok,
-            Phase3Match(ctx, '|') ? TOKEN_PUNC_PLUS_PLUS :
+            Phase3Match(ctx, '+') ? TOKEN_PUNC_PLUS_PLUS :
             Phase3Match(ctx, '=') ? TOKEN_PUNC_PLUS_EQUAL :
             TOKEN_PUNC_PLUS); return;
         case '|': Phase3Make(tok,
@@ -703,7 +740,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             Phase3Match(ctx, '=') ? TOKEN_PUNC_EQUAL :
             TOKEN_PUNC_OR); return;
         case '&': Phase3Make(tok,
-            Phase3Match(ctx, '|') ? TOKEN_PUNC_AND_AND :
+            Phase3Match(ctx, '&') ? TOKEN_PUNC_AND_AND :
             Phase3Match(ctx, '=') ? TOKEN_PUNC_AND_EQUAL :
             TOKEN_PUNC_AND); return;
 
@@ -743,11 +780,26 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
                 TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON :
                 TOKEN_PUNC_PERCENT_COLON
             ) : TOKEN_PUNC_PERCENT); return;
-
-        default: Phase3Make(tok, TOKEN_UNKNOWN);
-            tok->data.character = c;
-            return;
     }
+
+    // identifier
+    if(isNonDigit(c)) {
+        tok->type = TOKEN_IDENTIFIER;
+        LexerStringInit(&tok->data.string, ctx, 10);
+        LexerStringAddC(&tok->data.string, ctx, c);
+
+        char c = Phase3Peek(ctx);
+        while(!Phase3AtEnd(ctx) && (isNonDigit(c) || isDigit(c))) {
+            Phase3Advance(ctx);
+            LexerStringAddC(&tok->data.string, ctx, c);
+            c = Phase3Peek(ctx);
+        }
+        return;
+    }
+
+    // default
+    Phase3Make(tok, TOKEN_UNKNOWN);
+    tok->data.character = c;
 }
 
 static void Phase3Initialise(TranslationContext* ctx) {
@@ -757,6 +809,7 @@ static void Phase3Initialise(TranslationContext* ctx) {
     ctx->phase3peekNext = '\0',
     ctx->phase3peekLoc = *ctx->phase3currentLocation,
     ctx->phase3peekNextLoc = *ctx->phase3currentLocation,
+    ctx->phase3AtStart = true;
     Phase3AdvanceOverwrite(ctx);
     Phase3AdvanceOverwrite(ctx);
 }

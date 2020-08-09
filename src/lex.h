@@ -44,9 +44,10 @@ typedef struct TranslationContext {
     char phase3peekNext;
     SourceLocation phase3peekNextLoc;
     SourceLocation* phase3currentLocation;
+    bool phase3AtStart;
 
     // memory allocators
-    MemoryArray sourceArr;
+    MemoryArray stringArr;
     MemoryArray locations;
 } TranslationContext;
 
