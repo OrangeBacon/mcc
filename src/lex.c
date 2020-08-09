@@ -769,9 +769,12 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             ) : TOKEN_PUNC_LESS); return;
 
         // TODO: numbers, eg .05
-        case '.': Phase3Make(tok,
-            ctx->phase3peek == '.' && ctx->phase3peekNext == '.' ?
-            TOKEN_PUNC_ELIPSIS : TOKEN_PUNC_DOT); return;
+        case '.':
+            if(isDigit(ctx->phase3peek)) break;
+            Phase3Make(tok,
+                ctx->phase3peek == '.' && ctx->phase3peekNext == '.' ?
+                TOKEN_PUNC_ELIPSIS : TOKEN_PUNC_DOT);
+            return;
         case '%': Phase3Make(tok,
             Phase3Match(ctx, '=') ? TOKEN_PUNC_PERCENT_EQUAL :
             Phase3Match(ctx, '>') ? TOKEN_PUNC_PERCENT_GREATER :
@@ -791,6 +794,31 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
         char c = Phase3Peek(ctx);
         while(!Phase3AtEnd(ctx) && (isNonDigit(c) || isDigit(c))) {
             Phase3Advance(ctx);
+            LexerStringAddC(&tok->data.string, ctx, c);
+            c = Phase3Peek(ctx);
+        }
+        return;
+    }
+
+    // pp-number
+    if(isDigit(c) || c == '.') {
+        tok->type = TOKEN_PP_NUMBER;
+        LexerStringInit(&tok->data.string, ctx, 10);
+        LexerStringAddC(&tok->data.string, ctx, c);
+
+        char c = Phase3Peek(ctx);
+        while(!Phase3AtEnd(ctx)) {
+            char next = Phase3PeekNext(ctx);
+            if((c == 'e' || c == 'E' || c == 'p' || c == 'P') &&
+                (next == '+' || next == '-')) {
+                Phase3Advance(ctx);
+                Phase3Advance(ctx);
+            } else if(isDigit(c) || isNonDigit(c) || c == '.') {
+                Phase3Advance(ctx);
+            } else {
+                break;
+            }
+
             LexerStringAddC(&tok->data.string, ctx, c);
             c = Phase3Peek(ctx);
         }

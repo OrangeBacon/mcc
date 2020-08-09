@@ -1,5 +1,7 @@
 here_is_my_very_long_identifier_to_test_the_compilers_dynamic_string_reallocation_during_lexing
-
+0xE+12
+0._.0
+0hello_.f
 int fib(int x);\
 int putchar(int);\
 int* malloc(int);
