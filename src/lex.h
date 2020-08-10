@@ -6,7 +6,7 @@
 #include "memory.h"
 
 typedef struct SourceLocation {
-    const char* fileName;
+    const unsigned char* fileName;
     size_t line;
     size_t column;
     size_t length;
@@ -27,21 +27,21 @@ typedef struct TranslationContext {
     // state
     bool tokenPrinterAtStart;
 
-    char* phase1source;
+    unsigned char* phase1source;
     size_t phase1sourceLength;
     size_t phase1consumed;
     SourceLocation phase1Location;
-    char phase1IgnoreNewLine;
+    unsigned char phase1IgnoreNewLine;
 
-    char phase2Peek;
+    unsigned char phase2Peek;
     SourceLocation phase2PeekLoc;
-    char phase2Previous;
+    unsigned char phase2Previous;
     SourceLocation phase2CurrentLoc;
 
     Phase3LexMode phase3mode;
-    char phase3peek;
+    unsigned char phase3peek;
     SourceLocation phase3peekLoc;
-    char phase3peekNext;
+    unsigned char phase3peekNext;
     SourceLocation phase3peekNextLoc;
     SourceLocation* phase3currentLocation;
     bool phase3AtStart;
@@ -51,7 +51,7 @@ typedef struct TranslationContext {
     MemoryArray locations;
 } TranslationContext;
 
-void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const char* fileName);
+void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const unsigned char* fileName);
 
 void runPhase1(TranslationContext* ctx);
 void runPhase2(TranslationContext* ctx);

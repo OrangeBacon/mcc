@@ -7,6 +7,11 @@
 #include <string.h>
 #include "file.h"
 
+// End of file
+// default is -1, which is the same as 0xff, but type conversions work
+// better with unsigned char this way
+#define END_OF_FILE 0xff
+
 typedef struct LexerString {
     char* buffer;
     size_t capacity;
@@ -309,10 +314,10 @@ static void LexerStringAddC(LexerString* str, TranslationContext* ctx, char c) {
 }
 
 // Setup function
-void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const char* fileName) {
-    ctx->phase1source = readFileLen(fileName, &ctx->phase1sourceLength);
+void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const unsigned char* fileName) {
+    ctx->phase1source = (unsigned char*)readFileLen((char*)fileName, &ctx->phase1sourceLength);
 
-    memoryArrayAlloc(&ctx->stringArr, pool, 4*MiB, sizeof(char));
+    memoryArrayAlloc(&ctx->stringArr, pool, 4*MiB, sizeof(unsigned char));
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
 
     ctx->tokenPrinterAtStart = true;
@@ -324,7 +329,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const cha
         .length = 0,
         .line = 1,
     };
-    ctx->phase2Previous = EOF;
+    ctx->phase2Previous = END_OF_FILE;
     ctx->phase3currentLocation = memoryArrayPush(&ctx->locations);
 }
 
@@ -333,16 +338,26 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const cha
 // ------- //
 // Physical source characters -> source character set (unimplemented)
 // Trigraph conversion
+// internaly uses out parameter instead of END_OF_FILE to avoid reading
+// END_OF_FILE as a control character, so emitting an error for it
 
 // return the next character without consuming it
-static char Phase1Peek(TranslationContext* ctx) {
-    if(ctx->phase1consumed >= ctx->phase1sourceLength) return EOF;
+static unsigned char Phase1Peek(TranslationContext* ctx, bool* succeeded) {
+    if(ctx->phase1consumed >= ctx->phase1sourceLength) {
+        *succeeded = false;
+        return '\0';
+    }
+    *succeeded = true;
     return ctx->phase1source[ctx->phase1consumed];
 }
 
 // return the character after next without consuming its
-static char Phase1PeekNext(TranslationContext* ctx) {
-    if(ctx->phase1consumed - 1 >= ctx->phase1sourceLength) return EOF;
+static unsigned char Phase1PeekNext(TranslationContext* ctx, bool* succeeded) {
+    if(ctx->phase1consumed - 1 >= ctx->phase1sourceLength) {
+        *succeeded = false;
+        return '\0';
+    }
+    *succeeded = true;
     return ctx->phase1source[ctx->phase1consumed + 1];
 }
 
@@ -350,7 +365,7 @@ static char Phase1PeekNext(TranslationContext* ctx) {
 // line counter.  If '\n' encountered, a following '\r' will not change the
 // counter, if '\r', the '\n' will not update.  This allows multiple possible
 // line endings: "\n", "\r", "\n\r", "\r\n" that are all considered one line end
-static void Phase1NewLine(TranslationContext* ctx, char c) {
+static void Phase1NewLine(TranslationContext* ctx, unsigned char c) {
     if(ctx->phase1IgnoreNewLine != '\0') {
         if(c == ctx->phase1IgnoreNewLine) {
             ctx->phase1Location.line++;
@@ -372,30 +387,38 @@ static void Phase1NewLine(TranslationContext* ctx, char c) {
 
 // get the next character from the previous phase
 // increases the SourcLocation's length with the new character
-static char Phase1Advance(TranslationContext* ctx) {
-    if(ctx->phase1consumed >= ctx->phase1sourceLength) return EOF;
+static unsigned char Phase1Advance(TranslationContext* ctx, bool* succeeded) {
+    if(ctx->phase1consumed >= ctx->phase1sourceLength) {
+        *succeeded = false;
+        return '\0';
+    }
     ctx->phase1consumed++;
     ctx->phase1Location.length++;
     ctx->phase1Location.column++;
-    char c = ctx->phase1source[ctx->phase1consumed - 1];
+    unsigned char c = ctx->phase1source[ctx->phase1consumed - 1];
     Phase1NewLine(ctx, c);
+    *succeeded = true;
     return c;
 }
 
 // get the next character from the previous phase
 // sets the SourceLocation to begin from the new character's start
-static char Phase1AdvanceOverwrite(TranslationContext* ctx) {
-    if(ctx->phase1consumed >= ctx->phase1sourceLength) return EOF;
+static unsigned char Phase1AdvanceOverwrite(TranslationContext* ctx, bool* succeeded) {
+    if(ctx->phase1consumed >= ctx->phase1sourceLength) {
+        *succeeded = false;
+        return '\0';
+    }
     ctx->phase1consumed++;
     ctx->phase1Location.length = 1;
     ctx->phase1Location.column++;
-    char c = ctx->phase1source[ctx->phase1consumed - 1];
+    unsigned char c = ctx->phase1source[ctx->phase1consumed - 1];
     Phase1NewLine(ctx, c);
+    *succeeded = true;
     return c;
 }
 
 // map trigraph "??{index}" -> real character
-static char trigraphTranslation[] = {
+static unsigned char trigraphTranslation[] = {
     ['='] = '#',
     ['('] = '[',
     ['/'] = '\\',
@@ -410,12 +433,46 @@ static char trigraphTranslation[] = {
 // implement phase 1
 // technically, this should convert the file to utf8, and probably normalise it,
 // but I am not implementing that
-static char Phase1Get(TranslationContext* ctx) {
-    char c = Phase1AdvanceOverwrite(ctx);
+static unsigned char Phase1Get(TranslationContext* ctx) {
+    bool succeeded;
+    unsigned char c = Phase1AdvanceOverwrite(ctx, &succeeded);
+
+    if(!succeeded) {
+        return END_OF_FILE;
+    }
+
+    if(ctx->phase1consumed == 1) {
+        // start of file - ignore BOM
+
+        // do not need to check succeded due to length check in condition
+        if(ctx->phase1sourceLength >= 3 && c == 0xEF
+        && Phase1Peek(ctx, &succeeded) == 0xBB
+        && Phase1PeekNext(ctx, &succeeded) == 0xBF) {
+            Phase1Advance(ctx, &succeeded);
+            Phase1Advance(ctx, &succeeded);
+        }
+
+        // invalid bytes
+        if(c == 0x20 || c == 0x21 || c >= 0xF5) {
+            printf("Error: found invalid byte for utf8 text\n");
+            return '\0';
+        }
+
+        if(c <= 0x1F || c == 0x7F) {
+            printf("Error: found control character in source file\n");
+            return '\0';
+        }
+    }
+
     if(ctx->trigraphs && c == '?') {
-        char c2 = Phase1Peek(ctx);
-        if(c2 == '?') {
-            char c3 = Phase1PeekNext(ctx);
+        unsigned char c2 = Phase1Peek(ctx, &succeeded);
+        if(succeeded && c2 == '?') {
+            unsigned char c3 = Phase1PeekNext(ctx, &succeeded);
+
+            if(!succeeded) {
+                return c;
+            }
+
             switch(c3) {
                 case '=':
                 case '(':
@@ -426,10 +483,11 @@ static char Phase1Get(TranslationContext* ctx) {
                 case '!':
                 case '>':
                 case '-':
-                    Phase1Advance(ctx);
-                    Phase1Advance(ctx);
-                    return trigraphTranslation[(unsigned char)c3];
-                default: return c;
+                    Phase1Advance(ctx, &succeeded);
+                    Phase1Advance(ctx, &succeeded);
+                    return trigraphTranslation[c3];
+                default:
+                    return c;
             }
         }
     }
@@ -453,8 +511,8 @@ void runPhase1(TranslationContext* ctx) {
 
 // get the next character from the previous phase
 // increases the SourcLocation's length with the new character
-static char Phase2Advance(TranslationContext* ctx) {
-    char ret = ctx->phase2Peek;
+static unsigned char Phase2Advance(TranslationContext* ctx) {
+    unsigned char ret = ctx->phase2Peek;
     ctx->phase2CurrentLoc.length += ctx->phase2PeekLoc.length;
     ctx->phase2Peek = Phase1Get(ctx);
     ctx->phase2PeekLoc = ctx->phase1Location;
@@ -463,8 +521,8 @@ static char Phase2Advance(TranslationContext* ctx) {
 
 // get the next character from the previous phase
 // sets the SourceLocation to begin from the new character's start
-static char Phase2AdvanceOverwrite(TranslationContext* ctx) {
-    char ret = ctx->phase2Peek;
+static unsigned char Phase2AdvanceOverwrite(TranslationContext* ctx) {
+    unsigned char ret = ctx->phase2Peek;
     ctx->phase2CurrentLoc = ctx->phase2PeekLoc;
     ctx->phase2Peek = Phase1Get(ctx);
     ctx->phase2PeekLoc = ctx->phase1Location;
@@ -472,20 +530,20 @@ static char Phase2AdvanceOverwrite(TranslationContext* ctx) {
 }
 
 // return the next character without consuming it
-static char Phase2Peek(TranslationContext* ctx) {
+static unsigned char Phase2Peek(TranslationContext* ctx) {
     return ctx->phase2Peek;
 }
 
 // implements backslash-newline skipping
 // if the next character after a backslash/newline is another backslash/newline
 // then that should be skiped as well iteratively until the next real character
-// emits error for backslash-EOF and /[^\n]/-EOF
+// emits error for backslash-END_OF_FILE and /[^\n]/-END_OF_FILE
 static unsigned char Phase2Get(TranslationContext* ctx) {
-    char c = Phase2AdvanceOverwrite(ctx);
+    unsigned char c = Phase2AdvanceOverwrite(ctx);
     do {
         if(c == '\\') {
-            char c1 = Phase2Peek(ctx);
-            if(c1 == EOF) {
+            unsigned char c1 = Phase2Peek(ctx);
+            if(c1 == END_OF_FILE) {
                 fprintf(stderr, "Error: unexpected '\\' at end of file\n");
                 exit(EXIT_FAILURE);
             } else if(c1 != '\n') {
@@ -495,7 +553,7 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
                 Phase2Advance(ctx);
                 // exit if statement
             }
-        } else if(c == EOF && ctx->phase2Previous != '\n' && ctx->phase2Previous != EOF) {
+        } else if(c == END_OF_FILE && ctx->phase2Previous != '\n' && ctx->phase2Previous != END_OF_FILE) {
             // error iso c
             fprintf(stderr, "Error: ISO C11 requires newline at end of file\n");
             exit(EXIT_FAILURE);
@@ -504,7 +562,7 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
             return c;
         }
         c = Phase2Advance(ctx);
-    } while(c != EOF);
+    } while(c != END_OF_FILE);
 
     ctx->phase2Previous = c;
     return c;
@@ -518,8 +576,8 @@ static void Phase2Initialise(TranslationContext* ctx) {
 // helper to run upto and including phase 2
 void runPhase2(TranslationContext* ctx) {
     Phase2Initialise(ctx);
-    char c;
-    while((c = Phase2Get(ctx)) != EOF) {
+    unsigned char c;
+    while((c = Phase2Get(ctx)) != END_OF_FILE) {
         putchar(c);
     }
 }
@@ -533,8 +591,8 @@ void runPhase2(TranslationContext* ctx) {
 
 // get the next character from the previous phase
 // increases the SourcLocation's length with the new character
-static char Phase3Advance(TranslationContext* ctx) {
-    char ret = ctx->phase3peek;
+static unsigned char Phase3Advance(TranslationContext* ctx) {
+    unsigned char ret = ctx->phase3peek;
     ctx->phase3currentLocation->length += ctx->phase3peekLoc.length;
 
     ctx->phase3peek = ctx->phase3peekNext;
@@ -547,8 +605,8 @@ static char Phase3Advance(TranslationContext* ctx) {
 
 // get the next character from the previous phase
 // sets the SourceLocation to begin from the new character's start
-static char Phase3AdvanceOverwrite(TranslationContext* ctx) {
-    char ret = ctx->phase3peek;
+static unsigned char Phase3AdvanceOverwrite(TranslationContext* ctx) {
+    unsigned char ret = ctx->phase3peek;
     *ctx->phase3currentLocation = ctx->phase3peekLoc;
 
     ctx->phase3peek = ctx->phase3peekNext;
@@ -559,23 +617,23 @@ static char Phase3AdvanceOverwrite(TranslationContext* ctx) {
 }
 
 // return the next character without consuming it
-static char Phase3Peek(TranslationContext* ctx) {
+static unsigned char Phase3Peek(TranslationContext* ctx) {
     return ctx->phase3peek;
 }
 
 // return the character after next without consuming it
-static char Phase3PeekNext(TranslationContext* ctx) {
+static unsigned char Phase3PeekNext(TranslationContext* ctx) {
     return ctx->phase3peekNext;
 }
 
 // has phase 3 reached the end of the file?
 static bool Phase3AtEnd(TranslationContext* ctx) {
-    return ctx->phase3peek == EOF;
+    return ctx->phase3peek == END_OF_FILE;
 }
 
 // skip a new line ("\n", "\r", "\n\r", "\r\n") and set that the token is
 // at the begining of a line
-static void Phase3NewLine(Token* tok, TranslationContext* ctx, char c) {
+static void Phase3NewLine(Token* tok, TranslationContext* ctx, unsigned char c) {
     Phase3Advance(ctx);
     if(Phase3Peek(ctx) == c) {
         Phase3Advance(ctx);
@@ -600,7 +658,7 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
     if(ctx->phase3AtStart) tok->isStartOfLine = true;
 
     while(true) {
-        char c = Phase3Peek(ctx);
+        unsigned char c = Phase3Peek(ctx);
         switch(c) {
             case ' ':
             case '\t':
@@ -619,11 +677,11 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
                 break;
 
             case '/': {
-                char next = Phase3PeekNext(ctx);
+                unsigned char next = Phase3PeekNext(ctx);
                 if(next == '/') {
                     // single line comment (//)
                     Phase3AdvanceOverwrite(ctx);
-                    char c = '\0';
+                    unsigned char c = '\0';
                     while((c = Phase3Peek(ctx)), (c != '\n' && c != '\r' && !Phase3AtEnd(ctx))) {
                         Phase3Advance(ctx);
                     }
@@ -665,7 +723,7 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
     }
 }
 
-static bool Phase3Match(TranslationContext* ctx, char c) {
+static bool Phase3Match(TranslationContext* ctx, unsigned char c) {
     if(Phase3AtEnd(ctx)) return false;
     if(Phase3Peek(ctx) != c) return false;
     Phase3Advance(ctx);
@@ -679,11 +737,11 @@ static void Phase3Make(Token* tok, TokenType type) {
     tok->type = type;
 }
 
-static bool isNonDigit(char c) {
+static bool isNonDigit(unsigned char c) {
     return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-static bool isDigit(char c) {
+static bool isDigit(unsigned char c) {
     return c >= '0' && c <= '9';
 }
 
@@ -702,7 +760,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
         return;
     }
 
-    char c = Phase3AdvanceOverwrite(ctx);
+    unsigned char c = Phase3AdvanceOverwrite(ctx);
 
     switch(c) {
         case '[': Phase3Make(tok, TOKEN_PUNC_LEFT_SQUARE); return;
@@ -791,7 +849,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
         LexerStringInit(&tok->data.string, ctx, 10);
         LexerStringAddC(&tok->data.string, ctx, c);
 
-        char c = Phase3Peek(ctx);
+        unsigned char c = Phase3Peek(ctx);
         while(!Phase3AtEnd(ctx) && (isNonDigit(c) || isDigit(c))) {
             Phase3Advance(ctx);
             LexerStringAddC(&tok->data.string, ctx, c);
@@ -806,7 +864,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
         LexerStringInit(&tok->data.string, ctx, 10);
         LexerStringAddC(&tok->data.string, ctx, c);
 
-        char c = Phase3Peek(ctx);
+        unsigned char c = Phase3Peek(ctx);
         while(!Phase3AtEnd(ctx)) {
             char next = Phase3PeekNext(ctx);
             if((c == 'e' || c == 'E' || c == 'p' || c == 'P') &&
