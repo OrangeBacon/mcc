@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include "file.h"
 
 // End of file
@@ -127,6 +128,7 @@ typedef enum TokenType {
     TOKEN_CHARACTER,
     TOKEN_STRING,
     TOKEN_UNKNOWN,
+    TOKEN_ERROR,
     TOKEN_EOF,
 } TokenType;
 
@@ -285,6 +287,7 @@ static void TokenPrint(TranslationContext* ctx, Token* tok) {
         case TOKEN_CHARACTER: printf("'%s'", tok->data.string.buffer); break;
         case TOKEN_STRING: printf("\"%s\"", tok->data.string.buffer); break;
         case TOKEN_UNKNOWN: printf("%c", tok->data.character); break;
+        case TOKEN_ERROR: printf("error token"); break;
         case TOKEN_EOF: break;
     }
 
@@ -745,6 +748,77 @@ static bool isDigit(unsigned char c) {
     return c >= '0' && c <= '9';
 }
 
+static bool isHexDigit(unsigned char c) {
+    return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c <= '9');
+}
+
+// parse a universal character name
+static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
+    // '\\' already consumed
+
+    unsigned char initial = Phase3Advance(ctx);
+    if(initial != 'u' && initial != 'U') {
+        fprintf(stderr, "Error: unexpected backslash in file\n");
+        exit(1);
+    }
+
+    char buffer[9];
+    int length = initial == 'u' ? 4 : 8;
+
+    for(int i = 0; i < length; i++) {
+        unsigned char c = Phase3Advance(ctx);
+        if(!isHexDigit(c)) {
+            fprintf(stderr, "Error: non-hex digit found in universal character name\n");
+            exit(1);
+        }
+        buffer[i] = c;
+    }
+    buffer[length] = '\0';
+
+    // call should not error as we have already checked everything being
+    // parsed by it
+    char* end;
+    intmax_t num = strtoimax(buffer, &end, 16);
+
+    if(num >= 0xD800 && num <= 0xDFFF) {
+        fprintf(stderr, "Error: surrogate pair specified by universal character name\n");
+        exit(1);
+    }
+
+    if(num < 0x00A0 && num != '$' && num != '@' && num != '`') {
+        fprintf(stderr, "Error: universal character specified out of allowable range\n");
+        exit(1);
+    }
+
+    // UTF-8 Encoder - see ISO/IEC 10646:2017 p15
+    if(num < 0x007F) {
+        LexerStringAddC(&tok->data.string, ctx, num);
+    } else if(num < 0x07FF) {
+        unsigned char o1 = 0xC0 | (num >> 6);
+        unsigned char o2 = 0x80 | (num & 0x3F);
+        LexerStringAddC(&tok->data.string, ctx, o1);
+        LexerStringAddC(&tok->data.string, ctx, o2);
+    } else if(num < 0xFFFF) {
+        unsigned char o1 = 0xE0 | (num >> 12);
+        unsigned char o2 = 0x80 | ((num >> 6) & 0x3F);
+        unsigned char o3 = 0x80 | (num & 0x3F);
+        LexerStringAddC(&tok->data.string, ctx, o1);
+        LexerStringAddC(&tok->data.string, ctx, o2);
+        LexerStringAddC(&tok->data.string, ctx, o3);
+    } else if(num < 0x10FFFF) {
+        unsigned char o1 = 0xF0 | (num >> 18);
+        unsigned char o2 = 0x80 | ((num >> 12) & 0x3F);
+        unsigned char o3 = 0x80 | ((num >> 6) & 0x3F);
+        unsigned char o4 = 0x80 | (num & 0x3F);
+        LexerStringAddC(&tok->data.string, ctx, o1);
+        LexerStringAddC(&tok->data.string, ctx, o2);
+        LexerStringAddC(&tok->data.string, ctx, o3);
+        LexerStringAddC(&tok->data.string, ctx, o4);
+    } else {
+        fprintf(stderr, "Error: UCS code point out of range: Maximum = 0x10FFFF\n");
+    }
+}
+
 // character -> preprocessor token conversion
 static void Phase3Get(Token* tok, TranslationContext* ctx) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
@@ -844,15 +918,17 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
     }
 
     // identifier
-    if(isNonDigit(c)) {
+    if(isNonDigit(c) || c == '\\') {
         tok->type = TOKEN_IDENTIFIER;
         LexerStringInit(&tok->data.string, ctx, 10);
-        LexerStringAddC(&tok->data.string, ctx, c);
 
-        unsigned char c = Phase3Peek(ctx);
-        while(!Phase3AtEnd(ctx) && (isNonDigit(c) || isDigit(c))) {
-            Phase3Advance(ctx);
-            LexerStringAddC(&tok->data.string, ctx, c);
+        while(!Phase3AtEnd(ctx) && (isNonDigit(c) || isDigit(c) || c == '\\')) {
+            if(c == '\\') {
+                ParseUniversalCharacterName(ctx, tok);
+            } else {
+                Phase3Advance(ctx);
+                LexerStringAddC(&tok->data.string, ctx, c);
+            }
             c = Phase3Peek(ctx);
         }
         return;
