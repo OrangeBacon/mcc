@@ -578,6 +578,7 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
             }
         } else if(c == END_OF_FILE && ctx->phase2Previous != '\n' && ctx->phase2Previous != END_OF_FILE) {
             // error iso c
+            ctx->phase2Previous = END_OF_FILE;
             fprintf(stderr, "Error: ISO C11 requires newline at end of file\n");
             return END_OF_FILE;
         } else {
@@ -881,6 +882,10 @@ static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, un
         // skip escape sequences so that \" does not end a string
         if(c == '\\') {
             LexerStringAddC(&tok->data.string, ctx, Phase3Advance(ctx));
+        } else if(c == '\n') {
+            fprintf(stderr, "Error: %s literal unterminated at end of line\n", start == '\'' ? "character" : "string");
+            tok->type = TOKEN_ERROR;
+            return;
         }
 
         c = Phase3Peek(ctx);
@@ -891,7 +896,11 @@ static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, un
         tok->type = TOKEN_ERROR;
     }
 
-    Phase3Advance(ctx);
+    if(Phase3Advance(ctx) != start) {
+        fprintf(stderr, "Error: %s literal unterminated at end of file\n", start == '\'' ? "character" : "string");
+        tok->type = TOKEN_ERROR;
+        return;
+    }
 }
 
 // character -> preprocessor token conversion
