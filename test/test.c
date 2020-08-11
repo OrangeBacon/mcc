@@ -10,6 +10,11 @@ u8"he\"llo"
 L"hi"
 u""
 U"hello"
+'a'
+u8'a'
+L'a'
+u'a'
+U'a'
 int fib(int x);\
 int putchar(int);\
 int* malloc(int);

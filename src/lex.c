@@ -303,7 +303,7 @@ static void TokenPrint(TranslationContext* ctx, Token* tok) {
         case TOKEN_IDENTIFIER: printf("%s", tok->data.string.buffer); break;
         case TOKEN_INTEGER: printf("%llu", tok->data.integer); break;
         case TOKEN_FLOATING: printf("%f", tok->data.floating); break;
-        case TOKEN_CHARACTER: printf("'%s'", tok->data.string.buffer); break;
+        case TOKEN_CHARACTER: StringTypePrint(tok->data.string.type); printf("'%s'", tok->data.string.buffer); break;
         case TOKEN_STRING: StringTypePrint(tok->data.string.type); printf("\"%s\"", tok->data.string.buffer); break;
         case TOKEN_UNKNOWN: printf("%c", tok->data.character); break;
         case TOKEN_ERROR: printf("error token"); break;
@@ -568,7 +568,7 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
             unsigned char c1 = Phase2Peek(ctx);
             if(c1 == END_OF_FILE) {
                 fprintf(stderr, "Error: unexpected '\\' at end of file\n");
-                exit(EXIT_FAILURE);
+                return END_OF_FILE;
             } else if(c1 != '\n') {
                 ctx->phase2Previous = c;
                 return c;
@@ -579,7 +579,7 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
         } else if(c == END_OF_FILE && ctx->phase2Previous != '\n' && ctx->phase2Previous != END_OF_FILE) {
             // error iso c
             fprintf(stderr, "Error: ISO C11 requires newline at end of file\n");
-            exit(EXIT_FAILURE);
+            return END_OF_FILE;
         } else {
             ctx->phase2Previous = c;
             return c;
@@ -730,7 +730,7 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
                     }
                     if(Phase3AtEnd(ctx)) {
                         fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->phase3currentLocation->line, ctx->phase3currentLocation->column);
-                        exit(1);
+                        return;
                     }
                     Phase3Advance(ctx);
                     Phase3Advance(ctx);
@@ -786,7 +786,8 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
         unsigned char c = Phase3Advance(ctx);
         if(!isHexDigit(c)) {
             fprintf(stderr, "Error: non-hex digit found in universal character name\n");
-            exit(1);
+            tok->type = TOKEN_ERROR;
+            return;
         }
         buffer[i] = c;
     }
@@ -799,12 +800,14 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
 
     if(num >= 0xD800 && num <= 0xDFFF) {
         fprintf(stderr, "Error: surrogate pair specified by universal character name\n");
-        exit(1);
+        tok->type = TOKEN_ERROR;
+        return;
     }
 
     if(num < 0x00A0 && num != '$' && num != '@' && num != '`') {
         fprintf(stderr, "Error: universal character specified out of allowable range\n");
-        exit(1);
+        tok->type = TOKEN_ERROR;
+        return;
     }
 
     // UTF-8 Encoder - see ISO/IEC 10646:2017 p15
@@ -833,7 +836,62 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
         LexerStringAddC(&tok->data.string, ctx, o4);
     } else {
         fprintf(stderr, "Error: UCS code point out of range: Maximum = 0x10FFFF\n");
+        tok->type = TOKEN_ERROR;
+        return;
     }
+}
+
+static bool isStringLike(TranslationContext* ctx, unsigned char c, unsigned char start) {
+    unsigned char next = Phase3Peek(ctx);
+    unsigned char nextNext = Phase3PeekNext(ctx);
+    return c == start ||
+        ((c == 'u' || c == 'U' || c == 'L') && next == start) ||
+        (c == 'u' && next == '8' && nextNext == start);
+}
+
+// Generic string literal ish token parser
+// used for character and string literals
+// does not deal with escape sequences properly, that is for phase 5
+static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, unsigned char start) {
+    unsigned char next = Phase3Peek(ctx);
+
+    tok->type = start == '"' ? TOKEN_STRING : TOKEN_CHARACTER;
+    LexerStringInit(&tok->data.string, ctx, 10);
+    LexerStringType t =
+        c == start ? STRING_NONE :
+        c == 'u' && next == '8' ? STRING_U8 :
+        c == 'u' ? STRING_16 :
+        c == 'U' ? STRING_32 :
+        STRING_WCHAR;
+    tok->data.string.type = t;
+
+    // skip prefix characters
+    if(t == STRING_U8) {
+        Phase3Advance(ctx);
+        Phase3Advance(ctx);
+    } else if(t == STRING_16 || t == STRING_32 || t == STRING_WCHAR) {
+        Phase3Advance(ctx);
+    }
+
+    c = Phase3Peek(ctx);
+    while(!Phase3AtEnd(ctx) && c != start) {
+        Phase3Advance(ctx);
+        LexerStringAddC(&tok->data.string, ctx, c);
+
+        // skip escape sequences so that \" does not end a string
+        if(c == '\\') {
+            LexerStringAddC(&tok->data.string, ctx, Phase3Advance(ctx));
+        }
+
+        c = Phase3Peek(ctx);
+    }
+
+    if(start == '\'' && tok->data.string.count == 0) {
+        fprintf(stderr, "Error: character literal requires at least one character\n");
+        tok->type = TOKEN_ERROR;
+    }
+
+    Phase3Advance(ctx);
 }
 
 // character -> preprocessor token conversion
@@ -934,43 +992,16 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
     }
 
     unsigned char next = Phase3Peek(ctx);
-    unsigned char nextNext = Phase3PeekNext(ctx);
 
     // string literals
-    if(c == '"' || ((c == 'u' || c == 'U' || c == 'L') && next == '"') || (c == 'u' && next == '8' && nextNext == '"')) {
-        tok->type = TOKEN_STRING;
-        LexerStringInit(&tok->data.string, ctx, 10);
-        LexerStringType t =
-            c == '"' ? STRING_NONE :
-            c == 'u' && next == '8' ? STRING_U8 :
-            c == 'u' ? STRING_16 :
-            c == 'U' ? STRING_32 :
-            STRING_WCHAR;
-        tok->data.string.type = t;
+    if(isStringLike(ctx, c, '"')) {
+        ParseString(ctx, tok, c, '"');
+        return;
+    }
 
-        // skip prefix characters
-        if(t == STRING_U8) {
-            Phase3Advance(ctx);
-            Phase3Advance(ctx);
-        } else if(t == STRING_16 || t == STRING_32 || t == STRING_WCHAR) {
-            Phase3Advance(ctx);
-        }
-
-        c = Phase3Peek(ctx);
-        while(!Phase3AtEnd(ctx) && c != '"') {
-            Phase3Advance(ctx);
-            LexerStringAddC(&tok->data.string, ctx, c);
-
-            // skip escape sequences so that \" does not end a string
-            if(c == '\\') {
-                LexerStringAddC(&tok->data.string, ctx, Phase3Advance(ctx));
-            }
-
-            c = Phase3Peek(ctx);
-        }
-
-        Phase3Advance(ctx);
-
+    // character literals
+    if(isStringLike(ctx, c, '\'')) {
+        ParseString(ctx, tok, c, '\'');
         return;
     }
 
