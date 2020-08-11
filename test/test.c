@@ -2,7 +2,10 @@ here_is_my_very_long_identifier_to_test_the_compilers_dynamic_string_reallocatio
 0xE+12
 0._.0
 0hello_.f
-\U0001f975
+ab\U0001f975cd
+\U0001f975cd
+ab\U0001f975
+\x
 int fib(int x);\
 int putchar(int);\
 int* malloc(int);

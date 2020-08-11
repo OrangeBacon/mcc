@@ -756,11 +756,8 @@ static bool isHexDigit(unsigned char c) {
 static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
     // '\\' already consumed
 
+    // 'u' vs 'U' check already done
     unsigned char initial = Phase3Advance(ctx);
-    if(initial != 'u' && initial != 'U') {
-        fprintf(stderr, "Error: unexpected backslash in file\n");
-        exit(1);
-    }
 
     char buffer[9];
     int length = initial == 'u' ? 4 : 8;
@@ -917,19 +914,45 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             ) : TOKEN_PUNC_PERCENT); return;
     }
 
+    unsigned char next = Phase3Peek(ctx);
+
     // identifier
-    if(isNonDigit(c) || c == '\\') {
+    // is identifier start character or universal character name
+    if(isNonDigit(c) || (c == '\\' && (next == 'u' || next == 'U'))) {
+
+        // has the current character been consumed (true for first character,
+        // false otherwise
+        bool consumedCharacter = true;
+
+        // initialisation
         tok->type = TOKEN_IDENTIFIER;
         LexerStringInit(&tok->data.string, ctx, 10);
 
+        // while is identifier character or slash
         while(!Phase3AtEnd(ctx) && (isNonDigit(c) || isDigit(c) || c == '\\')) {
-            if(c == '\\') {
+
+            // get next character, depending if the current one was consumed
+            unsigned char next = consumedCharacter ? Phase3Peek(ctx) : Phase3PeekNext(ctx);
+
+            // found \u or \U => universal character name
+            if(c == '\\' && (next == 'u' || next == 'U')) {
+                if(!consumedCharacter) Phase3Advance(ctx);
                 ParseUniversalCharacterName(ctx, tok);
+            } else if(c == '\\') {
+                // found backslash not in escape sequence, will not be at
+                // start so do not need to un-consume it
+                // finish token, the backslash will be the next token
+                break;
             } else {
-                Phase3Advance(ctx);
+                // regular character
+                // if not already done, consume it and join to the identifier
+                if(!consumedCharacter) Phase3Advance(ctx);
                 LexerStringAddC(&tok->data.string, ctx, c);
             }
+
+            // advance
             c = Phase3Peek(ctx);
+            consumedCharacter = false;
         }
         return;
     }
