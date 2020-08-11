@@ -6,6 +6,10 @@ ab\U0001f975cd
 \U0001f975cd
 ab\U0001f975
 \x
+u8"he\"llo"
+L"hi"
+u""
+U"hello"
 int fib(int x);\
 int putchar(int);\
 int* malloc(int);

@@ -13,10 +13,19 @@
 // better with unsigned char this way
 #define END_OF_FILE 0xff
 
+typedef enum LexerStringType {
+    STRING_NONE,
+    STRING_U8,
+    STRING_WCHAR,
+    STRING_16,
+    STRING_32,
+} LexerStringType;
+
 typedef struct LexerString {
     char* buffer;
     size_t capacity;
     size_t count;
+    LexerStringType type;
 } LexerString;
 
 // What sort of token is it, used for both preprocessor and regular
@@ -163,6 +172,16 @@ typedef struct Token {
     } data;
 } Token;
 
+static void StringTypePrint(LexerStringType t) {
+    switch(t) {
+        case STRING_NONE: return;
+        case STRING_U8: printf("u8"); return;
+        case STRING_WCHAR: printf("L"); return;
+        case STRING_16: printf("u"); return;
+        case STRING_32: printf("U"); return;
+    }
+}
+
 static void TokenPrint(TranslationContext* ctx, Token* tok) {
     if(ctx->debugPrint) {
         printf("%llu:%llu", tok->loc->line, tok->loc->column);
@@ -285,7 +304,7 @@ static void TokenPrint(TranslationContext* ctx, Token* tok) {
         case TOKEN_INTEGER: printf("%llu", tok->data.integer); break;
         case TOKEN_FLOATING: printf("%f", tok->data.floating); break;
         case TOKEN_CHARACTER: printf("'%s'", tok->data.string.buffer); break;
-        case TOKEN_STRING: printf("\"%s\"", tok->data.string.buffer); break;
+        case TOKEN_STRING: StringTypePrint(tok->data.string.type); printf("\"%s\"", tok->data.string.buffer); break;
         case TOKEN_UNKNOWN: printf("%c", tok->data.character); break;
         case TOKEN_ERROR: printf("error token"); break;
         case TOKEN_EOF: break;
@@ -301,6 +320,7 @@ static void LexerStringInit(LexerString* str, TranslationContext* ctx, size_t si
     str->buffer[0] = '\0';
     str->capacity = size;
     str->count = 0;
+    str->type = STRING_NONE;
 }
 
 static void LexerStringAddC(LexerString* str, TranslationContext* ctx, char c) {
@@ -897,7 +917,6 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
                 TOKEN_PUNC_LESS_LESS
             ) : TOKEN_PUNC_LESS); return;
 
-        // TODO: numbers, eg .05
         case '.':
             if(isDigit(ctx->phase3peek)) break;
             Phase3Make(tok,
@@ -915,6 +934,46 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
     }
 
     unsigned char next = Phase3Peek(ctx);
+    unsigned char nextNext = Phase3PeekNext(ctx);
+
+    // string literals
+    if(c == '"' || ((c == 'u' || c == 'U' || c == 'L') && next == '"') || (c == 'u' && next == '8' && nextNext == '"')) {
+        tok->type = TOKEN_STRING;
+        LexerStringInit(&tok->data.string, ctx, 10);
+        LexerStringType t =
+            c == '"' ? STRING_NONE :
+            c == 'u' && next == '8' ? STRING_U8 :
+            c == 'u' ? STRING_16 :
+            c == 'U' ? STRING_32 :
+            STRING_WCHAR;
+        tok->data.string.type = t;
+
+        // skip prefix characters
+        if(t == STRING_U8) {
+            Phase3Advance(ctx);
+            Phase3Advance(ctx);
+        } else if(t == STRING_16 || t == STRING_32 || t == STRING_WCHAR) {
+            Phase3Advance(ctx);
+        }
+
+        c = Phase3Peek(ctx);
+        while(!Phase3AtEnd(ctx) && c != '"') {
+            Phase3Advance(ctx);
+            LexerStringAddC(&tok->data.string, ctx, c);
+
+            // skip escape sequences so that \" does not end a string
+            if(c == '\\') {
+                LexerStringAddC(&tok->data.string, ctx, Phase3Advance(ctx));
+            }
+
+            c = Phase3Peek(ctx);
+        }
+
+        Phase3Advance(ctx);
+
+        return;
+    }
+
 
     // identifier
     // is identifier start character or universal character name
@@ -987,6 +1046,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
     tok->data.character = c;
 }
 
+// initialise the context for running phase 3
 static void Phase3Initialise(TranslationContext* ctx) {
     Phase2Initialise(ctx);
     ctx->phase3mode = LEX_MODE_NO_HEADER,
@@ -999,6 +1059,7 @@ static void Phase3Initialise(TranslationContext* ctx) {
     Phase3AdvanceOverwrite(ctx);
 }
 
+// helper to run upto and including phase 3
 void runPhase3(TranslationContext* ctx) {
     Phase3Initialise(ctx);
     Token tok;
