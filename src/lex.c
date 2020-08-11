@@ -476,17 +476,17 @@ static unsigned char Phase1Get(TranslationContext* ctx) {
             Phase1Advance(ctx, &succeeded);
             Phase1Advance(ctx, &succeeded);
         }
+    }
 
-        // invalid bytes
-        if(c == 0x20 || c == 0x21 || c >= 0xF5) {
-            printf("Error: found invalid byte for utf8 text\n");
-            return '\0';
-        }
+    // invalid bytes
+    if(c == 0xC0 || c == 0xC1 || c >= 0xF5) {
+        printf("Error: found invalid byte for utf8 text\n");
+        return '\0';
+    }
 
-        if(c <= 0x1F || c == 0x7F) {
-            printf("Error: found control character in source file\n");
-            return '\0';
-        }
+    if((c <= 0x1F || c == 0x7F) && c != '\n' && c != '\r') {
+        printf("Error: found control character in source file\n");
+        return '\0';
     }
 
     if(ctx->trigraphs && c == '?') {
@@ -939,6 +939,12 @@ static void ParseHeaderName(TranslationContext* ctx, Token* tok, unsigned char e
         tok->type = TOKEN_ERROR;
         return;
     }
+
+    if(tok->data.string.count == 0) {
+        fprintf(stderr, "Error: empty file name in header file name\n");
+        tok->type = TOKEN_ERROR;
+        return;
+    }
 }
 
 // character -> preprocessor token conversion
@@ -1011,7 +1017,6 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
                 TOKEN_PUNC_GREATER_GREATER
             ) : TOKEN_PUNC_GREATER); return;
 
-        // TODO: header mode, eg <stdio.h>
         case '<':
             if(ctx->phase3mode == LEX_MODE_MAYBE_HEADER) {
                 ParseHeaderName(ctx, tok, '>');
