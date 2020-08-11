@@ -14,6 +14,10 @@ U"hello"
 u8'a'
 L'a'
 u'a'
+
+#include <stdbool.h>
+#include "file.h"
+
 U'a'
 int fib(int x);\
 int putchar(int);\

@@ -130,6 +130,7 @@ typedef enum TokenType {
     TOKEN_PUNC_PERCENT_COLON, // #
     TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON, // ##
     TOKEN_HEADER_NAME,
+    TOKEN_SYS_HEADER_NAME,
     TOKEN_PP_NUMBER,
     TOKEN_IDENTIFIER,
     TOKEN_INTEGER,
@@ -298,7 +299,8 @@ static void TokenPrint(TranslationContext* ctx, Token* tok) {
         case TOKEN_PUNC_PERCENT_GREATER: printf("%%>"); break;
         case TOKEN_PUNC_PERCENT_COLON: printf("%%:"); break;
         case TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON: printf("%%:%%:"); break;
-        case TOKEN_HEADER_NAME: printf("<%s>", tok->data.string.buffer); break;
+        case TOKEN_HEADER_NAME: printf("\"%s\"", tok->data.string.buffer); break;
+        case TOKEN_SYS_HEADER_NAME: printf("<%s>", tok->data.string.buffer); break;
         case TOKEN_PP_NUMBER: printf("%s", tok->data.string.buffer); break;
         case TOKEN_IDENTIFIER: printf("%s", tok->data.string.buffer); break;
         case TOKEN_INTEGER: printf("%llu", tok->data.integer); break;
@@ -903,6 +905,42 @@ static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, un
     }
 }
 
+// parses
+//  < h-char-sequence >
+//  " q-char-sequence "
+// as in n1570/6.4.7
+static void ParseHeaderName(TranslationContext* ctx, Token* tok, unsigned char end) {
+    tok->type = end == '>' ? TOKEN_SYS_HEADER_NAME : TOKEN_HEADER_NAME;
+
+    LexerStringInit(&tok->data.string, ctx, 20);
+
+    unsigned char c = Phase3Peek(ctx);
+    while(!Phase3AtEnd(ctx) && c != end && c != '\n') {
+        Phase3Advance(ctx);
+        if(c == '\'' || c == '\\' || (end == '>' && c == '"')) {
+            fprintf(stderr, "Error: encountered `%c` while parsing header name "
+                " - this is undefined behaviour\n", c);
+            tok->type = TOKEN_ERROR;
+            return;
+        }
+
+        LexerStringAddC(&tok->data.string, ctx, c);
+        c = Phase3Peek(ctx);
+    }
+
+    unsigned char last = Phase3Advance(ctx);
+
+    if(last == END_OF_FILE) {
+        fprintf(stderr, "Error: encountered error while parsing header name\n");
+        tok->type = TOKEN_ERROR;
+        return;
+    } else if(last == '\n') {
+        fprintf(stderr, "Error: encounterd new-line while parsing header name\n");
+        tok->type = TOKEN_ERROR;
+        return;
+    }
+}
+
 // character -> preprocessor token conversion
 static void Phase3Get(Token* tok, TranslationContext* ctx) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
@@ -974,15 +1012,21 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             ) : TOKEN_PUNC_GREATER); return;
 
         // TODO: header mode, eg <stdio.h>
-        case '<': Phase3Make(tok,
-            Phase3Match(ctx, '=') ? TOKEN_PUNC_LESS_EQUAL :
-            Phase3Match(ctx, ':') ? TOKEN_PUNC_LESS_COLON :
-            Phase3Match(ctx, '%') ? TOKEN_PUNC_LESS_PERCENT :
-            Phase3Match(ctx, '<') ? (
-                Phase3Match(ctx, '=') ?
-                TOKEN_PUNC_LESS_LESS_EQUAL :
-                TOKEN_PUNC_LESS_LESS
-            ) : TOKEN_PUNC_LESS); return;
+        case '<':
+            if(ctx->phase3mode == LEX_MODE_MAYBE_HEADER) {
+                ParseHeaderName(ctx, tok, '>');
+                return;
+            }
+            Phase3Make(tok,
+                Phase3Match(ctx, '=') ? TOKEN_PUNC_LESS_EQUAL :
+                Phase3Match(ctx, ':') ? TOKEN_PUNC_LESS_COLON :
+                Phase3Match(ctx, '%') ? TOKEN_PUNC_LESS_PERCENT :
+                Phase3Match(ctx, '<') ? (
+                    Phase3Match(ctx, '=') ?
+                    TOKEN_PUNC_LESS_LESS_EQUAL :
+                    TOKEN_PUNC_LESS_LESS
+                ) : TOKEN_PUNC_LESS);
+            return;
 
         case '.':
             if(isDigit(ctx->phase3peek)) break;
@@ -1001,6 +1045,11 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
     }
 
     unsigned char next = Phase3Peek(ctx);
+
+    if(ctx->phase3mode == LEX_MODE_MAYBE_HEADER && c == '"') {
+        ParseHeaderName(ctx, tok, '"');
+        return;
+    }
 
     // string literals
     if(isStringLike(ctx, c, '"')) {
