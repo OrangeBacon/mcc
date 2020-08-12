@@ -1166,3 +1166,58 @@ void runPhase3(TranslationContext* ctx) {
         TokenPrint(ctx, &tok);
     }
 }
+
+// ------- //
+// Phase 4 //
+// ------- //
+// macro expansion
+// directive execution
+// _Pragma expansion
+// include resolution
+
+typedef enum Phase4ContextType {
+    PHASE4_INCLUDE,
+    PHASE4_THREE,
+} Phase4ContextType;
+
+typedef struct Phase4Context {
+    Phase4ContextType type;
+
+    union {
+        struct Phase4Context* include;
+        TranslationContext* ctx;
+    } as;
+} Phase4Context;
+
+static void Phase4Initialise(TranslationContext* ctx) {
+    Phase3Initialise(ctx);
+}
+
+static void Phase4CtxGet(Token* tok, Phase4Context* ctx) {
+    switch(ctx->type) {
+        case PHASE4_INCLUDE:
+            Phase4CtxGet(tok, ctx->as.include);
+            return;
+        case PHASE4_THREE:
+            Phase3Get(tok, ctx->as.ctx);
+            return;
+    }
+}
+
+static void Phase4Get(Token* tok, TranslationContext* ctx) {
+    Phase4Context p4 = {
+        .type = PHASE4_THREE,
+        .as.ctx = ctx,
+    };
+
+    Phase4CtxGet(tok, &p4);
+}
+
+// helper to run upto and including phase 4
+void runPhase4(TranslationContext* ctx) {
+    Phase4Initialise(ctx);
+    Token tok;
+    while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF) {
+        TokenPrint(ctx, &tok);
+    }
+}

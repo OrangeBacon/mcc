@@ -50,7 +50,7 @@ static struct argArgument topArguments[] = {
 };
 
 void (*counts[])(TranslationContext*) = {
-    runPhase1, runPhase2, runPhase3,
+    runPhase1, runPhase2, runPhase3, runPhase4,
 };
 
 int driver(int argc, char** argv) {

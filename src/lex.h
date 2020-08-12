@@ -62,5 +62,6 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
 void runPhase1(TranslationContext* ctx);
 void runPhase2(TranslationContext* ctx);
 void runPhase3(TranslationContext* ctx);
+void runPhase4(TranslationContext* ctx);
 
 #endif
