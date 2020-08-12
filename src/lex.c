@@ -355,7 +355,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
         .line = 1,
     };
     ctx->phase2Previous = END_OF_FILE;
-    ctx->phase3currentLocation = memoryArrayPush(&ctx->locations);
+    ctx->phase3.currentLocation = memoryArrayPush(&ctx->locations);
 }
 
 // ------- //
@@ -615,16 +615,21 @@ void runPhase2(TranslationContext* ctx) {
 // comments -> whitespace
 // tracking begining of line + prior whitespace in tokens
 
+static unsigned char Phase3GetFromPhase2(TranslationContext* ctx, SourceLocation* loc) {
+    unsigned char c = Phase2Get(ctx);
+    *loc = ctx->phase2CurrentLoc;
+    return c;
+}
+
 // get the next character from the previous phase
 // increases the SourcLocation's length with the new character
 static unsigned char Phase3Advance(TranslationContext* ctx) {
-    unsigned char ret = ctx->phase3peek;
-    ctx->phase3currentLocation->length += ctx->phase3peekLoc.length;
+    unsigned char ret = ctx->phase3.peek;
+    ctx->phase3.currentLocation->length += ctx->phase3.peekLoc.length;
 
-    ctx->phase3peek = ctx->phase3peekNext;
-    ctx->phase3peekLoc = ctx->phase3peekNextLoc;
-    ctx->phase3peekNext = Phase2Get(ctx);
-    ctx->phase3peekNextLoc = ctx->phase2CurrentLoc;
+    ctx->phase3.peek = ctx->phase3.peekNext;
+    ctx->phase3.peekLoc = ctx->phase3.peekNextLoc;
+    ctx->phase3.peekNext = ctx->phase3.getter(ctx, &ctx->phase3.peekNextLoc);
 
     return ret;
 }
@@ -632,29 +637,28 @@ static unsigned char Phase3Advance(TranslationContext* ctx) {
 // get the next character from the previous phase
 // sets the SourceLocation to begin from the new character's start
 static unsigned char Phase3AdvanceOverwrite(TranslationContext* ctx) {
-    unsigned char ret = ctx->phase3peek;
-    *ctx->phase3currentLocation = ctx->phase3peekLoc;
+    unsigned char ret = ctx->phase3.peek;
+    *ctx->phase3.currentLocation = ctx->phase3.peekLoc;
 
-    ctx->phase3peek = ctx->phase3peekNext;
-    ctx->phase3peekLoc = ctx->phase3peekNextLoc;
-    ctx->phase3peekNext = Phase2Get(ctx);
-    ctx->phase3peekNextLoc = ctx->phase2CurrentLoc;
+    ctx->phase3.peek = ctx->phase3.peekNext;
+    ctx->phase3.peekLoc = ctx->phase3.peekNextLoc;
+    ctx->phase3.peekNext = ctx->phase3.getter(ctx, &ctx->phase3.peekNextLoc);
     return ret;
 }
 
 // return the next character without consuming it
 static unsigned char Phase3Peek(TranslationContext* ctx) {
-    return ctx->phase3peek;
+    return ctx->phase3.peek;
 }
 
 // return the character after next without consuming it
 static unsigned char Phase3PeekNext(TranslationContext* ctx) {
-    return ctx->phase3peekNext;
+    return ctx->phase3.peekNext;
 }
 
 // has phase 3 reached the end of the file?
 static bool Phase3AtEnd(TranslationContext* ctx) {
-    return ctx->phase3peek == END_OF_FILE;
+    return ctx->phase3.peek == END_OF_FILE;
 }
 
 // skip a new line ("\n", "\r", "\n\r", "\r\n") and set that the token is
@@ -681,7 +685,7 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
     tok->isStartOfLine = false;
     tok->indent = 0;
 
-    if(ctx->phase3AtStart) tok->isStartOfLine = true;
+    if(ctx->phase3.AtStart) tok->isStartOfLine = true;
 
     while(true) {
         unsigned char c = Phase3Peek(ctx);
@@ -732,7 +736,7 @@ static void skipWhitespace(Token* tok, TranslationContext* ctx) {
                         Phase3Advance(ctx);
                     }
                     if(Phase3AtEnd(ctx)) {
-                        fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->phase3currentLocation->line, ctx->phase3currentLocation->column);
+                        fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->phase3.currentLocation->line, ctx->phase3.currentLocation->column);
                         return;
                     }
                     Phase3Advance(ctx);
@@ -950,9 +954,9 @@ static void ParseHeaderName(TranslationContext* ctx, Token* tok, unsigned char e
 // character -> preprocessor token conversion
 static void Phase3Get(Token* tok, TranslationContext* ctx) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
-    *loc = *ctx->phase3currentLocation;
+    *loc = *ctx->phase3.currentLocation;
     loc->length = 0;
-    ctx->phase3currentLocation = loc;
+    ctx->phase3.currentLocation = loc;
 
     skipWhitespace(tok, ctx);
 
@@ -1018,7 +1022,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             ) : TOKEN_PUNC_GREATER); return;
 
         case '<':
-            if(ctx->phase3mode == LEX_MODE_MAYBE_HEADER) {
+            if(ctx->phase3.mode == LEX_MODE_MAYBE_HEADER) {
                 ParseHeaderName(ctx, tok, '>');
                 return;
             }
@@ -1034,16 +1038,16 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
             return;
 
         case '.':
-            if(isDigit(ctx->phase3peek)) break;
+            if(isDigit(ctx->phase3.peek)) break;
             Phase3Make(tok,
-                ctx->phase3peek == '.' && ctx->phase3peekNext == '.' ?
+                ctx->phase3.peek == '.' && ctx->phase3.peekNext == '.' ?
                 TOKEN_PUNC_ELIPSIS : TOKEN_PUNC_DOT);
             return;
         case '%': Phase3Make(tok,
             Phase3Match(ctx, '=') ? TOKEN_PUNC_PERCENT_EQUAL :
             Phase3Match(ctx, '>') ? TOKEN_PUNC_PERCENT_GREATER :
             Phase3Match(ctx, ':') ? (
-                ctx->phase3peek == '%' && ctx->phase3peekNext == ':' ?
+                ctx->phase3.peek == '%' && ctx->phase3.peekNext == ':' ?
                 TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON :
                 TOKEN_PUNC_PERCENT_COLON
             ) : TOKEN_PUNC_PERCENT); return;
@@ -1051,7 +1055,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
 
     unsigned char next = Phase3Peek(ctx);
 
-    if(ctx->phase3mode == LEX_MODE_MAYBE_HEADER && c == '"') {
+    if(ctx->phase3.mode == LEX_MODE_MAYBE_HEADER && c == '"') {
         ParseHeaderName(ctx, tok, '"');
         return;
     }
@@ -1143,12 +1147,13 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
 // initialise the context for running phase 3
 static void Phase3Initialise(TranslationContext* ctx) {
     Phase2Initialise(ctx);
-    ctx->phase3mode = LEX_MODE_NO_HEADER,
-    ctx->phase3peek = '\0',
-    ctx->phase3peekNext = '\0',
-    ctx->phase3peekLoc = *ctx->phase3currentLocation,
-    ctx->phase3peekNextLoc = *ctx->phase3currentLocation,
-    ctx->phase3AtStart = true;
+    ctx->phase3.mode = LEX_MODE_NO_HEADER,
+    ctx->phase3.peek = '\0',
+    ctx->phase3.peekNext = '\0',
+    ctx->phase3.peekLoc = *ctx->phase3.currentLocation,
+    ctx->phase3.peekNextLoc = *ctx->phase3.currentLocation,
+    ctx->phase3.AtStart = true;
+    ctx->phase3.getter = Phase3GetFromPhase2;
     Phase3AdvanceOverwrite(ctx);
     Phase3AdvanceOverwrite(ctx);
 }

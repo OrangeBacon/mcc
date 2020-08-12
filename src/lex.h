@@ -17,6 +17,18 @@ typedef enum Phase3LexMode {
     LEX_MODE_NO_HEADER
 } Phase3LexMode;
 
+struct TranslationContext;
+typedef struct Phase3Mode {
+    Phase3LexMode mode;
+    unsigned char peek;
+    SourceLocation peekLoc;
+    unsigned char peekNext;
+    SourceLocation peekNextLoc;
+    SourceLocation* currentLocation;
+    bool AtStart;
+    unsigned char (*getter)(struct TranslationContext*, SourceLocation* loc);
+} Phase3Mode;
+
 // random data used by each translation phase that needs to be stored
 typedef struct TranslationContext {
     // settings
@@ -38,13 +50,7 @@ typedef struct TranslationContext {
     unsigned char phase2Previous;
     SourceLocation phase2CurrentLoc;
 
-    Phase3LexMode phase3mode;
-    unsigned char phase3peek;
-    SourceLocation phase3peekLoc;
-    unsigned char phase3peekNext;
-    SourceLocation phase3peekNextLoc;
-    SourceLocation* phase3currentLocation;
-    bool phase3AtStart;
+    Phase3Mode phase3;
 
     // memory allocators
     MemoryArray stringArr;
