@@ -13,6 +13,7 @@
 #include "lex.h"
 
 static struct stringList files = {0};
+static struct stringList includeFiles = {0};
 static bool printAst = false;
 static bool printIr = false;
 static int translationPhaseCount = 8;
@@ -46,6 +47,7 @@ static struct argArgument topArguments[] = {
     {"-print-ast", 'a', "prints the ast to stdout", argSet, &printAst},
     {"-print-ir", 'i', "prints the ir to stdout", argSet, &printIr},
     {"-phase-count", 'E', "emit preprocessed output", preprocessFlag},
+    {"-include", 'I', "add file to the include path", argPush, &includeFiles},
     {0},
 };
 
@@ -65,6 +67,9 @@ int driver(int argc, char** argv) {
 
     MemoryPool pool;
     memoryPoolAlloc(&pool, 1ULL*TiB);
+
+    IncludeSearchPath search;
+    IncludeSearchPathInit(&search, SYSTEM_MINGW_W64, includeFiles.datas, includeFiles.dataCount);
 
     if(translationPhaseCount != 8) {
         for(unsigned int i = 0; i < files.dataCount; i++) {

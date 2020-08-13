@@ -31,4 +31,9 @@ add_executable(mcc
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
+
+file(GLOB WIN_LIBS "C:/Program Files (x86)/Windows Kits/10/Lib/10.0.*/um/x64/")
+list(GET WIN_LIBS -1 WIN_LIBS_LAST)
+target_link_libraries(mcc PRIVATE ${WIN_LIBS_LAST}/pathcch.lib)
+target_link_libraries(mcc PRIVATE ${WIN_LIBS_LAST}/shlwapi.lib)
 set_property(TARGET mcc PROPERTY C_STANDARD 11)

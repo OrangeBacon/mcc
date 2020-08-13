@@ -17,5 +17,7 @@ jobs:
     - name: make
       run: |
         cd build
+        where mingw32-make
+        echo %path%
         mingw32-make 2>&1
         .\mcc ..\test\test2.c
