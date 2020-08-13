@@ -8,7 +8,6 @@ set(CFLAGS
     -Werror
     -pedantic
     -Wno-missing-field-initializers
-    -v
 )
 
 add_executable(mcc
