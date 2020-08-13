@@ -139,7 +139,9 @@ static void AddIncludes(IncludeSearchPath* search, const char** includePaths, si
 static void FilterPaths(Path* list, size_t count, bool filterBin) {
     for(unsigned int i = 0; i < count; i++) {
         Path* path = &list[i];
-        path->exists = PathFileExistsW(path->buf);
+        if(!(path->exists = PathFileExistsW(path->buf))) {
+            continue;
+        }
 
         if(!filterBin) continue;
 
@@ -147,7 +149,7 @@ static void FilterPaths(Path* list, size_t count, bool filterBin) {
         while(true) {
             ptr++;
             if(*ptr == '\0') break;
-            if(_wcsicmp(TEXT("bin\\"), ptr) == 0) {
+            if(_wcsnicmp(TEXT("bin\\"), ptr, 4) == 0) {
                 path->exists = false;
                 break;
             }
@@ -174,7 +176,7 @@ void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const cha
     }
 
     AddIncludes(search, includePaths, includeCount);
-    FilterPaths(search->systems, search->systemCount, true);
+    FilterPaths(search->systems, search->systemCount, false);
     FilterPaths(search->users, search->userCount, false);
 
     fprintf(stderr, "sys count: %d\n", search->systemCount);
