@@ -69,14 +69,42 @@ static void FindMinGWW64(IncludeSearchPath* search) {
     PathAllocCombine(mingwFolder, ffd.cFileName, PathFlags, &mingwVersion);
     LocalFree(mingwFolder);
 
-    wchar_t* include;
-    PathAllocCombine(mingwVersion, TEXT("mingw64\\include"), PathFlags, &include);
-    ARRAY_PUSH(*search, system, ((Path){include, true}));
-
     wchar_t* mingwInclude;
     PathAllocCombine(mingwVersion, TEXT("mingw64\\x86_64-w64-mingw32\\include"), PathFlags, &mingwInclude);
     ARRAY_PUSH(*search, system, ((Path){mingwInclude, true}));
+
+    wchar_t* libgcc;
+    PathAllocCombine(mingwVersion, TEXT("mingw64\\lib\\gcc\\x86_64-w64-mingw32"), PathFlags, &libgcc);
     LocalFree(mingwVersion);
+
+    wchar_t* libgccVersionSearch;
+    PathAllocCombine(libgcc, TEXT("*.*.0"), PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH, &libgccVersionSearch);
+
+    hFind = FindFirstFileW(libgccVersionSearch, &ffd);
+    LocalFree(libgccVersionSearch);
+
+    if(hFind == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    FindClose(hFind);
+    if(!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        return;
+    }
+
+    wchar_t* libgccVersion;
+    PathAllocCombine(libgcc, ffd.cFileName, PathFlags, &libgccVersion);
+    LocalFree(libgcc);
+
+    wchar_t* libgccInclude;
+    PathAllocCombine(libgccVersion, TEXT("include"), PathFlags, &libgccInclude);
+    ARRAY_PUSH(*search, system, ((Path){libgccInclude, true}));
+
+    wchar_t* libgccFixedInclude;
+    PathAllocCombine(libgccVersion, TEXT("include-fixed"), PathFlags, &libgccFixedInclude);
+    ARRAY_PUSH(*search, system, ((Path){libgccFixedInclude, true}));
+
+    LocalFree(libgccVersion);
 }
 
 // adds all values from %path% to the search path
