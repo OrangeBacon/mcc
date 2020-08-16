@@ -40,7 +40,7 @@ void FilesInit() {
 
 // Attempt to findd MinGW based on where it installed itself on my computer
 // only detects the 64 bit version, no plans for 32 bit support
-static void FindMinGWW64(IncludeSearchPath* search) {
+static void FindMinGWW64WinBuilds(IncludeSearchPath* search) {
     wchar_t* programFiles;
     SHGetKnownFolderPath(&FOLDERID_ProgramFilesX64, 0, NULL, &programFiles);
 
@@ -105,6 +105,56 @@ static void FindMinGWW64(IncludeSearchPath* search) {
     ARRAY_PUSH(*search, system, ((Path){libgccFixedInclude, true}));
 
     LocalFree(libgccVersion);
+}
+
+// try adding Chocolatey's install directories, used by github actions
+static void FindMinGWW64Chocolatey(IncludeSearchPath* search) {
+    wchar_t* programData;
+    SHGetKnownFolderPath(&FOLDERID_ProgramData, 0, NULL, &programData);
+
+    wchar_t* mingwFolder;
+    PathAllocCombine(programData, TEXT("Chocolatey\\lib\\mingw\\tools\\install\\mingw64"), PathFlags, &mingwFolder);
+    CoTaskMemFree(programData);
+
+    wchar_t* mingwInclude;
+    PathAllocCombine(mingwFolder, TEXT("x86_64-w64-mingw32\\include"), PathFlags, &mingwInclude);
+    ARRAY_PUSH(*search, system, ((Path){mingwInclude, true}));
+
+    wchar_t* libgcc;
+    PathAllocCombine(mingwFolder, TEXT("lib\\gcc\\x86_64-w64-mingw32"), PathFlags, &libgcc);
+    LocalFree(mingwFolder);
+
+    wchar_t* libgccVersionSearch;
+    PathAllocCombine(libgcc, TEXT("*.*.0"), PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH, &libgccVersionSearch);
+
+    WIN32_FIND_DATAW ffd;
+    HANDLE hFind = FindFirstFileW(libgccVersionSearch, &ffd);
+    LocalFree(libgccVersionSearch);
+
+    if(hFind == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    FindClose(hFind);
+    if(!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        return;
+    }
+
+    wchar_t* libgccVersion;
+    PathAllocCombine(libgcc, ffd.cFileName, PathFlags, &libgccVersion);
+    LocalFree(libgcc);
+
+    wchar_t* libgccInclude;
+    PathAllocCombine(libgccVersion, TEXT("include"), PathFlags, &libgccInclude);
+    ARRAY_PUSH(*search, system, ((Path){libgccInclude, true}));
+
+    wchar_t* libgccFixedInclude;
+    PathAllocCombine(libgccVersion, TEXT("include-fixed"), PathFlags, &libgccFixedInclude);
+    ARRAY_PUSH(*search, system, ((Path){libgccFixedInclude, true}));
+
+    LocalFree(libgccVersion);
+
+    (void) search;
 }
 
 // adds all values from %path% to the search path
@@ -196,7 +246,8 @@ void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const cha
     ARRAY_ALLOC(Path, *search, user);
 
     if(type & SYSTEM_MINGW_W64) {
-        FindMinGWW64(search);
+        FindMinGWW64WinBuilds(search);
+        FindMinGWW64Chocolatey(search);
     }
 
     if(type & SYSTEM_MINGW_W64 || type & SYSTEM_MSVC) {
@@ -204,7 +255,7 @@ void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const cha
     }
 
     AddIncludes(search, includePaths, includeCount);
-    FilterPaths(search->systems, search->systemCount, false);
+    FilterPaths(search->systems, search->systemCount, true);
     FilterPaths(search->users, search->userCount, false);
 
     fprintf(stderr, "sys count: %d\n", search->systemCount);
