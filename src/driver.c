@@ -70,6 +70,9 @@ int driver(int argc, char** argv) {
 
     IncludeSearchPath search;
     IncludeSearchPathInit(&search, SYSTEM_MINGW_W64, includeFiles.datas, includeFiles.dataCount);
+    IncludeSearchState state = {0};
+    fprintf(stderr, "1 stdint.h = %s\n", IncludeSearchPathFindUser(&state, &search, "stdint.h"));
+    fprintf(stderr, "2 stdint.h = %s\n", IncludeSearchPathFindUser(&state, &search, "stdint.h"));
 
     if(translationPhaseCount != 8) {
         for(unsigned int i = 0; i < files.dataCount; i++) {

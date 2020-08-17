@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #define __USE_MINGW_ANSI_STDIO 1
 
@@ -27,11 +28,10 @@ static Path currentDirectory;
 // Initialise the file system wrapper
 void FilesInit() {
     unsigned long len = GetCurrentDirectoryW(0, NULL) + 1;
-    wchar_t* buf = malloc(len * sizeof(wchar_t));
+    wchar_t* buf = ArenaAlloc(len * sizeof(wchar_t));
     GetCurrentDirectoryW(len, buf);
 
     HRESULT r = PathAllocCanonicalize(buf, PathFlags, &currentDirectory.buf);
-    free(buf);
     if(r != S_OK) {
         printf("Error getting current directory\n");
         exit(0);
@@ -153,8 +153,6 @@ static void FindMinGWW64Chocolatey(IncludeSearchPath* search) {
     ARRAY_PUSH(*search, system, ((Path){libgccFixedInclude, true}));
 
     LocalFree(libgccVersion);
-
-    (void) search;
 }
 
 // adds all values from %path% to the search path
@@ -164,8 +162,8 @@ static void FindPath(IncludeSearchPath* search) {
         return;
     }
 
-    wchar_t* path = malloc(sizeof(wchar_t) * (len + 1));
-    if(path == 0) {
+    wchar_t* path = ArenaAlloc(sizeof(wchar_t) * (len + 1));
+    if(path == NULL) {
         return;
     }
     len = GetEnvironmentVariableW(TEXT("path"), path, len + 1);
@@ -194,7 +192,7 @@ static void AddIncludes(IncludeSearchPath* search, const char** includePaths, si
     for(size_t i = 0; i < includeCount; i++) {
 
         int len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, includePaths[i], -1, NULL, 0);
-        wchar_t* buf = malloc(sizeof(wchar_t) * len);
+        wchar_t* buf = ArenaAlloc(sizeof(wchar_t) * len);
         MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, includePaths[i], -1, buf, len);
 
         if(buf[0] == '-') {
@@ -206,7 +204,6 @@ static void AddIncludes(IncludeSearchPath* search, const char** includePaths, si
             PathAllocCombine(currentDirectory.buf, buf, PathFlags, &path);
             ARRAY_PUSH(*search, user, ((Path){path, true}));
         }
-        free(buf);
     }
 }
 
@@ -217,7 +214,10 @@ static void AddIncludes(IncludeSearchPath* search, const char** includePaths, si
 static void FilterPaths(Path* list, size_t count, bool filterBin) {
     for(unsigned int i = 0; i < count; i++) {
         Path* path = &list[i];
-        if(!(path->exists = PathFileExistsW(path->buf))) {
+
+        DWORD attrs = GetFileAttributesW(path->buf);
+        if(attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+            path->valid = false;
             continue;
         }
 
@@ -228,7 +228,7 @@ static void FilterPaths(Path* list, size_t count, bool filterBin) {
             ptr++;
             if(*ptr == '\0') break;
             if(_wcsnicmp(TEXT("bin\\"), ptr, 4) == 0) {
-                path->exists = false;
+                path->valid = false;
                 break;
             }
             ptr = wcschr(ptr, '\\');
@@ -260,26 +260,80 @@ void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const cha
 
     fprintf(stderr, "sys count: %d\n", search->systemCount);
     for(unsigned int i = 0; i < search->systemCount; i++) {
-        if(!search->systems[i].exists) continue;
+        if(!search->systems[i].valid) continue;
         fprintf(stderr, "sys %d: %ls\n", i, search->systems[i].buf);
     }
     fprintf(stderr, "user count: %d\n", search->userCount);
     for(unsigned int i = 0; i < search->userCount; i++) {
-        if(!search->users[i].exists) continue;
+        if(!search->users[i].valid) continue;
         fprintf(stderr, "user %d: %ls\n", i, search->users[i].buf);
     }
 }
 
-/*
-void pathFindSys() {
+static const char* includeValidCheck(Path* currentPath, const char* fileName) {
+    if(!currentPath->valid) return NULL;
+    int len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, fileName, -1, NULL, 0);
+    wchar_t* wbuf = ArenaAlloc(sizeof(wchar_t) * len);
+    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, fileName, -1, wbuf, len);
 
+    wchar_t* fullPath;
+    PathAllocCombine(currentPath->buf, wbuf, PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH, &fullPath);
+
+    DWORD attrs = GetFileAttributesW(fullPath);
+    if(attrs == INVALID_FILE_ATTRIBUTES || attrs & FILE_ATTRIBUTE_DIRECTORY) {
+        return NULL;
+    }
+
+    len = WideCharToMultiByte(CP_ACP, 0, fullPath, -1, NULL, 0, NULL, NULL);
+    char* cbuf = ArenaAlloc(sizeof(char) * len);
+    WideCharToMultiByte(CP_ACP, 0, fullPath, -1, cbuf, len, NULL, NULL);
+
+    LocalFree(fullPath);
+
+    return cbuf;
 }
 
-void pathFindUser() {
-    if(!found) {
-        pathFindSys();
+const char* IncludeSearchPathFindSys(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName) {
+    size_t checkedCount = 0;
+    if(state->hasStarted) {
+        checkedCount = state->checkedCount;
+        if(state->inUser) return IncludeSearchPathFindUser(state, path, fileName);
+    } else {
+        state->checkedCount = 0;
+        state->inUser = false;
+        state->hasStarted = true;
     }
-}*/
+
+    for(unsigned int i = checkedCount; i < path->systemCount; i++) {
+        state->checkedCount++;
+        const char* res = includeValidCheck(&path->systems[i], fileName);
+        if(res != NULL) return res;
+    }
+
+    return NULL;
+}
+
+const char* IncludeSearchPathFindUser(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName) {
+    size_t checkedCount = 0;
+    if(state->hasStarted) {
+        checkedCount = state->checkedCount;
+        if(!state->inUser) return IncludeSearchPathFindSys(state, path, fileName);
+    } else {
+        state->checkedCount = 0;
+        state->inUser = true;
+        state->hasStarted = true;
+    }
+
+    for(unsigned int i = checkedCount; i < path->userCount; i++) {
+        state->checkedCount = i;
+        const char* res = includeValidCheck(&path->users[i], fileName);
+        if(res != NULL) return res;
+    }
+
+    state->checkedCount = 0;
+    state->inUser = false;
+    return IncludeSearchPathFindSys(state, path, fileName);
+}
 
 char* readFile(const char* name) {
     size_t _;
@@ -298,7 +352,7 @@ char* readFileLen(const char* name, size_t* len) {
     size_t size = ftell(f);
     rewind(f);
 
-    char* buf = malloc((size + 1) * sizeof(char));
+    char* buf = ArenaAlloc((size + 1) * sizeof(char));
     size_t read = fread(buf, sizeof(char), size, f);
     buf[read] = '\0';
 
