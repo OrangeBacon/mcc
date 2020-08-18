@@ -1,24 +1,6 @@
-here_is_my_very_long_identifier_to_test_the_compilers_dynamic_string_reallocation_during_lexing
-0xE+12
-0._.0
-0hello_.f
-ab\U0001f975cd
-\U0001f975cd
-ab\U0001f975
-\x
-u8"he\"llo"
-L"hi"
-u""
-U"hello"
-'a'
-u8'a'
-L'a'
-u'a'
-
 #include <stdbool.h>
 #include "file.h"
 
-U'a'
 int fib(int x);\
 int putchar(int);\
 int* malloc(int);
@@ -28,16 +10,6 @@ int fibCallCount = 0;
 int test(int, int, int, int, int, int, int, int, int, int j) {\
     return j;\
 }
-\
-\
-??=define HELLO
-
-?
-
-???
-
-??>
-
 
 int foo(int **, int (*)(int, int));
 
@@ -166,4 +138,3 @@ int fib(int n) {
         return fib(n - 1) + fib(n - 2);
     }
 }
-"

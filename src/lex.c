@@ -13,166 +13,6 @@
 // better with unsigned char this way
 #define END_OF_FILE 0xff
 
-typedef enum LexerStringType {
-    STRING_NONE,
-    STRING_U8,
-    STRING_WCHAR,
-    STRING_16,
-    STRING_32,
-} LexerStringType;
-
-typedef struct LexerString {
-    char* buffer;
-    size_t capacity;
-    size_t count;
-    LexerStringType type;
-} LexerString;
-
-// What sort of token is it, used for both preprocessor and regular
-// tokens, however not all values are valid in each scenario
-typedef enum TokenType {
-    TOKEN_KW_AUTO,
-    TOKEN_KW_BREAK,
-    TOKEN_KW_CASE,
-    TOKEN_KW_CHAR,
-    TOKEN_KW_CONST,
-    TOKEN_KW_CONTINUE,
-    TOKEN_KW_DEFAULT,
-    TOKEN_KW_DO,
-    TOKEN_KW_DOUBLE,
-    TOKEN_KW_ELSE,
-    TOKEN_KW_ENUM,
-    TOKEN_KW_EXTERN,
-    TOKEN_KW_FLOAT,
-    TOKEN_KW_FOR,
-    TOKEN_KW_GOTO,
-    TOKEN_KW_IF,
-    TOKEN_KW_INLINE,
-    TOKEN_KW_INT,
-    TOKEN_KW_LONG,
-    TOKEN_KW_REGISTER,
-    TOKEN_KW_RESTRICT,
-    TOKEN_KW_RETURN,
-    TOKEN_KW_SHORT,
-    TOKEN_KW_SIGNED,
-    TOKEN_KW_SIZEOF,
-    TOKEN_KW_STATIC,
-    TOKEN_KW_STRUCT,
-    TOKEN_KW_SWITCH,
-    TOKEN_KW_TYPEDEF,
-    TOKEN_KW_UNION,
-    TOKEN_KW_UNSIGNED,
-    TOKEN_KW_VOID,
-    TOKEN_KW_VOLATILE,
-    TOKEN_KW_WHILE,
-    TOKEN_KW_ALIGNAS,
-    TOKEN_KW_ALIGNOF,
-    TOKEN_KW_ATOMIC,
-    TOKEN_KW_BOOL,
-    TOKEN_KW_COMPLEX,
-    TOKEN_KW_GENERIC,
-    TOKEN_KW_IMAGINARY,
-    TOKEN_KW_NORETURN,
-    TOKEN_KW_STATICASSERT,
-    TOKEN_KW_THREADLOCAL,
-    TOKEN_PUNC_LEFT_SQUARE,
-    TOKEN_PUNC_RIGHT_SQUARE,
-    TOKEN_PUNC_LEFT_PAREN,
-    TOKEN_PUNC_RIGHT_PAREN,
-    TOKEN_PUNC_LEFT_BRACE,
-    TOKEN_PUNC_RIGHT_BRACE,
-    TOKEN_PUNC_DOT,
-    TOKEN_PUNC_ARROW,
-    TOKEN_PUNC_PLUS_PLUS,
-    TOKEN_PUNC_MINUS_MINUS,
-    TOKEN_PUNC_AND,
-    TOKEN_PUNC_STAR,
-    TOKEN_PUNC_PLUS,
-    TOKEN_PUNC_MINUS,
-    TOKEN_PUNC_TILDE,
-    TOKEN_PUNC_BANG,
-    TOKEN_PUNC_SLASH,
-    TOKEN_PUNC_PERCENT,
-    TOKEN_PUNC_LESS_LESS,
-    TOKEN_PUNC_GREATER_GREATER,
-    TOKEN_PUNC_LESS,
-    TOKEN_PUNC_GREATER,
-    TOKEN_PUNC_LESS_EQUAL,
-    TOKEN_PUNC_GREATER_EQUAL,
-    TOKEN_PUNC_EQUAL_EQUAL,
-    TOKEN_PUNC_BANG_EQUAL,
-    TOKEN_PUNC_CARET,
-    TOKEN_PUNC_OR,
-    TOKEN_PUNC_AND_AND,
-    TOKEN_PUNC_OR_OR,
-    TOKEN_PUNC_QUESTION,
-    TOKEN_PUNC_COLON,
-    TOKEN_PUNC_SEMICOLON,
-    TOKEN_PUNC_ELIPSIS,
-    TOKEN_PUNC_EQUAL,
-    TOKEN_PUNC_STAR_EQUAL,
-    TOKEN_PUNC_SLASH_EQUAL,
-    TOKEN_PUNC_PERCENT_EQUAL,
-    TOKEN_PUNC_PLUS_EQUAL,
-    TOKEN_PUNC_MINUS_EQUAL,
-    TOKEN_PUNC_LESS_LESS_EQUAL,
-    TOKEN_PUNC_GREATER_GREATER_EQUAL,
-    TOKEN_PUNC_AND_EQUAL,
-    TOKEN_PUNC_CARET_EQUAL,
-    TOKEN_PUNC_PIPE_EQUAL,
-    TOKEN_PUNC_COMMA,
-    TOKEN_PUNC_HASH,
-    TOKEN_PUNC_HASH_HASH,
-    TOKEN_PUNC_LESS_COLON, // [
-    TOKEN_PUNC_COLON_GREATER, // ]
-    TOKEN_PUNC_LESS_PERCENT, // {
-    TOKEN_PUNC_PERCENT_GREATER, // }
-    TOKEN_PUNC_PERCENT_COLON, // #
-    TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON, // ##
-    TOKEN_HEADER_NAME,
-    TOKEN_SYS_HEADER_NAME,
-    TOKEN_PP_NUMBER,
-    TOKEN_IDENTIFIER,
-    TOKEN_INTEGER,
-    TOKEN_FLOATING,
-    TOKEN_CHARACTER,
-    TOKEN_STRING,
-    TOKEN_UNKNOWN,
-    TOKEN_ERROR,
-    TOKEN_EOF,
-} TokenType;
-
-// the smallest non-character unit of code
-typedef struct Token {
-    TokenType type;
-
-    // required to prevent extra macro expansion
-    bool isStartOfLine;
-
-    // required to tell the difference between
-    // #define(a)  - function macro
-    // #define (a) - value macro
-    bool whitespaceBefore;
-
-    // stores the quantity of whitespace before the token on the same
-    // line as the token (note whitespaceBefore can be true, while this
-    // is equal to 0, so need both of them)
-    size_t indent;
-
-    // where the token is in the source file, used for emmitting errors
-    // and debugging infomation
-    SourceLocation* loc;
-
-    // optional data about the token, what is stored here is dependant
-    // upon token type, could be nothing/uninitialised
-    union {
-        intmax_t integer;
-        double floating;
-        LexerString string;
-        char character;
-    } data;
-} Token;
-
 static void StringTypePrint(LexerStringType t) {
     switch(t) {
         case STRING_NONE: return;
@@ -183,7 +23,7 @@ static void StringTypePrint(LexerStringType t) {
     }
 }
 
-static void TokenPrint(TranslationContext* ctx, Token* tok) {
+static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
     if(ctx->debugPrint) {
         printf("%llu:%llu", tok->loc->line, tok->loc->column);
         if(tok->isStartOfLine) printf(" bol");
@@ -302,14 +142,14 @@ static void TokenPrint(TranslationContext* ctx, Token* tok) {
         case TOKEN_HEADER_NAME: printf("\"%s\"", tok->data.string.buffer); break;
         case TOKEN_SYS_HEADER_NAME: printf("<%s>", tok->data.string.buffer); break;
         case TOKEN_PP_NUMBER: printf("%s", tok->data.string.buffer); break;
-        case TOKEN_IDENTIFIER: printf("%s", tok->data.string.buffer); break;
-        case TOKEN_INTEGER: printf("%llu", tok->data.integer); break;
-        case TOKEN_FLOATING: printf("%f", tok->data.floating); break;
-        case TOKEN_CHARACTER: StringTypePrint(tok->data.string.type); printf("'%s'", tok->data.string.buffer); break;
-        case TOKEN_STRING: StringTypePrint(tok->data.string.type); printf("\"%s\"", tok->data.string.buffer); break;
-        case TOKEN_UNKNOWN: printf("%c", tok->data.character); break;
-        case TOKEN_ERROR: printf("error token"); break;
-        case TOKEN_EOF: break;
+        case TOKEN_IDENTIFIER_L: printf("%s", tok->data.string.buffer); break;
+        case TOKEN_INTEGER_L: printf("%llu", tok->data.integer); break;
+        case TOKEN_FLOATING_L: printf("%f", tok->data.floating); break;
+        case TOKEN_CHARACTER_L: StringTypePrint(tok->data.string.type); printf("'%s'", tok->data.string.buffer); break;
+        case TOKEN_STRING_L: StringTypePrint(tok->data.string.type); printf("\"%s\"", tok->data.string.buffer); break;
+        case TOKEN_UNKNOWN_L: printf("%c", tok->data.character); break;
+        case TOKEN_ERROR_L: printf("error token"); break;
+        case TOKEN_EOF_L: break;
     }
 
     if(ctx->debugPrint) {
@@ -346,6 +186,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
 
     ctx->tokenPrinterAtStart = true;
+    ctx->fileName = fileName;
     ctx->phase1consumed = 0;
     ctx->phase1IgnoreNewLine = '\0';
     ctx->phase1Location = (SourceLocation) {
@@ -354,8 +195,6 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
         .length = 0,
         .line = 1,
     };
-    ctx->phase2Previous = END_OF_FILE;
-    ctx->phase3.currentLocation = memoryArrayPush(&ctx->locations);
 }
 
 // ------- //
@@ -480,12 +319,12 @@ static unsigned char Phase1Get(TranslationContext* ctx) {
 
     // invalid bytes
     if(c == 0xC0 || c == 0xC1 || c >= 0xF5) {
-        printf("Error: found invalid byte for utf8 text\n");
+        fprintf(stderr, "Error: found invalid byte for utf8 text\n");
         return '\0';
     }
 
-    if((c <= 0x1F || c == 0x7F) && c != '\n' && c != '\r') {
-        printf("Error: found control character in source file\n");
+    if((c <= 0x1F || c == 0x7F) && c != '\n' && c != '\r' && c != '\t' && c != '\v' && c != '\f') {
+        fprintf(stderr, "Error: found control character in source file - %lld:%lld\n", ctx->phase1Location.line, ctx->phase1Location.column);
         return '\0';
     }
 
@@ -596,6 +435,7 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
 
 // setup phase2's buffers
 static void Phase2Initialise(TranslationContext* ctx) {
+    ctx->phase2Previous = END_OF_FILE;
     Phase2AdvanceOverwrite(ctx);
 }
 
@@ -663,7 +503,7 @@ static bool Phase3AtEnd(TranslationContext* ctx) {
 
 // skip a new line ("\n", "\r", "\n\r", "\r\n") and set that the token is
 // at the begining of a line
-static void Phase3NewLine(Token* tok, TranslationContext* ctx, unsigned char c) {
+static void Phase3NewLine(LexerToken* tok, TranslationContext* ctx, unsigned char c) {
     Phase3Advance(ctx);
     if(Phase3Peek(ctx) == c) {
         Phase3Advance(ctx);
@@ -680,12 +520,15 @@ static void Phase3NewLine(Token* tok, TranslationContext* ctx, unsigned char c) 
 // on a source line
 // tracks the count of prior whitespace on the same line, hopefully that can
 // be used for error better error recovery in the parser
-static void skipWhitespace(Token* tok, TranslationContext* ctx) {
+static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
     tok->whitespaceBefore = false;
     tok->isStartOfLine = false;
     tok->indent = 0;
 
-    if(ctx->phase3.AtStart) tok->isStartOfLine = true;
+    if(ctx->phase3.AtStart) {
+        tok->isStartOfLine = true;
+        ctx->phase3.AtStart = false;
+    }
 
     while(true) {
         unsigned char c = Phase3Peek(ctx);
@@ -763,7 +606,7 @@ static bool Phase3Match(TranslationContext* ctx, unsigned char c) {
 // this wrapper only exists because of wierd precedence with
 // a ? (b = c) : (b = d) requiring those parentheses, so this
 // is more clear to read
-static void Phase3Make(Token* tok, TokenType type) {
+static void Phase3Make(LexerToken* tok, LexerTokenType type) {
     tok->type = type;
 }
 
@@ -780,7 +623,7 @@ static bool isHexDigit(unsigned char c) {
 }
 
 // parse a universal character name
-static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
+static void ParseUniversalCharacterName(TranslationContext* ctx, LexerToken* tok) {
     // '\\' already consumed
 
     // 'u' vs 'U' check already done
@@ -793,7 +636,7 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
         unsigned char c = Phase3Advance(ctx);
         if(!isHexDigit(c)) {
             fprintf(stderr, "Error: non-hex digit found in universal character name\n");
-            tok->type = TOKEN_ERROR;
+            tok->type = TOKEN_ERROR_L;
             return;
         }
         buffer[i] = c;
@@ -807,13 +650,13 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
 
     if(num >= 0xD800 && num <= 0xDFFF) {
         fprintf(stderr, "Error: surrogate pair specified by universal character name\n");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
         return;
     }
 
     if(num < 0x00A0 && num != '$' && num != '@' && num != '`') {
         fprintf(stderr, "Error: universal character specified out of allowable range\n");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
         return;
     }
 
@@ -843,7 +686,7 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, Token* tok) {
         LexerStringAddC(&tok->data.string, ctx, o4);
     } else {
         fprintf(stderr, "Error: UCS code point out of range: Maximum = 0x10FFFF\n");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
         return;
     }
 }
@@ -859,10 +702,10 @@ static bool isStringLike(TranslationContext* ctx, unsigned char c, unsigned char
 // Generic string literal ish token parser
 // used for character and string literals
 // does not deal with escape sequences properly, that is for phase 5
-static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, unsigned char start) {
+static void ParseString(TranslationContext* ctx, LexerToken* tok, unsigned char c, unsigned char start) {
     unsigned char next = Phase3Peek(ctx);
 
-    tok->type = start == '"' ? TOKEN_STRING : TOKEN_CHARACTER;
+    tok->type = start == '"' ? TOKEN_STRING_L : TOKEN_CHARACTER_L;
     LexerStringInit(&tok->data.string, ctx, 10);
     LexerStringType t =
         c == start ? STRING_NONE :
@@ -890,7 +733,7 @@ static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, un
             LexerStringAddC(&tok->data.string, ctx, Phase3Advance(ctx));
         } else if(c == '\n') {
             fprintf(stderr, "Error: %s literal unterminated at end of line\n", start == '\'' ? "character" : "string");
-            tok->type = TOKEN_ERROR;
+            tok->type = TOKEN_ERROR_L;
             return;
         }
 
@@ -899,12 +742,12 @@ static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, un
 
     if(start == '\'' && tok->data.string.count == 0) {
         fprintf(stderr, "Error: character literal requires at least one character\n");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
     }
 
     if(Phase3Advance(ctx) != start) {
         fprintf(stderr, "Error: %s literal unterminated at end of file\n", start == '\'' ? "character" : "string");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
         return;
     }
 }
@@ -913,7 +756,7 @@ static void ParseString(TranslationContext* ctx, Token* tok, unsigned char c, un
 //  < h-char-sequence >
 //  " q-char-sequence "
 // as in n1570/6.4.7
-static void ParseHeaderName(TranslationContext* ctx, Token* tok, unsigned char end) {
+static void ParseHeaderName(TranslationContext* ctx, LexerToken* tok, unsigned char end) {
     tok->type = end == '>' ? TOKEN_SYS_HEADER_NAME : TOKEN_HEADER_NAME;
 
     LexerStringInit(&tok->data.string, ctx, 20);
@@ -924,7 +767,7 @@ static void ParseHeaderName(TranslationContext* ctx, Token* tok, unsigned char e
         if(c == '\'' || c == '\\' || (end == '>' && c == '"')) {
             fprintf(stderr, "Error: encountered `%c` while parsing header name "
                 " - this is undefined behaviour\n", c);
-            tok->type = TOKEN_ERROR;
+            tok->type = TOKEN_ERROR_L;
             return;
         }
 
@@ -936,23 +779,23 @@ static void ParseHeaderName(TranslationContext* ctx, Token* tok, unsigned char e
 
     if(last == END_OF_FILE) {
         fprintf(stderr, "Error: encountered error while parsing header name\n");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
         return;
     } else if(last == '\n') {
         fprintf(stderr, "Error: encounterd new-line while parsing header name\n");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
         return;
     }
 
     if(tok->data.string.count == 0) {
         fprintf(stderr, "Error: empty file name in header file name\n");
-        tok->type = TOKEN_ERROR;
+        tok->type = TOKEN_ERROR_L;
         return;
     }
 }
 
 // character -> preprocessor token conversion
-static void Phase3Get(Token* tok, TranslationContext* ctx) {
+static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
     *loc = *ctx->phase3.currentLocation;
     loc->length = 0;
@@ -962,7 +805,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
 
     tok->loc = loc;
     if(Phase3AtEnd(ctx)) {
-        tok->type = TOKEN_EOF;
+        tok->type = TOKEN_EOF_L;
         return;
     }
 
@@ -1082,7 +925,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
         bool consumedCharacter = true;
 
         // initialisation
-        tok->type = TOKEN_IDENTIFIER;
+        tok->type = TOKEN_IDENTIFIER_L;
         LexerStringInit(&tok->data.string, ctx, 10);
 
         // while is identifier character or slash
@@ -1140,7 +983,7 @@ static void Phase3Get(Token* tok, TranslationContext* ctx) {
     }
 
     // default
-    Phase3Make(tok, TOKEN_UNKNOWN);
+    Phase3Make(tok, TOKEN_UNKNOWN_L);
     tok->data.character = c;
 }
 
@@ -1150,6 +993,7 @@ static void Phase3Initialise(TranslationContext* ctx) {
     ctx->phase3.mode = LEX_MODE_NO_HEADER,
     ctx->phase3.peek = '\0',
     ctx->phase3.peekNext = '\0',
+    ctx->phase3.currentLocation = memoryArrayPush(&ctx->locations);
     ctx->phase3.peekLoc = *ctx->phase3.currentLocation,
     ctx->phase3.peekNextLoc = *ctx->phase3.currentLocation,
     ctx->phase3.AtStart = true;
@@ -1161,8 +1005,8 @@ static void Phase3Initialise(TranslationContext* ctx) {
 // helper to run upto and including phase 3
 void runPhase3(TranslationContext* ctx) {
     Phase3Initialise(ctx);
-    Token tok;
-    while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF) {
+    LexerToken tok;
+    while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
         TokenPrint(ctx, &tok);
     }
 }
@@ -1175,49 +1019,139 @@ void runPhase3(TranslationContext* ctx) {
 // _Pragma expansion
 // include resolution
 
-typedef enum Phase4ContextType {
-    PHASE4_INCLUDE,
-    PHASE4_THREE,
-} Phase4ContextType;
-
-typedef struct Phase4Context {
-    Phase4ContextType type;
-
-    union {
-        struct Phase4Context* include;
-        TranslationContext* ctx;
-    } as;
-} Phase4Context;
-
 static void Phase4Initialise(TranslationContext* ctx) {
     Phase3Initialise(ctx);
+    Phase3Get(&ctx->phase4.peek, ctx);
+    ctx->phase4.mode = LEX_MODE_NO_HEADER;
+    ctx->phase4.parent = NULL;
 }
 
-static void Phase4CtxGet(Token* tok, Phase4Context* ctx) {
-    switch(ctx->type) {
-        case PHASE4_INCLUDE:
-            Phase4CtxGet(tok, ctx->as.include);
-            return;
-        case PHASE4_THREE:
-            Phase3Get(tok, ctx->as.ctx);
-            return;
+static void Phase4Advance(LexerToken* tok, TranslationContext* ctx) {
+    *tok = ctx->phase4.peek;
+    Phase3Get(&ctx->phase4.peek, ctx);
+}
+
+static bool Phase4AtEnd(TranslationContext* ctx) {
+    return ctx->phase4.peek.type == TOKEN_EOF_L;
+}
+
+static void Phase4SkipLine(LexerToken* tok, TranslationContext* ctx) {
+    while(!Phase4AtEnd(ctx) && !ctx->phase4.peek.isStartOfLine) {
+        Phase4Advance(tok, ctx);
     }
 }
 
-static void Phase4Get(Token* tok, TranslationContext* ctx) {
-    Phase4Context p4 = {
-        .type = PHASE4_THREE,
-        .as.ctx = ctx,
-    };
+static bool recursiveIncludeCheck(TranslationContext* ctx, const char* fileName) {
+    while(ctx != NULL) {
+        if(strcmp(fileName, (const char*)ctx->fileName) == 0) {
+            return true;
+        }
 
-    Phase4CtxGet(tok, &p4);
+        ctx = ctx->phase4.parent;
+    }
+
+    return false;
+}
+
+static void Phase4Get(LexerToken* tok, TranslationContext* ctx);
+static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser) {
+    Phase4Advance(tok, ctx);
+    IncludeSearchState state = {0};
+
+    const char* fileName;
+    if(isUser) {
+        fileName = IncludeSearchPathFindUser(&state, &ctx->search, tok->data.string.buffer);
+    } else {
+        fileName = IncludeSearchPathFindSys(&state, &ctx->search, tok->data.string.buffer);
+    }
+    fprintf(stderr, "#include \"%s\" = %s\n", tok->data.string.buffer, fileName);
+    if(fileName == NULL) {
+        fprintf(stderr, "Error: Cannot resolve include\n");
+        Phase4SkipLine(tok, ctx);
+        return false;
+    }
+    if(recursiveIncludeCheck(ctx, fileName)) {
+        fprintf(stderr, "Error: recursive include\n");
+        Phase4SkipLine(tok, ctx);
+        return false;
+    }
+    TranslationContext* ctx2 = ArenaAlloc(sizeof(*ctx2));
+    ctx->phase4.mode = LEX_MODE_INCLUDE;
+    ctx->phase4.includeContext = ctx2;
+    ctx2->trigraphs = ctx->trigraphs;
+    ctx2->tabSize = ctx->tabSize;
+    ctx2->debugPrint = ctx->debugPrint;
+    ctx2->search = ctx->search;
+    ctx2->pool = ctx->pool;
+    TranslationContextInit(ctx2, ctx->pool, (const unsigned char*)fileName);
+    Phase4Initialise(ctx2);
+    Phase4Get(tok, ctx2);
+    ctx2->phase4.parent = ctx;
+    return true;
+}
+
+static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
+    if(ctx->phase4.mode == LEX_MODE_INCLUDE) {
+        Phase4Get(tok, ctx->phase4.includeContext);
+        if(tok->type == TOKEN_EOF_L) {
+            ctx->phase4.mode = LEX_MODE_NO_HEADER;
+            fprintf(stderr, "#end_include = %s\n", ctx->phase4.includeContext->fileName);
+        } else {
+            return;
+        }
+    }
+
+    // loop over multiple directives (instead of reccursion)
+    while(true) {
+        Phase4Advance(tok, ctx);
+
+        if((tok->type == TOKEN_PUNC_HASH || tok->type == TOKEN_PUNC_PERCENT_COLON) && tok->isStartOfLine) {
+            LexerToken* peek = &ctx->phase4.peek;
+
+            if(peek->isStartOfLine) {
+                // NULL directive
+                return;
+            } else if(peek->type != TOKEN_IDENTIFIER_L) {
+                fprintf(stderr, "Error: Unexpected token at start of directive\n");
+                Phase4SkipLine(tok, ctx);
+                continue;
+            } else if(strcmp("include", peek->data.string.buffer) == 0) {
+                ctx->phase3.mode = LEX_MODE_MAYBE_HEADER;
+                Phase4Advance(tok, ctx);
+                ctx->phase3.mode = LEX_MODE_NO_HEADER;
+
+                peek = &ctx->phase4.peek;
+                if(peek->type == TOKEN_HEADER_NAME) {
+                    bool success = includeFile(tok, ctx, true);
+                    if(success) return;
+                    Phase4SkipLine(tok, ctx);
+                    continue;
+                } else if(peek->type == TOKEN_SYS_HEADER_NAME) {
+                    bool success = includeFile(tok, ctx, false);
+                    if(success) return;
+                    Phase4SkipLine(tok, ctx);
+                    continue;
+                } else {
+                    fprintf(stderr, "Error: macro #include not implemented\n");
+                    Phase4SkipLine(tok, ctx);
+                    return;
+                }
+                return;
+            } else {
+                //fprintf(stderr, "Error: Unknown preprocessing directive\n");
+                //Phase4SkipLine(tok, ctx);
+                return;
+            }
+        }
+        return;
+    }
 }
 
 // helper to run upto and including phase 4
 void runPhase4(TranslationContext* ctx) {
     Phase4Initialise(ctx);
-    Token tok;
-    while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF) {
+    LexerToken tok;
+    while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
         TokenPrint(ctx, &tok);
     }
 }

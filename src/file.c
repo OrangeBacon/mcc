@@ -69,13 +69,8 @@ static void FindMinGWW64WinBuilds(IncludeSearchPath* search) {
     PathAllocCombine(mingwFolder, ffd.cFileName, PathFlags, &mingwVersion);
     LocalFree(mingwFolder);
 
-    wchar_t* mingwInclude;
-    PathAllocCombine(mingwVersion, TEXT("mingw64\\x86_64-w64-mingw32\\include"), PathFlags, &mingwInclude);
-    ARRAY_PUSH(*search, system, ((Path){mingwInclude, true}));
-
     wchar_t* libgcc;
     PathAllocCombine(mingwVersion, TEXT("mingw64\\lib\\gcc\\x86_64-w64-mingw32"), PathFlags, &libgcc);
-    LocalFree(mingwVersion);
 
     wchar_t* libgccVersionSearch;
     PathAllocCombine(libgcc, TEXT("*.*.0"), PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH, &libgccVersionSearch);
@@ -105,6 +100,11 @@ static void FindMinGWW64WinBuilds(IncludeSearchPath* search) {
     ARRAY_PUSH(*search, system, ((Path){libgccFixedInclude, true}));
 
     LocalFree(libgccVersion);
+
+    wchar_t* mingwInclude;
+    PathAllocCombine(mingwVersion, TEXT("mingw64\\x86_64-w64-mingw32\\include"), PathFlags, &mingwInclude);
+    ARRAY_PUSH(*search, system, ((Path){mingwInclude, true}));
+    LocalFree(mingwVersion);
 }
 
 // try adding Chocolatey's install directories, used by github actions
@@ -116,13 +116,8 @@ static void FindMinGWW64Chocolatey(IncludeSearchPath* search) {
     PathAllocCombine(programData, TEXT("Chocolatey\\lib\\mingw\\tools\\install\\mingw64"), PathFlags, &mingwFolder);
     CoTaskMemFree(programData);
 
-    wchar_t* mingwInclude;
-    PathAllocCombine(mingwFolder, TEXT("x86_64-w64-mingw32\\include"), PathFlags, &mingwInclude);
-    ARRAY_PUSH(*search, system, ((Path){mingwInclude, true}));
-
     wchar_t* libgcc;
     PathAllocCombine(mingwFolder, TEXT("lib\\gcc\\x86_64-w64-mingw32"), PathFlags, &libgcc);
-    LocalFree(mingwFolder);
 
     wchar_t* libgccVersionSearch;
     PathAllocCombine(libgcc, TEXT("*.*.0"), PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH, &libgccVersionSearch);
@@ -153,6 +148,11 @@ static void FindMinGWW64Chocolatey(IncludeSearchPath* search) {
     ARRAY_PUSH(*search, system, ((Path){libgccFixedInclude, true}));
 
     LocalFree(libgccVersion);
+
+    wchar_t* mingwInclude;
+    PathAllocCombine(mingwFolder, TEXT("x86_64-w64-mingw32\\include"), PathFlags, &mingwInclude);
+    ARRAY_PUSH(*search, system, ((Path){mingwInclude, true}));
+    LocalFree(mingwFolder);
 }
 
 // adds all values from %path% to the search path
@@ -344,7 +344,7 @@ char* readFileLen(const char* name, size_t* len) {
     FILE* f = fopen(name, "r");
 
     if(f == NULL) {
-        printf("Could not read file: %s\n", name);
+        fprintf(stderr, "Could not read file: %s - %s\n", name, strerror(errno));
         exit(1);
     }
 
@@ -355,6 +355,8 @@ char* readFileLen(const char* name, size_t* len) {
     char* buf = ArenaAlloc((size + 1) * sizeof(char));
     size_t read = fread(buf, sizeof(char), size, f);
     buf[read] = '\0';
+
+    fclose(f);
 
     *len = read;
 
