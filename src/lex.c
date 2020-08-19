@@ -1024,6 +1024,7 @@ static void Phase4Initialise(TranslationContext* ctx) {
     Phase3Get(&ctx->phase4.peek, ctx);
     ctx->phase4.mode = LEX_MODE_NO_HEADER;
     ctx->phase4.parent = NULL;
+    ctx->phase4.searchState = (IncludeSearchState){0};
 }
 
 static void Phase4Advance(LexerToken* tok, TranslationContext* ctx) {
@@ -1054,17 +1055,29 @@ static bool recursiveIncludeCheck(TranslationContext* ctx, const char* fileName)
 }
 
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx);
-static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser) {
+static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser, bool isNext) {
     Phase4Advance(tok, ctx);
-    IncludeSearchState state = {0};
+
+    IncludeSearchState* state;
+    if(isNext) {
+        if(ctx->phase4.parent) {
+            state = &ctx->phase4.parent->phase4.searchState;
+        } else {
+            state = &(IncludeSearchState){0};
+            fprintf(stderr, "Warning: #include_next at top level\n");
+        }
+    } else {
+        state = &ctx->phase4.searchState;
+        *state = (IncludeSearchState){0};
+    }
 
     const char* fileName;
     if(isUser) {
-        fileName = IncludeSearchPathFindUser(&state, &ctx->search, tok->data.string.buffer);
+        fileName = IncludeSearchPathFindUser(state, &ctx->search, tok->data.string.buffer);
     } else {
-        fileName = IncludeSearchPathFindSys(&state, &ctx->search, tok->data.string.buffer);
+        fileName = IncludeSearchPathFindSys(state, &ctx->search, tok->data.string.buffer);
     }
-    fprintf(stderr, "#include \"%s\" = %s\n", tok->data.string.buffer, fileName);
+    fprintf(stderr, "#include%s \"%s\" = %s\n", isNext?"_next":"", tok->data.string.buffer, fileName);
     if(fileName == NULL) {
         fprintf(stderr, "Error: Cannot resolve include\n");
         Phase4SkipLine(tok, ctx);
@@ -1085,8 +1098,8 @@ static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser) {
     ctx2->pool = ctx->pool;
     TranslationContextInit(ctx2, ctx->pool, (const unsigned char*)fileName);
     Phase4Initialise(ctx2);
-    Phase4Get(tok, ctx2);
     ctx2->phase4.parent = ctx;
+    Phase4Get(tok, ctx2);
     return true;
 }
 
@@ -1122,14 +1135,12 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
                 peek = &ctx->phase4.peek;
                 if(peek->type == TOKEN_HEADER_NAME) {
-                    bool success = includeFile(tok, ctx, true);
+                    bool success = includeFile(tok, ctx, true, false);
                     if(success) return;
-                    Phase4SkipLine(tok, ctx);
                     continue;
                 } else if(peek->type == TOKEN_SYS_HEADER_NAME) {
-                    bool success = includeFile(tok, ctx, false);
+                    bool success = includeFile(tok, ctx, false, false);
                     if(success) return;
-                    Phase4SkipLine(tok, ctx);
                     continue;
                 } else {
                     fprintf(stderr, "Error: macro #include not implemented\n");
@@ -1137,6 +1148,26 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
                     return;
                 }
                 return;
+            } else if(strcmp("include_next", peek->data.string.buffer) == 0) {
+                // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
+                ctx->phase3.mode = LEX_MODE_MAYBE_HEADER;
+                Phase4Advance(tok, ctx);
+                ctx->phase3.mode = LEX_MODE_NO_HEADER;
+
+                peek = &ctx->phase4.peek;
+                if(peek->type == TOKEN_HEADER_NAME) {
+                    bool success = includeFile(tok, ctx, true, true);
+                    if(success) return;
+                    continue;
+                } else if(peek->type == TOKEN_SYS_HEADER_NAME) {
+                    bool success = includeFile(tok, ctx, false, true);
+                    if(success) return;
+                    continue;
+                } else {
+                    fprintf(stderr, "Error: macro #include_next not implemented\n");
+                    Phase4SkipLine(tok, ctx);
+                    return;
+                }
             } else {
                 //fprintf(stderr, "Error: Unknown preprocessing directive\n");
                 //Phase4SkipLine(tok, ctx);

@@ -200,6 +200,7 @@ typedef struct Phase4Context {
     LexerToken peek;
     struct TranslationContext* includeContext;
     struct TranslationContext* parent;
+    IncludeSearchState searchState;
 } Phase4Context;
 
 // random data used by each translation phase that needs to be stored
