@@ -1019,12 +1019,23 @@ void runPhase3(TranslationContext* ctx) {
 // _Pragma expansion
 // include resolution
 
-static void Phase4Initialise(TranslationContext* ctx) {
+static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent) {
     Phase3Initialise(ctx);
     Phase3Get(&ctx->phase4.peek, ctx);
     ctx->phase4.mode = LEX_MODE_NO_HEADER;
-    ctx->phase4.parent = NULL;
     ctx->phase4.searchState = (IncludeSearchState){0};
+    ctx->phase4.parent = parent;
+    if(parent != NULL) {
+        ctx->trigraphs = parent->trigraphs;
+        ctx->tabSize = parent->tabSize;
+        ctx->debugPrint = parent->debugPrint;
+        ctx->search = parent->search;
+        ctx->pool = parent->pool;
+        ctx->phase4.macroTable = parent->phase4.macroTable;
+    } else {
+        ctx->phase4.macroTable = ArenaAlloc(sizeof(Table));
+        TABLE_INIT(*ctx->phase4.macroTable, Macro*);
+    }
 }
 
 static void Phase4Advance(LexerToken* tok, TranslationContext* ctx) {
@@ -1091,16 +1102,65 @@ static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser, b
     TranslationContext* ctx2 = ArenaAlloc(sizeof(*ctx2));
     ctx->phase4.mode = LEX_MODE_INCLUDE;
     ctx->phase4.includeContext = ctx2;
-    ctx2->trigraphs = ctx->trigraphs;
-    ctx2->tabSize = ctx->tabSize;
-    ctx2->debugPrint = ctx->debugPrint;
-    ctx2->search = ctx->search;
-    ctx2->pool = ctx->pool;
     TranslationContextInit(ctx2, ctx->pool, (const unsigned char*)fileName);
-    Phase4Initialise(ctx2);
-    ctx2->phase4.parent = ctx;
+    Phase4Initialise(ctx2, ctx);
     Phase4Get(tok, ctx2);
     return true;
+}
+
+static bool parseInclude(LexerToken* tok, TranslationContext* ctx, bool isNext) {
+    ctx->phase3.mode = LEX_MODE_MAYBE_HEADER;
+    Phase4Advance(tok, ctx);
+    ctx->phase3.mode = LEX_MODE_NO_HEADER;
+
+    LexerToken* peek = &ctx->phase4.peek;
+    if(peek->type == TOKEN_HEADER_NAME) {
+        return includeFile(tok, ctx, true, isNext);
+    } else if(peek->type == TOKEN_SYS_HEADER_NAME) {
+        return includeFile(tok, ctx, false, isNext);
+    } else {
+        fprintf(stderr, "Error: macro #include not implemented\n");
+        Phase4SkipLine(tok, ctx);
+        return false;
+    }
+}
+
+static void parseDefine(TranslationContext* ctx) {
+    Macro* macro = ArenaAlloc(sizeof(*macro));
+    ARRAY_ALLOC(LexerToken, *macro, replacement);
+
+    LexerToken name;
+    Phase4Advance(&name, ctx); // consume "define"
+    Phase4Advance(&name, ctx); // consume name to define
+
+    if(name.type != TOKEN_IDENTIFIER_L) {
+        fprintf(stderr, "Error: Unexpected token inside #define\n");
+        Phase4SkipLine(&name, ctx);
+        return;
+    }
+
+    LexerToken* tok = &ctx->phase4.peek;
+
+    while(!tok->isStartOfLine) {
+        Phase4Advance(ARRAY_PUSH_PTR(*macro, replacement), ctx);
+        tok = &ctx->phase4.peek;
+    }
+
+    TABLE_SET(*ctx->phase4.macroTable, name.data.string.buffer, name.data.string.count, macro);
+}
+
+static void parseUndef(TranslationContext* ctx) {
+    LexerToken name;
+    Phase4Advance(&name, ctx); // consume "undef"
+    Phase4Advance(&name, ctx); // consume name to undef
+
+    if(name.type != TOKEN_IDENTIFIER_L) {
+        fprintf(stderr, "Error: Unexpected token inside #undef\n");
+        Phase4SkipLine(&name, ctx);
+        return;
+    }
+
+    tableRemove(ctx->phase4.macroTable, name.data.string.buffer, name.data.string.count);
 }
 
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
@@ -1129,45 +1189,20 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
                 Phase4SkipLine(tok, ctx);
                 continue;
             } else if(strcmp("include", peek->data.string.buffer) == 0) {
-                ctx->phase3.mode = LEX_MODE_MAYBE_HEADER;
-                Phase4Advance(tok, ctx);
-                ctx->phase3.mode = LEX_MODE_NO_HEADER;
-
-                peek = &ctx->phase4.peek;
-                if(peek->type == TOKEN_HEADER_NAME) {
-                    bool success = includeFile(tok, ctx, true, false);
-                    if(success) return;
-                    continue;
-                } else if(peek->type == TOKEN_SYS_HEADER_NAME) {
-                    bool success = includeFile(tok, ctx, false, false);
-                    if(success) return;
-                    continue;
-                } else {
-                    fprintf(stderr, "Error: macro #include not implemented\n");
-                    Phase4SkipLine(tok, ctx);
-                    return;
-                }
-                return;
+                bool success = parseInclude(tok, ctx, false);
+                if(success) return;
+                continue;
             } else if(strcmp("include_next", peek->data.string.buffer) == 0) {
                 // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
-                ctx->phase3.mode = LEX_MODE_MAYBE_HEADER;
-                Phase4Advance(tok, ctx);
-                ctx->phase3.mode = LEX_MODE_NO_HEADER;
-
-                peek = &ctx->phase4.peek;
-                if(peek->type == TOKEN_HEADER_NAME) {
-                    bool success = includeFile(tok, ctx, true, true);
-                    if(success) return;
-                    continue;
-                } else if(peek->type == TOKEN_SYS_HEADER_NAME) {
-                    bool success = includeFile(tok, ctx, false, true);
-                    if(success) return;
-                    continue;
-                } else {
-                    fprintf(stderr, "Error: macro #include_next not implemented\n");
-                    Phase4SkipLine(tok, ctx);
-                    return;
-                }
+                bool success = parseInclude(tok, ctx, true);
+                if(success) return;
+                continue;
+            } else if(strcmp("define", peek->data.string.buffer) == 0) {
+                parseDefine(ctx);
+                continue;
+            } else if(strcmp("undef", peek->data.string.buffer) == 0) {
+                parseUndef(ctx);
+                continue;
             } else {
                 //fprintf(stderr, "Error: Unknown preprocessing directive\n");
                 //Phase4SkipLine(tok, ctx);
@@ -1180,7 +1215,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
 // helper to run upto and including phase 4
 void runPhase4(TranslationContext* ctx) {
-    Phase4Initialise(ctx);
+    Phase4Initialise(ctx, NULL);
     LexerToken tok;
     while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
         TokenPrint(ctx, &tok);

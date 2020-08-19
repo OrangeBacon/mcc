@@ -64,34 +64,38 @@ void* ArenaReAlloc(void* old_ptr, size_t old_size, size_t new_size);
         (container).name##ElementSize = sizeof(type); \
     } while(0)
 
-#define MEMQUOTE(x) #x
-
 #define ARRAY_PUSH(container, name, value) \
     do { \
         if(sizeof(value) != (container).name##ElementSize) { \
-            printf("Push to array with incorrect item size (%zu), array item " \
+            fprintf(stderr, "Push to array with incorrect item size (%zu), array item " \
                 "size is %u at %s:%d\n", sizeof(value), \
             (container).name##ElementSize, __FILE__, __LINE__); \
         } \
         if((container).name##Count == (container).name##Capacity) { \
             (container).name##s = ArenaReAlloc((container).name##s, \
                 (container).name##ElementSize * (container).name##Capacity, \
-                (container).name##ElementSize * (container).name##Capacity * 2);\
+                (container).name##ElementSize * (container).name##Capacity * 2); \
             (container).name##Capacity *= 2; \
         } \
         (container).name##s[(container).name##Count] = (value); \
         (container).name##Count++; \
     } while(0)
 
+#define ARRAY_PUSH_PTR(container, name) \
+    __extension__ ({ \
+        if((container).name##Count == (container).name##Capacity) { \
+            (container).name##s = ArenaReAlloc((container).name##s, \
+                (container).name##ElementSize * (container).name##Capacity, \
+                (container).name##ElementSize * (container).name##Capacity * 2); \
+            (container).name##Capacity *= 2; \
+        } \
+        (container).name##Count++; \
+        &((container).name##s)[(container).name##Count - 1]; \
+    })
+
 // return and remove the last item in an array
 #define ARRAY_POP(container, name) \
     ((container).name##Count--,(container).name##s[(container).name##Count])
-
-// format a string into a newly allocated buffer valid for the life of
-// the compiler - avoids storing va_list
-char* aprintf(const char* format, ...);
-
-char* vaprintf(const char* format, va_list args);
 
 // container to hold virtual, non-committed memory areas
 typedef struct MemoryPool {

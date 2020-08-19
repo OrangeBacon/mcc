@@ -88,7 +88,7 @@ SymbolExitList* SymbolTableExit(SymbolTable* table);
 #define TABLE_SET(table, key, length, value) \
     do { \
         if(sizeof(value) != (table).valueSize) { \
-            printf("Seting table member based on incorrect value size, correct " \
+            fprintf(stderr, "Seting table member based on incorrect value size, correct " \
                 "is %zu, got %zu\n", (table).valueSize, sizeof(value)); \
         } \
         tableSet(&(table), (char*)(key), (length), (void*)(value)); \
@@ -131,7 +131,7 @@ bool pairPableHas(PairTable* table,  struct SymbolLocal* key1, struct IrBasicBlo
 #define PAIRTABLE_SET(table, key1, key2, value) \
     do { \
         if(sizeof(value) != (table).valueSize) { \
-            printf("Seting pairtable member based on incorrect value size, correct " \
+            fprintf(stderr, "Seting pairtable member based on incorrect value size, correct " \
                 "is %zu, got %zu\n", (table).valueSize, sizeof(value)); \
         } \
         pairTableSet(&(table), (key1), (key2), (void*)(value)); \

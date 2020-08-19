@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "memory.h"
 #include "file.h"
+#include "symbolTable.h"
 
 typedef struct SourceLocation {
     const unsigned char* fileName;
@@ -190,6 +191,11 @@ typedef struct Phase3Context {
     unsigned char (*getter)(struct TranslationContext*, SourceLocation* loc);
 } Phase3Context;
 
+typedef struct Macro {
+    LexerToken name;
+    ARRAY_DEFINE(LexerToken, replacement);
+} Macro;
+
 typedef enum Phase4LexMode {
     LEX_MODE_INCLUDE,
     LEX_MODE_NO_INCLUDE,
@@ -201,6 +207,7 @@ typedef struct Phase4Context {
     struct TranslationContext* includeContext;
     struct TranslationContext* parent;
     IncludeSearchState searchState;
+    Table* macroTable;
 } Phase4Context;
 
 // random data used by each translation phase that needs to be stored
