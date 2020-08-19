@@ -191,9 +191,23 @@ typedef struct Phase3Context {
     unsigned char (*getter)(struct TranslationContext*, SourceLocation* loc);
 } Phase3Context;
 
+typedef enum MacroType {
+    MACRO_OBJECT,
+    MACRO_STRING,
+    MACRO_INTEGER,
+} MacroType;
+
 typedef struct Macro {
     LexerToken name;
-    ARRAY_DEFINE(LexerToken, replacement);
+    MacroType type;
+
+    union {
+        struct {
+            ARRAY_DEFINE(LexerToken, replacement);
+        } object;
+        const char* string;
+        intmax_t integer;
+    } as;
 } Macro;
 
 typedef enum Phase4LexMode {
@@ -208,6 +222,7 @@ typedef struct Phase4Context {
     struct TranslationContext* parent;
     IncludeSearchState searchState;
     Table* macroTable;
+    unsigned char depth;
 } Phase4Context;
 
 // random data used by each translation phase that needs to be stored

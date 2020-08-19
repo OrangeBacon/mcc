@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <time.h>
 #include "file.h"
 
 // End of file
@@ -1032,9 +1033,48 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         ctx->search = parent->search;
         ctx->pool = parent->pool;
         ctx->phase4.macroTable = parent->phase4.macroTable;
+        ctx->phase4.depth = parent->phase4.depth + 1;
     } else {
+        ctx->phase4.depth = 0;
         ctx->phase4.macroTable = ArenaAlloc(sizeof(Table));
         TABLE_INIT(*ctx->phase4.macroTable, Macro*);
+
+        time_t currentTime = time(NULL);
+        struct tm timeStruct;
+        localtime_s(&timeStruct, &currentTime);
+
+        char* stringTime = ArenaAlloc(sizeof(char)*9);
+        strftime(stringTime, 9, "%H:%M:%S", &timeStruct);
+        Macro* time = ArenaAlloc(sizeof(Macro));
+        time->type = MACRO_STRING;
+        time->as.string = stringTime;
+        TABLE_SET(*ctx->phase4.macroTable, "__TIME__", 8, time);
+
+        char* stringDate = ArenaAlloc(sizeof(char) * 128);
+        strftime(stringDate, 128, "%b %d %Y", &timeStruct);
+        Macro* date = ArenaAlloc(sizeof(Macro));
+        date->type = MACRO_STRING;
+        date->as.string = stringDate;
+        TABLE_SET(*ctx->phase4.macroTable, "__DATE__", 8, date);
+
+#define INT_MACRO(name, value) \
+    Macro* name = ArenaAlloc(sizeof(Macro)); \
+    name->type = MACRO_INTEGER; \
+    name->as.integer = (value); \
+    TABLE_SET(*ctx->phase4.macroTable, "__"#name"__", 8, name);
+
+    INT_MACRO(STDC, 1);
+    INT_MACRO(STDC_HOSTED, 1);
+    INT_MACRO(STDC_VERSION, 201112L);
+    INT_MACRO(STDC_UTF_16, 1);
+    INT_MACRO(STDC_UTF_32, 1);
+    INT_MACRO(STDC_NO_ATOMICS, 1);
+    INT_MACRO(STDC_NO_COMPLEX, 1);
+    INT_MACRO(STDC_NO_THREADS, 1);
+    INT_MACRO(STDC_NO_VLA, 1);
+    INT_MACRO(STDC_LIB_EXT1, 201112L);
+
+#undef INT_MACRO
     }
 }
 
@@ -1051,18 +1091,6 @@ static void Phase4SkipLine(LexerToken* tok, TranslationContext* ctx) {
     while(!Phase4AtEnd(ctx) && !ctx->phase4.peek.isStartOfLine) {
         Phase4Advance(tok, ctx);
     }
-}
-
-static bool recursiveIncludeCheck(TranslationContext* ctx, const char* fileName) {
-    while(ctx != NULL) {
-        if(strcmp(fileName, (const char*)ctx->fileName) == 0) {
-            return true;
-        }
-
-        ctx = ctx->phase4.parent;
-    }
-
-    return false;
 }
 
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx);
@@ -1088,14 +1116,16 @@ static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser, b
     } else {
         fileName = IncludeSearchPathFindSys(state, &ctx->search, tok->data.string.buffer);
     }
-    fprintf(stderr, "#include%s \"%s\" = %s\n", isNext?"_next":"", tok->data.string.buffer, fileName);
+
     if(fileName == NULL) {
         fprintf(stderr, "Error: Cannot resolve include\n");
         Phase4SkipLine(tok, ctx);
         return false;
     }
-    if(recursiveIncludeCheck(ctx, fileName)) {
-        fprintf(stderr, "Error: recursive include\n");
+
+    // See n1570.5.2.4.1
+    if(ctx->phase4.depth > 15) {
+        fprintf(stderr, "Error: include depth limit reached\n");
         Phase4SkipLine(tok, ctx);
         return false;
     }
@@ -1114,20 +1144,28 @@ static bool parseInclude(LexerToken* tok, TranslationContext* ctx, bool isNext) 
     ctx->phase3.mode = LEX_MODE_NO_HEADER;
 
     LexerToken* peek = &ctx->phase4.peek;
+    bool retVal = false;
     if(peek->type == TOKEN_HEADER_NAME) {
-        return includeFile(tok, ctx, true, isNext);
+        retVal = includeFile(tok, ctx, true, isNext);
     } else if(peek->type == TOKEN_SYS_HEADER_NAME) {
-        return includeFile(tok, ctx, false, isNext);
+        retVal = includeFile(tok, ctx, false, isNext);
     } else {
         fprintf(stderr, "Error: macro #include not implemented\n");
         Phase4SkipLine(tok, ctx);
-        return false;
     }
+
+    if(!ctx->phase4.peek.isStartOfLine) {
+        fprintf(stderr, "Error: Unexpected token after include location\n");
+        Phase4SkipLine(tok, ctx);
+    }
+
+    return retVal;
 }
 
 static void parseDefine(TranslationContext* ctx) {
     Macro* macro = ArenaAlloc(sizeof(*macro));
-    ARRAY_ALLOC(LexerToken, *macro, replacement);
+    macro->type = MACRO_OBJECT;
+    ARRAY_ALLOC(LexerToken, macro->as.object, replacement);
 
     LexerToken name;
     Phase4Advance(&name, ctx); // consume "define"
@@ -1142,7 +1180,7 @@ static void parseDefine(TranslationContext* ctx) {
     LexerToken* tok = &ctx->phase4.peek;
 
     while(!tok->isStartOfLine) {
-        Phase4Advance(ARRAY_PUSH_PTR(*macro, replacement), ctx);
+        Phase4Advance(ARRAY_PUSH_PTR(macro->as.object, replacement), ctx);
         tok = &ctx->phase4.peek;
     }
 
@@ -1163,12 +1201,17 @@ static void parseUndef(TranslationContext* ctx) {
     tableRemove(ctx->phase4.macroTable, name.data.string.buffer, name.data.string.count);
 }
 
+static bool checkKeyword(LexerToken* tok, const char* str, size_t len) {
+    if(tok->data.string.count != len) return false;
+
+    return memcmp(tok->data.string.buffer, str, len) == 0;
+}
+
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
     if(ctx->phase4.mode == LEX_MODE_INCLUDE) {
         Phase4Get(tok, ctx->phase4.includeContext);
         if(tok->type == TOKEN_EOF_L) {
             ctx->phase4.mode = LEX_MODE_NO_HEADER;
-            fprintf(stderr, "#end_include = %s\n", ctx->phase4.includeContext->fileName);
         } else {
             return;
         }
@@ -1184,30 +1227,43 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
             if(peek->isStartOfLine) {
                 // NULL directive
                 return;
-            } else if(peek->type != TOKEN_IDENTIFIER_L) {
+            }
+
+            if(peek->type != TOKEN_IDENTIFIER_L) {
                 fprintf(stderr, "Error: Unexpected token at start of directive\n");
                 Phase4SkipLine(tok, ctx);
                 continue;
-            } else if(strcmp("include", peek->data.string.buffer) == 0) {
-                bool success = parseInclude(tok, ctx, false);
-                if(success) return;
-                continue;
-            } else if(strcmp("include_next", peek->data.string.buffer) == 0) {
-                // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
-                bool success = parseInclude(tok, ctx, true);
-                if(success) return;
-                continue;
-            } else if(strcmp("define", peek->data.string.buffer) == 0) {
-                parseDefine(ctx);
-                continue;
-            } else if(strcmp("undef", peek->data.string.buffer) == 0) {
-                parseUndef(ctx);
-                continue;
-            } else {
-                //fprintf(stderr, "Error: Unknown preprocessing directive\n");
-                //Phase4SkipLine(tok, ctx);
-                return;
             }
+            switch(peek->data.string.buffer[0]) {
+                case 'i':
+                    if(checkKeyword(peek, "include", 7)) {
+                        bool success = parseInclude(tok, ctx, false);
+                        if(success) return;
+                        continue;
+                    } else if(checkKeyword(peek, "include_next", 12)) {
+                        // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
+                        bool success = parseInclude(tok, ctx, true);
+                        if(success) return;
+                        continue;
+                    };
+                    break;
+                case 'd':
+                    if(checkKeyword(peek, "define", 6)) {
+                         parseDefine(ctx);
+                        continue;
+                    };
+                    break;
+                case 'u':
+                    if(checkKeyword(peek, "undef", 5)) {
+                        parseUndef(ctx);
+                        continue;
+                    };
+                    break;
+            }
+
+            //fprintf(stderr, "Error: Unknown preprocessing directive\n");
+            //Phase4SkipLine(tok, ctx);
+            return;
         }
         return;
     }
