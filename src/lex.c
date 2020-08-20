@@ -1031,6 +1031,22 @@ static void PredefinedMacros(TranslationContext* ctx) {
     date->name.data.string.count = 8;
     TABLE_SET(*ctx->phase3.hashNodes, "__DATE__", 8, date);
 
+    HashNode* file = ArenaAlloc(sizeof(HashNode));
+    file->type = NODE_MACRO_FILE;
+    file->macroExpansionEnabled = true;
+    file->hash = stringHash("__FILE__", 8);
+    file->name.data.string.buffer = "__FILE__";
+    file->name.data.string.count = 8;
+    TABLE_SET(*ctx->phase3.hashNodes, "__FILE__", 8, file);
+
+    HashNode* line = ArenaAlloc(sizeof(HashNode));
+    line->type = NODE_MACRO_LINE;
+    line->macroExpansionEnabled = true;
+    line->hash = stringHash("__LINE__", 8);
+    line->name.data.string.buffer = "__LINE__";
+    line->name.data.string.count = 8;
+    TABLE_SET(*ctx->phase3.hashNodes, "__LINE__", 8, line);
+
 #define INT_MACRO(n, value) \
     HashNode* n = ArenaAlloc(sizeof(HashNode)); \
     n->type = NODE_MACRO_INTEGER; \
@@ -1105,6 +1121,7 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
     ctx->phase4.searchState = (IncludeSearchState){0};
     ctx->phase4.parent = parent;
     ctx->phase4.macroCtx = NULL;
+    ctx->phase4.previous.loc = ctx->phase4.peek.loc;
     if(parent != NULL) {
         ctx->trigraphs = parent->trigraphs;
         ctx->tabSize = parent->tabSize;
@@ -1347,6 +1364,21 @@ static void EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
             macro->tokens = NULL;
             macro->tokenCount = 0;
         }; break;
+        case NODE_MACRO_LINE: {
+            tok->type = TOKEN_INTEGER_L;
+            tok->data.integer = ctx->phase4.previous.loc->line;
+            macro->tokens = NULL;
+            macro->tokenCount = 0;
+        }; break;
+        case NODE_MACRO_FILE: {
+            tok->type = TOKEN_STRING_L;
+            LexerString str;
+            str.buffer = (char*)ctx->phase4.previous.loc->fileName;
+            str.count = strlen((char*)ctx->phase4.previous.loc->fileName);
+            tok->data.string = str;
+            macro->tokens = NULL;
+            macro->tokenCount = 0;
+        }; break;
         case NODE_VOID:
             fprintf(stderr, "enter ctx err\n"); exit(1);
     }
@@ -1358,6 +1390,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         if(tok->type == TOKEN_EOF_L) {
             ctx->phase4.mode = LEX_MODE_NO_HEADER;
         } else {
+            ctx->phase4.previous = *tok;
             return;
         }
     }
@@ -1391,7 +1424,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
             if(peek->isStartOfLine) {
                 // NULL directive
-                return;
+                continue;
             }
 
             if(peek->type != TOKEN_IDENTIFIER_L) {
@@ -1405,12 +1438,18 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
             if(len == 7 && hash == stringHash("include", 7)) {
                 bool success = parseInclude(tok, ctx, false);
-                if(success) return;
+                if(success) {
+                    ctx->phase4.previous = *tok;
+                    return;
+                }
                 continue;
             } else if(len == 12 && hash == stringHash("include_next", 12)) {
                 // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
                 bool success = parseInclude(tok, ctx, true);
-                if(success) return;
+                if(success) {
+                    ctx->phase4.previous = *tok;
+                    return;
+                }
                 continue;
             } else if(len == 6 && hash == stringHash("define", 6)) {
                 parseDefine(ctx);
@@ -1422,6 +1461,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
             //fprintf(stderr, "Error: Unknown preprocessing directive\n");
             //Phase4SkipLine(tok, ctx);
+            ctx->phase4.previous = *tok;
             return;
         }
 
@@ -1429,6 +1469,8 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
             tok->data.node->type != NODE_VOID &&
             tok->data.node->macroExpansionEnabled) {
             EnterMacroContext(tok, ctx);
+        } else {
+            ctx->phase4.previous = *tok;
         }
         return;
     }

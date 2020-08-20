@@ -199,6 +199,8 @@ typedef enum HashNodeType {
     NODE_MACRO_STRING,
     NODE_MACRO_INTEGER,
     NODE_MACRO_FUNCTION,
+    NODE_MACRO_LINE,
+    NODE_MACRO_FILE,
     NODE_VOID,
 } HashNodeType;
 
@@ -246,6 +248,10 @@ typedef struct Phase4Context {
     IncludeSearchState searchState;
     unsigned char depth;
     MacroContext* macroCtx;
+
+    // stores the previous token emitted at base context (no macro expansion)
+    // used for correct __LINE__ and __FILE__ interpretation
+    LexerToken previous;
 } Phase4Context;
 
 // random data used by each translation phase that needs to be stored
