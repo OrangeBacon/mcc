@@ -138,6 +138,7 @@ typedef enum LexerTokenType {
     TOKEN_FLOATING_L,
     TOKEN_CHARACTER_L,
     TOKEN_STRING_L,
+    TOKEN_MACRO_ARG,
     TOKEN_UNKNOWN_L,
     TOKEN_ERROR_L,
     TOKEN_EOF_L,
@@ -197,6 +198,7 @@ typedef enum HashNodeType {
     NODE_MACRO_OBJECT,
     NODE_MACRO_STRING,
     NODE_MACRO_INTEGER,
+    NODE_MACRO_FUNCTION,
     NODE_VOID,
 } HashNodeType;
 
@@ -209,6 +211,11 @@ typedef struct HashNode {
         struct {
             ARRAY_DEFINE(LexerToken, replacement);
         } object;
+        struct {
+            ARRAY_DEFINE(LexerToken, argument);
+            ARRAY_DEFINE(LexerToken, replacement);
+            bool isVariadac;
+        } function;
         const char* string;
         intmax_t integer;
     } as;

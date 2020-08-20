@@ -148,6 +148,7 @@ static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
         case TOKEN_FLOATING_L: printf("%f", tok->data.floating); break;
         case TOKEN_CHARACTER_L: StringTypePrint(tok->data.string.type); printf("'%s'", tok->data.string.buffer); break;
         case TOKEN_STRING_L: StringTypePrint(tok->data.string.type); printf("\"%s\"", tok->data.string.buffer); break;
+        case TOKEN_MACRO_ARG: printf("argument(%lld)", tok->data.integer); break;
         case TOKEN_UNKNOWN_L: printf("%c", tok->data.character); break;
         case TOKEN_ERROR_L: printf("error token"); break;
         case TOKEN_EOF_L: break;
@@ -1204,14 +1205,72 @@ static void parseDefine(TranslationContext* ctx) {
         Phase4SkipLine(&name, ctx);
         return;
     }
-    node->type = NODE_MACRO_OBJECT;
-    ARRAY_ALLOC(LexerToken, node->as.object, replacement);
 
     LexerToken* tok = &ctx->phase4.peek;
 
+    if(tok->type == TOKEN_PUNC_LEFT_PAREN && !tok->whitespaceBefore) {
+        node->type = NODE_MACRO_FUNCTION;
+        ARRAY_ALLOC(LexerToken, node->as.function, argument);
+        ARRAY_ALLOC(LexerToken, node->as.function, replacement);
+        node->as.function.isVariadac = false;
+
+        LexerToken currentToken;
+        Phase4Advance(&currentToken, ctx); // consume '('
+
+        while(!tok->isStartOfLine) {
+            Phase4Advance(&currentToken, ctx);
+            if(currentToken.type == TOKEN_PUNC_ELIPSIS) {
+                node->as.function.isVariadac = true;
+                break;
+            }
+            if(currentToken.type != TOKEN_IDENTIFIER_L) {
+                break;
+            }
+            ARRAY_PUSH(node->as.function, argument, currentToken);
+            Phase4Advance(&currentToken, ctx);
+            if(currentToken.type != TOKEN_PUNC_COMMA) {
+                break;
+            }
+        }
+
+        if(currentToken.type != TOKEN_PUNC_RIGHT_PAREN) {
+            fprintf(stderr, "Error: unexpected token at end of macro argument list\n");
+            Phase4SkipLine(&currentToken, ctx);
+            return;
+        }
+
+    } else {
+        node->type = NODE_MACRO_OBJECT;
+        ARRAY_ALLOC(LexerToken, node->as.object, replacement);
+
+        if(!tok->whitespaceBefore) {
+            fprintf(stderr, "Error: ISO C requires whitespace after macro name\n");
+        }
+    }
+
     while(!tok->isStartOfLine) {
-        Phase4Advance(ARRAY_PUSH_PTR(node->as.object, replacement), ctx);
-        tok = &ctx->phase4.peek;
+        LexerToken* addr;
+        if(node->type == NODE_MACRO_FUNCTION) {
+            addr = ARRAY_PUSH_PTR(node->as.function, replacement);
+        } else {
+            addr = ARRAY_PUSH_PTR(node->as.object, replacement);
+        }
+        Phase4Advance(addr, ctx);
+
+
+        // replace identifiers that correspond to an argument with a token
+        // representing the index of that argument
+        if(addr->type == TOKEN_IDENTIFIER_L && node->type == NODE_MACRO_FUNCTION) {
+            for(unsigned int i = 0; i < node->as.function.argumentCount; i++) {
+                HashNode* current = addr->data.node;
+                HashNode* check = node->as.function.arguments[i].data.node;
+                if(current->name.data.string.count == check->name.data.string.count && current->hash == check->hash) {
+                    addr->type = TOKEN_MACRO_ARG;
+                    addr->data.integer = i;
+                    break;
+                }
+            }
+        }
     }
 }
 
