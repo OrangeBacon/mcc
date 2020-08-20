@@ -963,6 +963,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
             node->name = *tok;
             node->type = NODE_VOID;
             node->hash = stringHash(tok->data.string.buffer, tok->data.string.count);
+            node->macroExpansionEnabled = true;
             tableSet(ctx->phase3.hashNodes, tok->data.string.buffer, tok->data.string.count, node);
         }
         tok->data.node = node;
@@ -1013,6 +1014,10 @@ static void PredefinedMacros(TranslationContext* ctx) {
     HashNode* time = ArenaAlloc(sizeof(HashNode));
     time->type = NODE_MACRO_STRING;
     time->as.string = stringTime;
+    time->macroExpansionEnabled = true;
+    time->hash = stringHash("__TIME__", 8);
+    time->name.data.string.buffer = "__TIME__";
+    time->name.data.string.count = 8;
     TABLE_SET(*ctx->phase3.hashNodes, "__TIME__", 8, time);
 
     char* stringDate = ArenaAlloc(sizeof(char) * 128);
@@ -1020,13 +1025,21 @@ static void PredefinedMacros(TranslationContext* ctx) {
     HashNode* date = ArenaAlloc(sizeof(HashNode));
     date->type = NODE_MACRO_STRING;
     date->as.string = stringDate;
+    date->macroExpansionEnabled = true;
+    date->hash = stringHash("__DATE__", 8);
+    date->name.data.string.buffer = "__DATE__";
+    date->name.data.string.count = 8;
     TABLE_SET(*ctx->phase3.hashNodes, "__DATE__", 8, date);
 
-#define INT_MACRO(name, value) \
-    HashNode* name = ArenaAlloc(sizeof(HashNode)); \
-    name->type = NODE_MACRO_INTEGER; \
-    name->as.integer = (value); \
-    TABLE_SET(*ctx->phase3.hashNodes, "__"#name"__", 8, name);
+#define INT_MACRO(n, value) \
+    HashNode* n = ArenaAlloc(sizeof(HashNode)); \
+    n->type = NODE_MACRO_INTEGER; \
+    n->as.integer = (value); \
+    n->macroExpansionEnabled = true; \
+    n->hash = stringHash("__"#n"__", strlen("__"#n"__")); \
+    n->name.data.string.buffer = "__"#n"__"; \
+    n->name.data.string.count = strlen("__"#n"__"); \
+    TABLE_SET(*ctx->phase3.hashNodes, "__"#n"__", strlen("__"#n"__"), n);
 
     INT_MACRO(STDC, 1);
     INT_MACRO(STDC_HOSTED, 1);
@@ -1091,6 +1104,7 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
     ctx->phase4.mode = LEX_MODE_NO_HEADER;
     ctx->phase4.searchState = (IncludeSearchState){0};
     ctx->phase4.parent = parent;
+    ctx->phase4.macroCtx = NULL;
     if(parent != NULL) {
         ctx->trigraphs = parent->trigraphs;
         ctx->tabSize = parent->tabSize;
@@ -1271,6 +1285,13 @@ static void parseDefine(TranslationContext* ctx) {
                 }
             }
         }
+
+        if(addr->type == TOKEN_IDENTIFIER_L && node->type == NODE_MACRO_OBJECT) {
+            if(addr->data.node->name.data.string.count == 12 &&
+                 addr->data.node->hash == stringHash("__VA_ARGS__", 12)) {
+                fprintf(stderr, "Error: __VA_ARGS__ is invalid unless in a function macro\n");
+            }
+        }
     }
 }
 
@@ -1288,6 +1309,49 @@ static void parseUndef(TranslationContext* ctx) {
     name.data.node->type = NODE_VOID;
 }
 
+static void EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
+    MacroContext* macro = ArenaAlloc(sizeof(MacroContext));
+    macro->prev = ctx->phase4.macroCtx;
+    macro->macro = tok->data.node;
+    ctx->phase4.macroCtx = macro;
+    tok->data.node->macroExpansionEnabled = false;
+
+    switch(tok->data.node->type) {
+        case NODE_MACRO_FUNCTION:
+            fprintf(stderr, "Function macros not implemented\n");
+            break;
+        case NODE_MACRO_OBJECT:
+            macro->tokens = tok->data.node->as.object.replacements;
+            macro->tokenCount = tok->data.node->as.object.replacementCount;
+            *tok = macro->tokens[0];
+            macro->tokens++;
+            macro->tokenCount--;
+            if(tok->type == TOKEN_IDENTIFIER_L &&
+                tok->data.node->type != NODE_VOID &&
+                tok->data.node->macroExpansionEnabled) {
+                EnterMacroContext(tok, ctx);
+            }
+            break;
+        case NODE_MACRO_INTEGER:
+            tok->type = TOKEN_INTEGER_L;
+            tok->data.integer = tok->data.node->as.integer;
+            macro->tokens = NULL;
+            macro->tokenCount = 0;
+            break;
+        case NODE_MACRO_STRING: {
+            tok->type = TOKEN_STRING_L;
+            LexerString str;
+            str.buffer = (char*)tok->data.node->as.string;
+            str.count = strlen(tok->data.node->as.string);
+            tok->data.string = str;
+            macro->tokens = NULL;
+            macro->tokenCount = 0;
+        }; break;
+        case NODE_VOID:
+            fprintf(stderr, "enter ctx err\n"); exit(1);
+    }
+}
+
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
     if(ctx->phase4.mode == LEX_MODE_INCLUDE) {
         Phase4Get(tok, ctx->phase4.includeContext);
@@ -1296,6 +1360,26 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         } else {
             return;
         }
+    }
+
+    if(ctx->phase4.macroCtx != NULL) {
+        while(ctx->phase4.macroCtx != NULL && ctx->phase4.macroCtx->tokenCount == 0) {
+            ctx->phase4.macroCtx->macro->macroExpansionEnabled = true;
+            ctx->phase4.macroCtx = ctx->phase4.macroCtx->prev;
+        }
+    }
+    if(ctx->phase4.macroCtx != NULL) {
+        *tok = ctx->phase4.macroCtx->tokens[0];
+        ctx->phase4.macroCtx->tokens++;
+        ctx->phase4.macroCtx->tokenCount--;
+
+        if(tok->type == TOKEN_IDENTIFIER_L &&
+            tok->data.node->type != NODE_VOID &&
+            tok->data.node->macroExpansionEnabled) {
+            EnterMacroContext(tok, ctx);
+        }
+
+        return;
     }
 
     // loop over multiple directives (instead of reccursion)
@@ -1339,6 +1423,12 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
             //fprintf(stderr, "Error: Unknown preprocessing directive\n");
             //Phase4SkipLine(tok, ctx);
             return;
+        }
+
+        if(tok->type == TOKEN_IDENTIFIER_L &&
+            tok->data.node->type != NODE_VOID &&
+            tok->data.node->macroExpansionEnabled) {
+            EnterMacroContext(tok, ctx);
         }
         return;
     }

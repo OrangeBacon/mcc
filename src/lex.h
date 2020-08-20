@@ -207,6 +207,8 @@ typedef struct HashNode {
     HashNodeType type;
     uint32_t hash;
 
+    bool macroExpansionEnabled;
+
     union {
         struct {
             ARRAY_DEFINE(LexerToken, replacement);
@@ -221,6 +223,16 @@ typedef struct HashNode {
     } as;
 } HashNode;
 
+typedef struct MacroContext {
+    struct MacroContext* prev;
+
+    LexerToken* tokens;
+    size_t tokenCount;
+
+    HashNode* macro;
+
+} MacroContext;
+
 typedef enum Phase4LexMode {
     LEX_MODE_INCLUDE,
     LEX_MODE_NO_INCLUDE,
@@ -233,6 +245,7 @@ typedef struct Phase4Context {
     struct TranslationContext* parent;
     IncludeSearchState searchState;
     unsigned char depth;
+    MacroContext* macroCtx;
 } Phase4Context;
 
 // random data used by each translation phase that needs to be stored
