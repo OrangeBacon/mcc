@@ -143,7 +143,7 @@ static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
         case TOKEN_HEADER_NAME: printf("\"%s\"", tok->data.string.buffer); break;
         case TOKEN_SYS_HEADER_NAME: printf("<%s>", tok->data.string.buffer); break;
         case TOKEN_PP_NUMBER: printf("%s", tok->data.string.buffer); break;
-        case TOKEN_IDENTIFIER_L: printf("%s", tok->data.string.buffer); break;
+        case TOKEN_IDENTIFIER_L: printf("%s", tok->data.node->name.data.string.buffer); break;
         case TOKEN_INTEGER_L: printf("%llu", tok->data.integer); break;
         case TOKEN_FLOATING_L: printf("%f", tok->data.floating); break;
         case TOKEN_CHARACTER_L: StringTypePrint(tok->data.string.type); printf("'%s'", tok->data.string.buffer); break;
@@ -955,6 +955,17 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
             c = Phase3Peek(ctx);
             consumedCharacter = false;
         }
+
+        HashNode* node = tableGet(ctx->phase3.hashNodes, tok->data.string.buffer, tok->data.string.count);
+        if(node == NULL) {
+            node = ArenaAlloc(sizeof(*node));
+            node->name = *tok;
+            node->type = NODE_VOID;
+            node->hash = stringHash(tok->data.string.buffer, tok->data.string.count);
+            tableSet(ctx->phase3.hashNodes, tok->data.string.buffer, tok->data.string.count, node);
+        }
+        tok->data.node = node;
+
         return;
     }
 
@@ -988,6 +999,48 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
     tok->data.character = c;
 }
 
+static void PredefinedMacros(TranslationContext* ctx) {
+    ctx->phase3.hashNodes = ArenaAlloc(sizeof(Table));
+    TABLE_INIT(*ctx->phase3.hashNodes, HashNode*);
+
+    time_t currentTime = time(NULL);
+    struct tm timeStruct;
+    localtime_s(&timeStruct, &currentTime);
+
+    char* stringTime = ArenaAlloc(sizeof(char)*9);
+    strftime(stringTime, 9, "%H:%M:%S", &timeStruct);
+    HashNode* time = ArenaAlloc(sizeof(HashNode));
+    time->type = NODE_MACRO_STRING;
+    time->as.string = stringTime;
+    TABLE_SET(*ctx->phase3.hashNodes, "__TIME__", 8, time);
+
+    char* stringDate = ArenaAlloc(sizeof(char) * 128);
+    strftime(stringDate, 128, "%b %d %Y", &timeStruct);
+    HashNode* date = ArenaAlloc(sizeof(HashNode));
+    date->type = NODE_MACRO_STRING;
+    date->as.string = stringDate;
+    TABLE_SET(*ctx->phase3.hashNodes, "__DATE__", 8, date);
+
+#define INT_MACRO(name, value) \
+    HashNode* name = ArenaAlloc(sizeof(HashNode)); \
+    name->type = NODE_MACRO_INTEGER; \
+    name->as.integer = (value); \
+    TABLE_SET(*ctx->phase3.hashNodes, "__"#name"__", 8, name);
+
+    INT_MACRO(STDC, 1);
+    INT_MACRO(STDC_HOSTED, 1);
+    INT_MACRO(STDC_VERSION, 201112L);
+    INT_MACRO(STDC_UTF_16, 1);
+    INT_MACRO(STDC_UTF_32, 1);
+    INT_MACRO(STDC_NO_ATOMICS, 1);
+    INT_MACRO(STDC_NO_COMPLEX, 1);
+    INT_MACRO(STDC_NO_THREADS, 1);
+    INT_MACRO(STDC_NO_VLA, 1);
+    INT_MACRO(STDC_LIB_EXT1, 201112L);
+
+#undef INT_MACRO
+}
+
 // initialise the context for running phase 3
 static void Phase3Initialise(TranslationContext* ctx) {
     Phase2Initialise(ctx);
@@ -999,6 +1052,11 @@ static void Phase3Initialise(TranslationContext* ctx) {
     ctx->phase3.peekNextLoc = *ctx->phase3.currentLocation,
     ctx->phase3.AtStart = true;
     ctx->phase3.getter = Phase3GetFromPhase2;
+
+    if(ctx->phase3.hashNodes == NULL) {
+        PredefinedMacros(ctx);
+    }
+
     Phase3AdvanceOverwrite(ctx);
     Phase3AdvanceOverwrite(ctx);
 }
@@ -1021,6 +1079,12 @@ void runPhase3(TranslationContext* ctx) {
 // include resolution
 
 static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent) {
+    if(parent != NULL) {
+        ctx->phase3.hashNodes = parent->phase3.hashNodes;
+    } else {
+        ctx->phase3.hashNodes = NULL;
+    }
+
     Phase3Initialise(ctx);
     Phase3Get(&ctx->phase4.peek, ctx);
     ctx->phase4.mode = LEX_MODE_NO_HEADER;
@@ -1032,49 +1096,9 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         ctx->debugPrint = parent->debugPrint;
         ctx->search = parent->search;
         ctx->pool = parent->pool;
-        ctx->phase4.macroTable = parent->phase4.macroTable;
         ctx->phase4.depth = parent->phase4.depth + 1;
     } else {
         ctx->phase4.depth = 0;
-        ctx->phase4.macroTable = ArenaAlloc(sizeof(Table));
-        TABLE_INIT(*ctx->phase4.macroTable, Macro*);
-
-        time_t currentTime = time(NULL);
-        struct tm timeStruct;
-        localtime_s(&timeStruct, &currentTime);
-
-        char* stringTime = ArenaAlloc(sizeof(char)*9);
-        strftime(stringTime, 9, "%H:%M:%S", &timeStruct);
-        Macro* time = ArenaAlloc(sizeof(Macro));
-        time->type = MACRO_STRING;
-        time->as.string = stringTime;
-        TABLE_SET(*ctx->phase4.macroTable, "__TIME__", 8, time);
-
-        char* stringDate = ArenaAlloc(sizeof(char) * 128);
-        strftime(stringDate, 128, "%b %d %Y", &timeStruct);
-        Macro* date = ArenaAlloc(sizeof(Macro));
-        date->type = MACRO_STRING;
-        date->as.string = stringDate;
-        TABLE_SET(*ctx->phase4.macroTable, "__DATE__", 8, date);
-
-#define INT_MACRO(name, value) \
-    Macro* name = ArenaAlloc(sizeof(Macro)); \
-    name->type = MACRO_INTEGER; \
-    name->as.integer = (value); \
-    TABLE_SET(*ctx->phase4.macroTable, "__"#name"__", 8, name);
-
-    INT_MACRO(STDC, 1);
-    INT_MACRO(STDC_HOSTED, 1);
-    INT_MACRO(STDC_VERSION, 201112L);
-    INT_MACRO(STDC_UTF_16, 1);
-    INT_MACRO(STDC_UTF_32, 1);
-    INT_MACRO(STDC_NO_ATOMICS, 1);
-    INT_MACRO(STDC_NO_COMPLEX, 1);
-    INT_MACRO(STDC_NO_THREADS, 1);
-    INT_MACRO(STDC_NO_VLA, 1);
-    INT_MACRO(STDC_LIB_EXT1, 201112L);
-
-#undef INT_MACRO
     }
 }
 
@@ -1163,10 +1187,6 @@ static bool parseInclude(LexerToken* tok, TranslationContext* ctx, bool isNext) 
 }
 
 static void parseDefine(TranslationContext* ctx) {
-    Macro* macro = ArenaAlloc(sizeof(*macro));
-    macro->type = MACRO_OBJECT;
-    ARRAY_ALLOC(LexerToken, macro->as.object, replacement);
-
     LexerToken name;
     Phase4Advance(&name, ctx); // consume "define"
     Phase4Advance(&name, ctx); // consume name to define
@@ -1177,14 +1197,22 @@ static void parseDefine(TranslationContext* ctx) {
         return;
     }
 
+    HashNode* node = name.data.node;
+    if(node->type != NODE_VOID) {
+        // error produces too many errors - enable when #if etc implemented
+        // fprintf(stderr, "Error: redefinition of existing macro\n");
+        Phase4SkipLine(&name, ctx);
+        return;
+    }
+    node->type = NODE_MACRO_OBJECT;
+    ARRAY_ALLOC(LexerToken, node->as.object, replacement);
+
     LexerToken* tok = &ctx->phase4.peek;
 
     while(!tok->isStartOfLine) {
-        Phase4Advance(ARRAY_PUSH_PTR(macro->as.object, replacement), ctx);
+        Phase4Advance(ARRAY_PUSH_PTR(node->as.object, replacement), ctx);
         tok = &ctx->phase4.peek;
     }
-
-    TABLE_SET(*ctx->phase4.macroTable, name.data.string.buffer, name.data.string.count, macro);
 }
 
 static void parseUndef(TranslationContext* ctx) {
@@ -1198,13 +1226,7 @@ static void parseUndef(TranslationContext* ctx) {
         return;
     }
 
-    tableRemove(ctx->phase4.macroTable, name.data.string.buffer, name.data.string.count);
-}
-
-static bool checkKeyword(LexerToken* tok, const char* str, size_t len) {
-    if(tok->data.string.count != len) return false;
-
-    return memcmp(tok->data.string.buffer, str, len) == 0;
+    name.data.node->type = NODE_VOID;
 }
 
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
@@ -1234,31 +1256,25 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
                 Phase4SkipLine(tok, ctx);
                 continue;
             }
-            switch(peek->data.string.buffer[0]) {
-                case 'i':
-                    if(checkKeyword(peek, "include", 7)) {
-                        bool success = parseInclude(tok, ctx, false);
-                        if(success) return;
-                        continue;
-                    } else if(checkKeyword(peek, "include_next", 12)) {
-                        // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
-                        bool success = parseInclude(tok, ctx, true);
-                        if(success) return;
-                        continue;
-                    };
-                    break;
-                case 'd':
-                    if(checkKeyword(peek, "define", 6)) {
-                         parseDefine(ctx);
-                        continue;
-                    };
-                    break;
-                case 'u':
-                    if(checkKeyword(peek, "undef", 5)) {
-                        parseUndef(ctx);
-                        continue;
-                    };
-                    break;
+
+            uint32_t hash = peek->data.node->hash;
+            size_t len = peek->data.node->name.data.string.count;
+
+            if(len == 7 && hash == stringHash("include", 7)) {
+                bool success = parseInclude(tok, ctx, false);
+                if(success) return;
+                continue;
+            } else if(len == 12 && hash == stringHash("include_next", 12)) {
+                // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
+                bool success = parseInclude(tok, ctx, true);
+                if(success) return;
+                continue;
+            } else if(len == 6 && hash == stringHash("define", 6)) {
+                parseDefine(ctx);
+                continue;
+            } else if(len == 5 && hash == stringHash("undef", 5)) {
+                parseUndef(ctx);
+                continue;
             }
 
             //fprintf(stderr, "Error: Unknown preprocessing directive\n");

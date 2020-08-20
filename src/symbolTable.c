@@ -3,7 +3,7 @@
 #include <string.h>
 #include <math.h>
 
-static uint32_t stringHash(const char* str, unsigned int length) {
+uint32_t stringHash(const char* str, unsigned int length) {
     uint32_t hash = 2166126261u;
 
     for(size_t i = 0; i < length; i++) {

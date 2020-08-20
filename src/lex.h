@@ -171,6 +171,7 @@ typedef struct LexerToken {
         double floating;
         LexerString string;
         char character;
+        struct HashNode* node;
     } data;
 } LexerToken;
 
@@ -189,17 +190,20 @@ typedef struct Phase3Context {
     SourceLocation* currentLocation;
     bool AtStart;
     unsigned char (*getter)(struct TranslationContext*, SourceLocation* loc);
+    Table* hashNodes;
 } Phase3Context;
 
-typedef enum MacroType {
-    MACRO_OBJECT,
-    MACRO_STRING,
-    MACRO_INTEGER,
-} MacroType;
+typedef enum HashNodeType {
+    NODE_MACRO_OBJECT,
+    NODE_MACRO_STRING,
+    NODE_MACRO_INTEGER,
+    NODE_VOID,
+} HashNodeType;
 
-typedef struct Macro {
+typedef struct HashNode {
     LexerToken name;
-    MacroType type;
+    HashNodeType type;
+    uint32_t hash;
 
     union {
         struct {
@@ -208,7 +212,7 @@ typedef struct Macro {
         const char* string;
         intmax_t integer;
     } as;
-} Macro;
+} HashNode;
 
 typedef enum Phase4LexMode {
     LEX_MODE_INCLUDE,
@@ -221,7 +225,6 @@ typedef struct Phase4Context {
     struct TranslationContext* includeContext;
     struct TranslationContext* parent;
     IncludeSearchState searchState;
-    Table* macroTable;
     unsigned char depth;
 } Phase4Context;
 

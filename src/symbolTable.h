@@ -8,6 +8,8 @@
 
 // Hash table implementation
 
+uint32_t stringHash(const char* str, unsigned int length);
+
 typedef struct Key {
     const char* key;
     unsigned int length;
