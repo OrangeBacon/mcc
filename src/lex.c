@@ -1048,26 +1048,36 @@ static void PredefinedMacros(TranslationContext* ctx) {
     line->name.data.string.count = 8;
     TABLE_SET(*ctx->phase3.hashNodes, "__LINE__", 8, line);
 
-#define INT_MACRO(n, value) \
+#define INT_MACRO(pre, n, post, value) \
     HashNode* n = ArenaAlloc(sizeof(HashNode)); \
     n->type = NODE_MACRO_INTEGER; \
     n->as.integer = (value); \
     n->macroExpansionEnabled = true; \
-    n->hash = stringHash("__"#n"__", strlen("__"#n"__")); \
-    n->name.data.string.buffer = "__"#n"__"; \
-    n->name.data.string.count = strlen("__"#n"__"); \
-    TABLE_SET(*ctx->phase3.hashNodes, "__"#n"__", strlen("__"#n"__"), n);
+    n->hash = stringHash(#pre#n#post, strlen(#pre#n#post)); \
+    n->name.data.string.buffer = #pre#n#post; \
+    n->name.data.string.count = strlen(#pre#n#post); \
+    TABLE_SET(*ctx->phase3.hashNodes, #pre#n#post, strlen(#pre#n#post), n);
 
-    INT_MACRO(STDC, 1);
-    INT_MACRO(STDC_HOSTED, 1);
-    INT_MACRO(STDC_VERSION, 201112L);
-    INT_MACRO(STDC_UTF_16, 1);
-    INT_MACRO(STDC_UTF_32, 1);
-    INT_MACRO(STDC_NO_ATOMICS, 1);
-    INT_MACRO(STDC_NO_COMPLEX, 1);
-    INT_MACRO(STDC_NO_THREADS, 1);
-    INT_MACRO(STDC_NO_VLA, 1);
-    INT_MACRO(STDC_LIB_EXT1, 201112L);
+    INT_MACRO(__, STDC, __, 1);
+    INT_MACRO(__, STDC_HOSTED, __, 1);
+    INT_MACRO(__, STDC_VERSION, __, 201112L);
+    INT_MACRO(__, STDC_UTF_16, __, 1);
+    INT_MACRO(__, STDC_UTF_32, __, 1);
+    INT_MACRO(__, STDC_NO_ATOMICS, __, 1);
+    INT_MACRO(__, STDC_NO_COMPLEX, __, 1);
+    INT_MACRO(__, STDC_NO_THREADS, __, 1);
+    INT_MACRO(__, STDC_NO_VLA, __, 1);
+    INT_MACRO(__, STDC_LIB_EXT1, __, 201112L);
+    INT_MACRO(__, x86_64_, _, 1);
+    INT_MACRO(__, x86_64, , 1);
+    INT_MACRO(W, IN32, , 1);
+    INT_MACRO(_WI, N32, , 1);
+    INT_MACRO(__W, IN32_, _, 1);
+    INT_MACRO(__, WIN32_, _, 1);
+    INT_MACRO(W, IN64, , 1);
+    INT_MACRO(_WI, N64, , 1);
+    INT_MACRO(__W, IN64_, _, 1);
+    INT_MACRO(__, WIN64_, _, 1);
 
 #undef INT_MACRO
 }
@@ -1373,6 +1383,7 @@ static bool __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* to
             LexerString str;
             str.buffer = (char*)tok->data.node->as.string;
             str.count = strlen(tok->data.node->as.string);
+            str.type = STRING_NONE;
             tok->data.string = str;
             macro->tokens = NULL;
             macro->tokenCount = 0;
@@ -1390,6 +1401,7 @@ static bool __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* to
             LexerString str;
             str.buffer = (char*)ctx->phase4.previous.loc->fileName;
             str.count = strlen((char*)ctx->phase4.previous.loc->fileName);
+            str.type = STRING_NONE;
             tok->data.string = str;
             macro->tokens = NULL;
             macro->tokenCount = 0;
@@ -1425,7 +1437,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         ctx->phase4.macroCtx->tokens++;
         ctx->phase4.macroCtx->tokenCount--;
 
-        bool success = false;
+        bool success = true;
         if(tok->type == TOKEN_IDENTIFIER_L &&
             tok->data.node->type != NODE_VOID &&
             tok->data.node->macroExpansionEnabled) {
@@ -1512,4 +1524,5 @@ void runPhase4(TranslationContext* ctx) {
     while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
         TokenPrint(ctx, &tok);
     }
+    printf("\n");
 }
