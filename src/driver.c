@@ -62,6 +62,11 @@ int driver(int argc, char** argv) {
         topArguments,
     };
 
+    fprintf(stderr, "arguments:\n");
+    for(int i = 0; i < argc; i++) {
+        fprintf(stderr, "arg %d: %s\n", i, argv[i]);
+    }
+
     bool hadError = parseArgs(&argparser);
     if(hadError) return EXIT_FAILURE;
 
@@ -78,7 +83,6 @@ int driver(int argc, char** argv) {
                 .tabSize = 4,
                 .debugPrint = false,
                 .search = search,
-                .pool = &pool,
             };
             TranslationContextInit(&ctx, &pool, (unsigned char*)files.datas[i]);
             counts[translationPhaseCount-1](&ctx);

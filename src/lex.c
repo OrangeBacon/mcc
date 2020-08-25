@@ -187,6 +187,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
     memoryArrayAlloc(&ctx->stringArr, pool, 4*MiB, sizeof(unsigned char));
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
 
+    ctx->pool = pool;
     ctx->tokenPrinterAtStart = true;
     ctx->fileName = fileName;
     ctx->phase1consumed = 0;
@@ -1115,8 +1116,6 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         ctx->phase3.hashNodes = NULL;
     }
 
-    Phase3Initialise(ctx);
-    Phase3Get(&ctx->phase4.peek, ctx);
     ctx->phase4.mode = LEX_MODE_NO_HEADER;
     ctx->phase4.searchState = (IncludeSearchState){0};
     ctx->phase4.parent = parent;
@@ -1132,6 +1131,9 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
     } else {
         ctx->phase4.depth = 0;
     }
+
+    Phase3Initialise(ctx);
+    Phase3Get(&ctx->phase4.peek, ctx);
 }
 
 static void Phase4Advance(LexerToken* tok, TranslationContext* ctx) {
@@ -1279,6 +1281,7 @@ static void parseDefine(TranslationContext* ctx) {
         }
     }
 
+    size_t i = 0;
     while(!tok->isStartOfLine) {
         LexerToken* addr;
         if(node->type == NODE_MACRO_FUNCTION) {
@@ -1286,7 +1289,12 @@ static void parseDefine(TranslationContext* ctx) {
         } else {
             addr = ARRAY_PUSH_PTR(node->as.object, replacement);
         }
+        addr->type = TOKEN_ERROR_L;
         Phase4Advance(addr, ctx);
+
+        if(i == 0) {
+            addr->indent = 0;
+        }
 
 
         // replace identifiers that correspond to an argument with a token
@@ -1303,12 +1311,14 @@ static void parseDefine(TranslationContext* ctx) {
             }
         }
 
-        if(addr->type == TOKEN_IDENTIFIER_L && node->type == NODE_MACRO_OBJECT) {
-            if(addr->data.node->name.data.string.count == 12 &&
-                 addr->data.node->hash == stringHash("__VA_ARGS__", 12)) {
-                fprintf(stderr, "Error: __VA_ARGS__ is invalid unless in a function macro\n");
-            }
+        if(addr->type == TOKEN_IDENTIFIER_L &&
+        (node->type == NODE_MACRO_OBJECT || (node->type == NODE_MACRO_FUNCTION && !node->as.function.isVariadac)) &&
+        addr->data.node->name.data.string.count == 12 &&
+        addr->data.node->hash == stringHash("__VA_ARGS__", 12)) {
+            fprintf(stderr, "Error: __VA_ARGS__ is invalid unless in a variadac function macro\n");
         }
+
+        i++;
     }
 }
 
@@ -1326,35 +1336,38 @@ static void parseUndef(TranslationContext* ctx) {
     name.data.node->type = NODE_VOID;
 }
 
-static void EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
+static bool __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
     MacroContext* macro = ArenaAlloc(sizeof(MacroContext));
     macro->prev = ctx->phase4.macroCtx;
     macro->macro = tok->data.node;
-    ctx->phase4.macroCtx = macro;
-    tok->data.node->macroExpansionEnabled = false;
 
     switch(tok->data.node->type) {
         case NODE_MACRO_FUNCTION:
-            fprintf(stderr, "Function macros not implemented\n");
-            break;
+            //fprintf(stderr, "Function macros not implemented\n");
+            return false;
         case NODE_MACRO_OBJECT:
             macro->tokens = tok->data.node->as.object.replacements;
             macro->tokenCount = tok->data.node->as.object.replacementCount;
-            *tok = macro->tokens[0];
-            macro->tokens++;
-            macro->tokenCount--;
-            if(tok->type == TOKEN_IDENTIFIER_L &&
-                tok->data.node->type != NODE_VOID &&
-                tok->data.node->macroExpansionEnabled) {
-                EnterMacroContext(tok, ctx);
+            tok->data.node->macroExpansionEnabled = false;
+            if(macro->tokenCount > 0) {
+                ctx->phase4.macroCtx = macro;
+                *tok = macro->tokens[0];
+                macro->tokens++;
+                macro->tokenCount--;
+                if(tok->type == TOKEN_IDENTIFIER_L &&
+                    tok->data.node->type != NODE_VOID &&
+                    tok->data.node->macroExpansionEnabled) {
+                    return EnterMacroContext(tok, ctx);
+                }
+                return true;
             }
-            break;
+            return false;
         case NODE_MACRO_INTEGER:
             tok->type = TOKEN_INTEGER_L;
             tok->data.integer = tok->data.node->as.integer;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-            break;
+            return true;
         case NODE_MACRO_STRING: {
             tok->type = TOKEN_STRING_L;
             LexerString str;
@@ -1363,13 +1376,15 @@ static void EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
             tok->data.string = str;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-        }; break;
+            return true;
+        }
         case NODE_MACRO_LINE: {
             tok->type = TOKEN_INTEGER_L;
             tok->data.integer = ctx->phase4.previous.loc->line;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-        }; break;
+            return true;
+        }
         case NODE_MACRO_FILE: {
             tok->type = TOKEN_STRING_L;
             LexerString str;
@@ -1378,10 +1393,14 @@ static void EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
             tok->data.string = str;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-        }; break;
+            return true;
+        }
         case NODE_VOID:
             fprintf(stderr, "enter ctx err\n"); exit(1);
     }
+
+    fprintf(stderr, "node type error\n");
+    exit(1);
 }
 
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
@@ -1406,17 +1425,20 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         ctx->phase4.macroCtx->tokens++;
         ctx->phase4.macroCtx->tokenCount--;
 
+        bool success = false;
         if(tok->type == TOKEN_IDENTIFIER_L &&
             tok->data.node->type != NODE_VOID &&
             tok->data.node->macroExpansionEnabled) {
-            EnterMacroContext(tok, ctx);
+            success = EnterMacroContext(tok, ctx);
         }
 
-        return;
+        if(success) return;
     }
 
+    tok->type = TOKEN_ERROR_L;
+
     // loop over multiple directives (instead of reccursion)
-    while(true) {
+    while(tok->type != TOKEN_EOF_L) {
         Phase4Advance(tok, ctx);
 
         if((tok->type == TOKEN_PUNC_HASH || tok->type == TOKEN_PUNC_PERCENT_COLON) && tok->isStartOfLine) {
@@ -1468,10 +1490,17 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         if(tok->type == TOKEN_IDENTIFIER_L &&
             tok->data.node->type != NODE_VOID &&
             tok->data.node->macroExpansionEnabled) {
-            EnterMacroContext(tok, ctx);
-        } else {
-            ctx->phase4.previous = *tok;
+            if(!EnterMacroContext(tok, ctx)) {
+                continue;
+            }
         }
+
+        if(tok->type == TOKEN_IDENTIFIER_L &&
+        tok->data.node->name.data.string.count == 12 &&
+        tok->data.node->hash == stringHash("__VA_ARGS__", 12)) {
+            fprintf(stderr, "Warning: Unexpected identifier __VA_ARGS__ outisde of variadac function macro");
+        }
+        ctx->phase4.previous = *tok;
         return;
     }
 }
