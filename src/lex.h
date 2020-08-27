@@ -204,6 +204,12 @@ typedef enum HashNodeType {
     NODE_VOID,
 } HashNodeType;
 
+typedef struct FnMacro {
+    ARRAY_DEFINE(LexerToken, argument);
+    ARRAY_DEFINE(LexerToken, replacement);
+    bool isVariadac;
+} FnMacro;
+
 typedef struct HashNode {
     LexerToken name;
     HashNodeType type;
@@ -215,11 +221,7 @@ typedef struct HashNode {
         struct {
             ARRAY_DEFINE(LexerToken, replacement);
         } object;
-        struct {
-            ARRAY_DEFINE(LexerToken, argument);
-            ARRAY_DEFINE(LexerToken, replacement);
-            bool isVariadac;
-        } function;
+        FnMacro function;
         const char* string;
         intmax_t integer;
     } as;
@@ -248,6 +250,9 @@ typedef struct Phase4Context {
     IncludeSearchState searchState;
     unsigned char depth;
     MacroContext* macroCtx;
+
+    void (*getter)(LexerToken*, struct TranslationContext*, void*);
+    void* getterCtx;
 
     // stores the previous token emitted at base context (no macro expansion)
     // used for correct __LINE__ and __FILE__ interpretation

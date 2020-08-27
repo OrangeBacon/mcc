@@ -533,7 +533,7 @@ static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
         ctx->phase3.AtStart = false;
     }
 
-    while(true) {
+    while(!Phase3AtEnd(ctx)) {
         unsigned char c = Phase3Peek(ctx);
         switch(c) {
             case ' ':
@@ -798,7 +798,7 @@ static void ParseHeaderName(TranslationContext* ctx, LexerToken* tok, unsigned c
 }
 
 // character -> preprocessor token conversion
-static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
+static void Phase3Get(LexerToken* tok, TranslationContext* ctx, void* __UNUSED_PARAM(nullCtx)) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
     *loc = *ctx->phase3.currentLocation;
     loc->length = 0;
@@ -1106,7 +1106,7 @@ static void Phase3Initialise(TranslationContext* ctx) {
 void runPhase3(TranslationContext* ctx) {
     Phase3Initialise(ctx);
     LexerToken tok;
-    while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
+    while(Phase3Get(&tok, ctx, NULL), tok.type != TOKEN_EOF_L) {
         TokenPrint(ctx, &tok);
     }
 }
@@ -1119,7 +1119,7 @@ void runPhase3(TranslationContext* ctx) {
 // _Pragma expansion
 // include resolution
 
-static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent) {
+static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent, bool phase3Req) {
     if(parent != NULL) {
         ctx->phase3.hashNodes = parent->phase3.hashNodes;
     } else {
@@ -1130,7 +1130,7 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
     ctx->phase4.searchState = (IncludeSearchState){0};
     ctx->phase4.parent = parent;
     ctx->phase4.macroCtx = NULL;
-    ctx->phase4.previous.loc = ctx->phase4.peek.loc;
+    if(!ctx->phase4.getter) ctx->phase4.getter = Phase3Get;
     if(parent != NULL) {
         ctx->trigraphs = parent->trigraphs;
         ctx->tabSize = parent->tabSize;
@@ -1140,19 +1140,20 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         ctx->phase4.depth = parent->phase4.depth + 1;
     } else {
         ctx->phase4.depth = 0;
+        ctx->phase4.previous.loc = &ctx->phase1Location;
     }
 
-    Phase3Initialise(ctx);
-    Phase3Get(&ctx->phase4.peek, ctx);
-}
-
-static void Phase4Advance(LexerToken* tok, TranslationContext* ctx) {
-    *tok = ctx->phase4.peek;
-    Phase3Get(&ctx->phase4.peek, ctx);
+    if(phase3Req) Phase3Initialise(ctx);
+    ctx->phase4.getter(&ctx->phase4.peek, ctx, ctx->phase4.getterCtx);
 }
 
 static bool Phase4AtEnd(TranslationContext* ctx) {
     return ctx->phase4.peek.type == TOKEN_EOF_L;
+}
+
+static void Phase4Advance(LexerToken* tok, TranslationContext* ctx) {
+    *tok = ctx->phase4.peek;
+    ctx->phase4.getter(&ctx->phase4.peek, ctx, ctx->phase4.getterCtx);
 }
 
 static void Phase4SkipLine(LexerToken* tok, TranslationContext* ctx) {
@@ -1198,10 +1199,13 @@ static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser, b
         return false;
     }
     TranslationContext* ctx2 = ArenaAlloc(sizeof(*ctx2));
+    memset(ctx2, 0, sizeof(*ctx2));
     ctx->phase4.mode = LEX_MODE_INCLUDE;
     ctx->phase4.includeContext = ctx2;
+
+    ctx2->phase4.previous = ctx->phase4.previous;
     TranslationContextInit(ctx2, ctx->pool, (const unsigned char*)fileName);
-    Phase4Initialise(ctx2, ctx);
+    Phase4Initialise(ctx2, ctx, true);
     Phase4Get(tok, ctx2);
     return true;
 }
@@ -1346,15 +1350,146 @@ static void parseUndef(TranslationContext* ctx) {
     name.data.node->type = NODE_VOID;
 }
 
-static bool __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
+typedef struct TokenList {
+    ARRAY_DEFINE(LexerToken, item);
+} TokenList;
+
+typedef struct TokenListList {
+    ARRAY_DEFINE(TokenList, item);
+} TokenListList;
+
+static void TokenListGetter(LexerToken* tok, TranslationContext* __UNUSED_PARAM(ctx), void* nullCtx) {
+    TokenList* list = nullCtx;
+    if(list->itemCount > 0) {
+        *tok = list->items[0];
+        list->items++;
+        list->itemCount--;
+    } else {
+        tok->type = TOKEN_EOF_L;
+    }
+}
+
+static void Phase4Get(LexerToken* tok, TranslationContext* ctx);
+
+typedef enum EnterContextResult {
+    CONTEXT_MACRO_TOKEN,
+    CONTEXT_MACRO_NULL,
+    CONTEXT_NOT_MACRO,
+} EnterContextResult;
+
+static EnterContextResult ParseFunctionMacro(MacroContext* macro, LexerToken* tok, TranslationContext* ctx) {
+    if(ctx->phase4.peek.type != TOKEN_PUNC_LEFT_PAREN) {
+        return CONTEXT_NOT_MACRO;
+    }
+
+    LexerToken lparen;
+    Phase4Advance(&lparen, ctx);
+
+    TokenListList args;
+    ARRAY_ALLOC(TokenList, args, item);
+
+    LexerToken* next;
+    while(!Phase4AtEnd(ctx)) {
+        TokenList arg;
+        ARRAY_ALLOC(LexerToken, arg, item);
+
+        int bracketDepth = 0;
+        while(!Phase4AtEnd(ctx)) {
+            next = ARRAY_PUSH_PTR(arg, item);
+            Phase4Advance(next, ctx);
+
+            if(next->type == TOKEN_PUNC_COMMA && bracketDepth == 0) {
+                arg.itemCount--;
+                break;
+            } else if(next->type == TOKEN_PUNC_LEFT_PAREN) {
+                bracketDepth++;
+            } else if(next->type == TOKEN_PUNC_RIGHT_PAREN) {
+                if(bracketDepth == 0) {
+                    arg.itemCount--;
+                    break;
+                } else {
+                    bracketDepth--;
+                }
+            }
+        }
+
+        TranslationContext argExpansion = {.phase4 = {
+            .getter = TokenListGetter,
+            .getterCtx = &arg,
+            .previous = ctx->phase4.previous,
+        }};
+        Phase4Initialise(&argExpansion, ctx, false);
+
+        TokenList* expandedArg = ARRAY_PUSH_PTR(args, item);
+        ARRAY_ALLOC(LexerToken, *expandedArg, item);
+
+        while(true) {
+            LexerToken* expansion = ARRAY_PUSH_PTR(*expandedArg, item);
+            Phase4Get(expansion, &argExpansion);
+
+            if(expansion->type == TOKEN_EOF_L) {
+                expandedArg->itemCount--;
+                break;
+            }
+        }
+
+
+        if(next->type == TOKEN_PUNC_RIGHT_PAREN) {
+            break;
+        }
+    }
+
+    if(next->type != TOKEN_PUNC_RIGHT_PAREN) {
+        fprintf(stderr, "Error: Unterminated function macro call\n");
+        return CONTEXT_MACRO_NULL;
+    }
+
+    TokenList result;
+    ARRAY_ALLOC(LexerToken, result, item);
+
+    FnMacro* fn = &tok->data.node->as.function;
+    for(unsigned int i = 0; i < fn->replacementCount; i++) {
+        LexerToken* tok = &fn->replacements[i];
+        if(tok->type == TOKEN_MACRO_ARG) {
+            if(tok->data.integer > args.itemCount) {
+                fprintf(stderr, "Error: bad arguments\n");
+                continue;
+            }
+            TokenList arg = args.items[tok->data.integer];
+            for(unsigned int j = 0; j < arg.itemCount; j++) {
+                ARRAY_PUSH(result, item, arg.items[j]);
+            }
+        } else {
+            ARRAY_PUSH(result, item, *tok);
+        }
+    }
+
+    macro->tokens = result.items;
+    macro->tokenCount = result.itemCount;
+
+    if(result.itemCount > 0) {
+        *tok = result.items[0];
+        macro->tokens++;
+        macro->tokenCount--;
+    }
+
+    ctx->phase4.macroCtx = macro;
+
+    return CONTEXT_MACRO_TOKEN;
+}
+
+static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
+    if(tok->type != TOKEN_IDENTIFIER_L || tok->data.node->type == NODE_VOID || !tok->data.node->macroExpansionEnabled) {
+        return CONTEXT_NOT_MACRO;
+    }
+
     MacroContext* macro = ArenaAlloc(sizeof(MacroContext));
     macro->prev = ctx->phase4.macroCtx;
     macro->macro = tok->data.node;
 
     switch(tok->data.node->type) {
         case NODE_MACRO_FUNCTION:
-            //fprintf(stderr, "Function macros not implemented\n");
-            return false;
+            return ParseFunctionMacro(macro, tok, ctx);
         case NODE_MACRO_OBJECT:
             macro->tokens = tok->data.node->as.object.replacements;
             macro->tokenCount = tok->data.node->as.object.replacementCount;
@@ -1369,32 +1504,35 @@ static bool __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* to
                     tok->data.node->macroExpansionEnabled) {
                     return EnterMacroContext(tok, ctx);
                 }
-                return true;
+                return CONTEXT_MACRO_TOKEN;
             }
-            return false;
+            return CONTEXT_MACRO_NULL;
         case NODE_MACRO_INTEGER:
             tok->type = TOKEN_INTEGER_L;
             tok->data.integer = tok->data.node->as.integer;
+            ctx->phase4.macroCtx = macro;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-            return true;
+            return CONTEXT_MACRO_TOKEN;
         case NODE_MACRO_STRING: {
             tok->type = TOKEN_STRING_L;
             LexerString str;
             str.buffer = (char*)tok->data.node->as.string;
             str.count = strlen(tok->data.node->as.string);
+            ctx->phase4.macroCtx = macro;
             str.type = STRING_NONE;
             tok->data.string = str;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-            return true;
+            return CONTEXT_MACRO_TOKEN;
         }
         case NODE_MACRO_LINE: {
             tok->type = TOKEN_INTEGER_L;
             tok->data.integer = ctx->phase4.previous.loc->line;
+            ctx->phase4.macroCtx = macro;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-            return true;
+            return CONTEXT_MACRO_TOKEN;
         }
         case NODE_MACRO_FILE: {
             tok->type = TOKEN_STRING_L;
@@ -1403,9 +1541,10 @@ static bool __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* to
             str.count = strlen((char*)ctx->phase4.previous.loc->fileName);
             str.type = STRING_NONE;
             tok->data.string = str;
+            ctx->phase4.macroCtx = macro;
             macro->tokens = NULL;
             macro->tokenCount = 0;
-            return true;
+            return CONTEXT_MACRO_TOKEN;
         }
         case NODE_VOID:
             fprintf(stderr, "enter ctx err\n"); exit(1);
@@ -1413,6 +1552,13 @@ static bool __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* to
 
     fprintf(stderr, "node type error\n");
     exit(1);
+}
+
+static void TryExitMacroContext(TranslationContext* ctx) {
+    while(ctx->phase4.macroCtx != NULL && ctx->phase4.macroCtx->tokenCount == 0) {
+        ctx->phase4.macroCtx->macro->macroExpansionEnabled = true;
+        ctx->phase4.macroCtx = ctx->phase4.macroCtx->prev;
+    }
 }
 
 static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
@@ -1427,24 +1573,21 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
     }
 
     if(ctx->phase4.macroCtx != NULL) {
-        while(ctx->phase4.macroCtx != NULL && ctx->phase4.macroCtx->tokenCount == 0) {
-            ctx->phase4.macroCtx->macro->macroExpansionEnabled = true;
-            ctx->phase4.macroCtx = ctx->phase4.macroCtx->prev;
-        }
+        TryExitMacroContext(ctx);
     }
     if(ctx->phase4.macroCtx != NULL) {
         *tok = ctx->phase4.macroCtx->tokens[0];
         ctx->phase4.macroCtx->tokens++;
         ctx->phase4.macroCtx->tokenCount--;
 
-        bool success = true;
+        EnterContextResult res = CONTEXT_MACRO_TOKEN;
         if(tok->type == TOKEN_IDENTIFIER_L &&
             tok->data.node->type != NODE_VOID &&
             tok->data.node->macroExpansionEnabled) {
-            success = EnterMacroContext(tok, ctx);
+            res = EnterMacroContext(tok, ctx);
         }
 
-        if(success) return;
+        if(res == CONTEXT_MACRO_TOKEN) return;
     }
 
     tok->type = TOKEN_ERROR_L;
@@ -1499,12 +1642,8 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
             return;
         }
 
-        if(tok->type == TOKEN_IDENTIFIER_L &&
-            tok->data.node->type != NODE_VOID &&
-            tok->data.node->macroExpansionEnabled) {
-            if(!EnterMacroContext(tok, ctx)) {
-                continue;
-            }
+        if(EnterMacroContext(tok, ctx) == CONTEXT_MACRO_NULL) {
+            continue;
         }
 
         if(tok->type == TOKEN_IDENTIFIER_L &&
@@ -1519,7 +1658,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
 // helper to run upto and including phase 4
 void runPhase4(TranslationContext* ctx) {
-    Phase4Initialise(ctx, NULL);
+    Phase4Initialise(ctx, NULL, true);
     LexerToken tok;
     while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
         TokenPrint(ctx, &tok);
