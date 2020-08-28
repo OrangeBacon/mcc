@@ -204,6 +204,14 @@ typedef enum HashNodeType {
     NODE_VOID,
 } HashNodeType;
 
+typedef struct TokenList {
+    ARRAY_DEFINE(LexerToken, item);
+} TokenList;
+
+typedef struct TokenListList {
+    ARRAY_DEFINE(TokenList, item);
+} TokenListList;
+
 typedef struct FnMacro {
     ARRAY_DEFINE(LexerToken, argument);
     ARRAY_DEFINE(LexerToken, replacement);
@@ -218,9 +226,7 @@ typedef struct HashNode {
     bool macroExpansionEnabled;
 
     union {
-        struct {
-            ARRAY_DEFINE(LexerToken, replacement);
-        } object;
+        TokenList object;
         FnMacro function;
         const char* string;
         intmax_t integer;
@@ -228,13 +234,8 @@ typedef struct HashNode {
 } HashNode;
 
 typedef struct MacroContext {
-    struct MacroContext* prev;
-
     LexerToken* tokens;
     size_t tokenCount;
-
-    HashNode* macro;
-
 } MacroContext;
 
 typedef enum Phase4LexMode {
@@ -249,10 +250,7 @@ typedef struct Phase4Context {
     struct TranslationContext* parent;
     IncludeSearchState searchState;
     unsigned char depth;
-    MacroContext* macroCtx;
-
-    void (*getter)(LexerToken*, struct TranslationContext*, void*);
-    void* getterCtx;
+    MacroContext macroCtx;
 
     // stores the previous token emitted at base context (no macro expansion)
     // used for correct __LINE__ and __FILE__ interpretation

@@ -798,7 +798,7 @@ static void ParseHeaderName(TranslationContext* ctx, LexerToken* tok, unsigned c
 }
 
 // character -> preprocessor token conversion
-static void Phase3Get(LexerToken* tok, TranslationContext* ctx, void* __UNUSED_PARAM(nullCtx)) {
+static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
     SourceLocation* loc = memoryArrayPush(&ctx->locations);
     *loc = *ctx->phase3.currentLocation;
     loc->length = 0;
@@ -1106,7 +1106,7 @@ static void Phase3Initialise(TranslationContext* ctx) {
 void runPhase3(TranslationContext* ctx) {
     Phase3Initialise(ctx);
     LexerToken tok;
-    while(Phase3Get(&tok, ctx, NULL), tok.type != TOKEN_EOF_L) {
+    while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
         TokenPrint(ctx, &tok);
     }
 }
@@ -1129,8 +1129,7 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
     ctx->phase4.mode = LEX_MODE_NO_HEADER;
     ctx->phase4.searchState = (IncludeSearchState){0};
     ctx->phase4.parent = parent;
-    ctx->phase4.macroCtx = NULL;
-    if(!ctx->phase4.getter) ctx->phase4.getter = Phase3Get;
+    ctx->phase4.macroCtx = (MacroContext){0};
     if(parent != NULL) {
         ctx->trigraphs = parent->trigraphs;
         ctx->tabSize = parent->tabSize;
@@ -1144,16 +1143,22 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
     }
 
     if(phase3Req) Phase3Initialise(ctx);
-    ctx->phase4.getter(&ctx->phase4.peek, ctx, ctx->phase4.getterCtx);
+    Phase3Get(&ctx->phase4.peek, ctx);
 }
 
 static bool Phase4AtEnd(TranslationContext* ctx) {
     return ctx->phase4.peek.type == TOKEN_EOF_L;
 }
 
-static void Phase4Advance(LexerToken* tok, TranslationContext* ctx) {
-    *tok = ctx->phase4.peek;
-    ctx->phase4.getter(&ctx->phase4.peek, ctx, ctx->phase4.getterCtx);
+static void Phase4Advance(LexerToken* tok, void* ctx) {
+    TranslationContext* t = ctx;
+    *tok = t->phase4.peek;
+    Phase3Get(&t->phase4.peek, ctx);
+}
+
+static void Phase4Peek(LexerToken* tok, void* ctx) {
+    TranslationContext* t = ctx;
+    *tok = t->phase4.peek;
 }
 
 static void Phase4SkipLine(LexerToken* tok, TranslationContext* ctx) {
@@ -1288,7 +1293,7 @@ static void parseDefine(TranslationContext* ctx) {
 
     } else {
         node->type = NODE_MACRO_OBJECT;
-        ARRAY_ALLOC(LexerToken, node->as.object, replacement);
+        ARRAY_ALLOC(LexerToken, node->as.object, item);
 
         if(!tok->whitespaceBefore) {
             fprintf(stderr, "Error: ISO C requires whitespace after macro name\n");
@@ -1301,7 +1306,7 @@ static void parseDefine(TranslationContext* ctx) {
         if(node->type == NODE_MACRO_FUNCTION) {
             addr = ARRAY_PUSH_PTR(node->as.function, replacement);
         } else {
-            addr = ARRAY_PUSH_PTR(node->as.object, replacement);
+            addr = ARRAY_PUSH_PTR(node->as.object, item);
         }
         addr->type = TOKEN_ERROR_L;
         Phase4Advance(addr, ctx);
@@ -1350,20 +1355,21 @@ static void parseUndef(TranslationContext* ctx) {
     name.data.node->type = NODE_VOID;
 }
 
-typedef struct TokenList {
-    ARRAY_DEFINE(LexerToken, item);
-} TokenList;
-
-typedef struct TokenListList {
-    ARRAY_DEFINE(TokenList, item);
-} TokenListList;
-
-static void TokenListGetter(LexerToken* tok, TranslationContext* __UNUSED_PARAM(ctx), void* nullCtx) {
-    TokenList* list = nullCtx;
+static void TokenListAdvance(LexerToken* tok, void* ctx) {
+    TokenList* list = ctx;
     if(list->itemCount > 0) {
         *tok = list->items[0];
         list->items++;
         list->itemCount--;
+    } else {
+        tok->type = TOKEN_EOF_L;
+    }
+}
+
+static void TokenListPeek(LexerToken* tok, void* ctx) {
+    TokenList* list = ctx;
+    if(list->itemCount > 0) {
+        *tok = list->items[0];
     } else {
         tok->type = TOKEN_EOF_L;
     }
@@ -1377,7 +1383,84 @@ typedef enum EnterContextResult {
     CONTEXT_NOT_MACRO,
 } EnterContextResult;
 
-static EnterContextResult ParseFunctionMacro(MacroContext* macro, LexerToken* tok, TranslationContext* ctx) {
+
+/*
+
+Algorithm:
+When getting token from phase 4
+when token is macro
+- if special, return one token
+- if object, expand replacement list, set buffer, return first token
+- if function, expand arguments, substitute, expand, return first token
+
+if first token was null (i.e. expanded to list len = 0), return null
+
+*/
+
+#define EXPAND_LINE_FN \
+static EnterContextResult ExpandLine( \
+    LexerToken* tok, \
+    TranslationContext* ctx, \
+    MacroContext* macro, \
+    Phase4Getter __UNUSED_PARAM(advance), \
+    Phase4Getter __UNUSED_PARAM(peek), \
+    void* __UNUSED_PARAM(getCtx), \
+    bool __UNUSED_PARAM(isMinimal) \
+)
+
+typedef void (*Phase4Getter)(LexerToken* tok, void* ctx);
+
+
+EXPAND_LINE_FN;
+
+// expand an object macro
+static EnterContextResult ParseObjectMacro(MacroContext* macro, LexerToken* tok, TranslationContext* ctx) {
+    if(tok->data.node->as.object.itemCount <= 0) {
+        return CONTEXT_MACRO_NULL;
+    }
+
+    tok->data.node->macroExpansionEnabled = false;
+
+    TokenList result;
+    TokenList toBeExpanded = tok->data.node->as.object;
+    ARRAY_ALLOC(LexerToken, result, item);
+    LexerToken* t = ARRAY_PUSH_PTR(result, item);
+    while(true) {
+        TokenListAdvance(t, &toBeExpanded);
+
+        // expand the new macro
+        MacroContext macro = {0};
+        EnterContextResult res = ExpandLine(t, ctx, &macro, TokenListAdvance, TokenListPeek, &toBeExpanded, false);
+        if(res == CONTEXT_MACRO_NULL) {
+            continue;
+        }
+
+        // append the new tokens to the current buffer
+        for(unsigned int i = 0; i < macro.tokenCount; i++){
+            ARRAY_PUSH(result, item, macro.tokens[i]);
+        }
+
+        if(t->type == TOKEN_EOF_L) {
+            result.itemCount--;
+            break;
+        }
+        t = ARRAY_PUSH_PTR(result, item);
+    }
+
+    tok->data.node->macroExpansionEnabled = true;
+
+    if(result.itemElementSize <= 0) {
+        return CONTEXT_MACRO_NULL;
+    }
+
+    *tok = result.items[0];
+    macro->tokens = result.items + 1;
+    macro->tokenCount = result.itemCount - 1;
+
+    return CONTEXT_MACRO_TOKEN;
+}
+
+static EnterContextResult __attribute__((unused)) ParseFunctionMacro(MacroContext* macro, LexerToken* tok, TranslationContext* ctx) {
     if(ctx->phase4.peek.type != TOKEN_PUNC_LEFT_PAREN) {
         return CONTEXT_NOT_MACRO;
     }
@@ -1414,8 +1497,6 @@ static EnterContextResult ParseFunctionMacro(MacroContext* macro, LexerToken* to
         }
 
         TranslationContext argExpansion = {.phase4 = {
-            .getter = TokenListGetter,
-            .getterCtx = &arg,
             .previous = ctx->phase4.previous,
         }};
         Phase4Initialise(&argExpansion, ctx, false);
@@ -1473,45 +1554,26 @@ static EnterContextResult ParseFunctionMacro(MacroContext* macro, LexerToken* to
         macro->tokenCount--;
     }
 
-    ctx->phase4.macroCtx = macro;
-
     return CONTEXT_MACRO_TOKEN;
 }
 
-static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
+
+// macro expands a line of tokens
+// line ends at either first non-macro (minimal) or EOF (non-minimal)
+// assumes the first token has already been consumed from the relavant stream
+EXPAND_LINE_FN {
     if(tok->type != TOKEN_IDENTIFIER_L || tok->data.node->type == NODE_VOID || !tok->data.node->macroExpansionEnabled) {
         return CONTEXT_NOT_MACRO;
     }
 
-    MacroContext* macro = ArenaAlloc(sizeof(MacroContext));
-    macro->prev = ctx->phase4.macroCtx;
-    macro->macro = tok->data.node;
-
     switch(tok->data.node->type) {
-        case NODE_MACRO_FUNCTION:
-            return ParseFunctionMacro(macro, tok, ctx);
         case NODE_MACRO_OBJECT:
-            macro->tokens = tok->data.node->as.object.replacements;
-            macro->tokenCount = tok->data.node->as.object.replacementCount;
-            tok->data.node->macroExpansionEnabled = false;
-            if(macro->tokenCount > 0) {
-                ctx->phase4.macroCtx = macro;
-                *tok = macro->tokens[0];
-                macro->tokens++;
-                macro->tokenCount--;
-                if(tok->type == TOKEN_IDENTIFIER_L &&
-                    tok->data.node->type != NODE_VOID &&
-                    tok->data.node->macroExpansionEnabled) {
-                    return EnterMacroContext(tok, ctx);
-                }
-                return CONTEXT_MACRO_TOKEN;
-            }
-            return CONTEXT_MACRO_NULL;
+            return ParseObjectMacro(macro, tok, ctx); //ParseObjectMacro(macro, tok, ctx);
+        case NODE_MACRO_FUNCTION:
+            return CONTEXT_MACRO_NULL; //ParseFunctionMacro(macro, tok, ctx);
         case NODE_MACRO_INTEGER:
             tok->type = TOKEN_INTEGER_L;
             tok->data.integer = tok->data.node->as.integer;
-            ctx->phase4.macroCtx = macro;
-            macro->tokens = NULL;
             macro->tokenCount = 0;
             return CONTEXT_MACRO_TOKEN;
         case NODE_MACRO_STRING: {
@@ -1519,18 +1581,14 @@ static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(
             LexerString str;
             str.buffer = (char*)tok->data.node->as.string;
             str.count = strlen(tok->data.node->as.string);
-            ctx->phase4.macroCtx = macro;
             str.type = STRING_NONE;
             tok->data.string = str;
-            macro->tokens = NULL;
             macro->tokenCount = 0;
             return CONTEXT_MACRO_TOKEN;
         }
         case NODE_MACRO_LINE: {
             tok->type = TOKEN_INTEGER_L;
             tok->data.integer = ctx->phase4.previous.loc->line;
-            ctx->phase4.macroCtx = macro;
-            macro->tokens = NULL;
             macro->tokenCount = 0;
             return CONTEXT_MACRO_TOKEN;
         }
@@ -1541,8 +1599,6 @@ static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(
             str.count = strlen((char*)ctx->phase4.previous.loc->fileName);
             str.type = STRING_NONE;
             tok->data.string = str;
-            ctx->phase4.macroCtx = macro;
-            macro->tokens = NULL;
             macro->tokenCount = 0;
             return CONTEXT_MACRO_TOKEN;
         }
@@ -1554,10 +1610,25 @@ static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(
     exit(1);
 }
 
+// called on new identifier to be expanded, if needed parses function call
+// runs all the expansion and puts the fully expanded macro into a buffer
+// returns the first item of the buffer of NULL_TOKEN
+static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
+    return ExpandLine(tok, ctx, &ctx->phase4.macroCtx, Phase4Advance, Phase4Peek, ctx, true);
+}
+
+// gets next token from existing buffer,
+// does not do any macro expansion
+static void AdvanceMacroContext(LexerToken* tok, TranslationContext* ctx) {
+    *tok = ctx->phase4.macroCtx.tokens[0];
+    ctx->phase4.macroCtx.tokens++;
+    ctx->phase4.macroCtx.tokenCount--;
+}
+
+// stops using a buffer to store the expanded macro, if at the end of the macro
 static void TryExitMacroContext(TranslationContext* ctx) {
-    while(ctx->phase4.macroCtx != NULL && ctx->phase4.macroCtx->tokenCount == 0) {
-        ctx->phase4.macroCtx->macro->macroExpansionEnabled = true;
-        ctx->phase4.macroCtx = ctx->phase4.macroCtx->prev;
+    if(ctx->phase4.macroCtx.tokens != NULL && ctx->phase4.macroCtx.tokenCount == 0) {
+        ctx->phase4.macroCtx.tokens= NULL;
     }
 }
 
@@ -1572,22 +1643,10 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         }
     }
 
-    if(ctx->phase4.macroCtx != NULL) {
-        TryExitMacroContext(ctx);
-    }
-    if(ctx->phase4.macroCtx != NULL) {
-        *tok = ctx->phase4.macroCtx->tokens[0];
-        ctx->phase4.macroCtx->tokens++;
-        ctx->phase4.macroCtx->tokenCount--;
-
-        EnterContextResult res = CONTEXT_MACRO_TOKEN;
-        if(tok->type == TOKEN_IDENTIFIER_L &&
-            tok->data.node->type != NODE_VOID &&
-            tok->data.node->macroExpansionEnabled) {
-            res = EnterMacroContext(tok, ctx);
-        }
-
-        if(res == CONTEXT_MACRO_TOKEN) return;
+    TryExitMacroContext(ctx);
+    if(ctx->phase4.macroCtx.tokens != NULL) {
+        AdvanceMacroContext(tok, ctx);
+        return;
     }
 
     tok->type = TOKEN_ERROR_L;
