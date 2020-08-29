@@ -27,12 +27,12 @@ static void StringTypePrint(LexerStringType t) {
 static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
     if(ctx->debugPrint) {
         printf("%llu:%llu", tok->loc->line, tok->loc->column);
-        if(tok->isStartOfLine) printf(" bol");
+        if(tok->renderStartOfLine) printf(" bol");
         if(tok->whitespaceBefore) printf(" white=%llu", tok->indent);
         printf(" token=%d", tok->type);
         printf(" data(%llu) ", tok->loc->length);
     } else {
-        if(tok->isStartOfLine && !ctx->tokenPrinterAtStart) {
+        if(tok->renderStartOfLine && !ctx->tokenPrinterAtStart) {
             printf("\n");
         }
         ctx->tokenPrinterAtStart = false;
@@ -512,6 +512,7 @@ static void Phase3NewLine(LexerToken* tok, TranslationContext* ctx, unsigned cha
         Phase3Advance(ctx);
     }
     tok->isStartOfLine = true;
+    tok->renderStartOfLine = true;
     tok->whitespaceBefore = true;
     tok->indent = 0;
 }
@@ -526,10 +527,12 @@ static void Phase3NewLine(LexerToken* tok, TranslationContext* ctx, unsigned cha
 static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
     tok->whitespaceBefore = false;
     tok->isStartOfLine = false;
+    tok->renderStartOfLine = false;
     tok->indent = 0;
 
     if(ctx->phase3.AtStart) {
         tok->isStartOfLine = true;
+        tok->renderStartOfLine = true;
         ctx->phase3.AtStart = false;
     }
 
@@ -571,14 +574,12 @@ static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
                     // multi line comment (/**/)
                     Phase3AdvanceOverwrite(ctx);
                     Phase3Advance(ctx);
-                    tok->indent += 3;
                     while(!Phase3AtEnd(ctx)) {
                         if(Phase3Peek(ctx) == '*' && Phase3PeekNext(ctx) == '/') {
                             break;
                         }
                         if(Phase3Peek(ctx) == '\n') Phase3NewLine(tok, ctx, '\r');
                         if(Phase3Peek(ctx) == '\r') Phase3NewLine(tok, ctx, '\r');
-                        tok->indent++;
                         Phase3Advance(ctx);
                     }
                     if(Phase3AtEnd(ctx)) {
@@ -587,8 +588,8 @@ static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
                     }
                     Phase3Advance(ctx);
                     Phase3Advance(ctx);
-                    tok->indent += 2;
                     tok->whitespaceBefore = true;
+                    tok->indent++;
                 } else {
                     return;
                 }
@@ -1506,6 +1507,7 @@ static EnterContextResult ParseObjectMacro(MacroContext* macro, LexerToken* tok,
 
     if(result.itemCount > 0) {
         result.items[0].indent = tok->indent;
+        result.items[0].renderStartOfLine = tok->renderStartOfLine;
     }
 
     *tok = result.items[0];
@@ -1620,6 +1622,7 @@ static EnterContextResult ParseFunctionMacro(
 
     if(result.itemCount > 0) {
         result.items[0].indent = tok->indent;
+        result.items[0].renderStartOfLine = tok->renderStartOfLine;
     }
 
     if(result.itemCount <= 0) {

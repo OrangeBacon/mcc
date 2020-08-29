@@ -151,6 +151,9 @@ typedef struct LexerToken {
     // required to prevent extra macro expansion
     bool isStartOfLine;
 
+    // should the token be printed on a new line
+    bool renderStartOfLine;
+
     // required to tell the difference between
     // #define(a)  - function macro
     // #define (a) - value macro
