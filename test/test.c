@@ -1,14 +1,11 @@
-#include <stdbool.h>
-#include "file.h"
-
-int fib(int x);\
-int putchar(int);\
+int fib(int x);
+int putchar(int);
 int* malloc(int);
 
 int fibCallCount = 0;
 
-int test(int, int, int, int, int, int, int, int, int, int j) {\
-    return j;\
+int test(int, int, int, int, int, int, int, int, int, int j) {
+    return j;
 }
 
 int foo(int **, int (*)(int, int));
@@ -18,9 +15,7 @@ int* bar(int** arg) {
 }
 
 int foo2() {
-    return fibCallCount;\
-    \
-    \
+    return fibCallCount;
 }
 
 int (*getFoo2())() {

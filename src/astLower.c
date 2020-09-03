@@ -102,6 +102,25 @@ static IrParameter* constFoldUnary(IrParameter* operand, IrOpcode op, lowerCtx* 
     return ret;
 }
 
+static IrParameter* tryFoldEqualToZero(IrParameter* operand, IrComparison op, lowerCtx* ctx) {
+    if(operand->kind == IR_PARAMETER_VREG &&
+    !operand->as.virtualRegister->isPhi &&
+    operand->as.virtualRegister->loc.inst->as.ssa.opcode == IR_INS_COMPARE) {
+        IrInvertCondition(operand->as.virtualRegister->loc.inst);
+        return operand;
+    }
+
+    IrParameter* params = IrParametersCreate(ctx->ir, 3);
+    IrParameterNewVReg(ctx->fn, params);
+    IrParameterConstant(params + 1, 0, 8);
+    IrParameterReference(params + 2, operand);
+    IrInstruction* cmpInst =
+        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, params, 3);
+    IrInstructionCondition(cmpInst, op);
+
+    return params;
+}
+
 static IrParameter* astLowerType(const ASTVariableType* type, lowerCtx* ctx);
 static void astLowerTypeParameter(const ASTVariableType* type, IrParameter* param, lowerCtx* ctx);
 
@@ -421,14 +440,7 @@ static IrParameter* astLowerUnary(ASTUnaryExpression* exp, lowerCtx* ctx) {
                 IrParameterConstant(zero, 0, 8);
                 return constFoldCompare(zero, operand, IR_COMPARE_EQUAL, ctx);
             }
-            IrParameter* params = IrParametersCreate(ctx->ir, 3);
-            IrParameterNewVReg(ctx->fn, params);
-            IrParameterConstant(params + 1, 0, 8);
-            IrParameterReference(params + 2, operand);
-            IrInstruction* cmpInst =
-                IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, params, 3);
-            IrInstructionCondition(cmpInst, IR_COMPARE_EQUAL);
-            return params;
+            return tryFoldEqualToZero(operand, IR_COMPARE_EQUAL, ctx);
         }; break;
         case TOKEN_AND: {
             if(exp->elide) {
@@ -575,13 +587,7 @@ static IrParameter* astLowerShortCircuit(ASTBinaryExpression* exp, lowerCtx* ctx
     IrBasicBlock* initialBlock = ctx->blk;
     IrParameter* left = astLowerExpression(exp->left, ctx);
 
-    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
-    IrParameterNewVReg(ctx->fn, compare);
-    IrParameterConstant(compare + 1, 0, 8);
-    IrParameterReference(compare + 2, left);
-    IrInstruction* cmpInst =
-        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
-    IrInstructionCondition(cmpInst, cmp);
+    IrParameter* compare = tryFoldEqualToZero(left, cmp, ctx);
 
     IrBasicBlock* rightBlock = IrBasicBlockCreate(ctx->fn);
 
@@ -596,13 +602,7 @@ static IrParameter* astLowerShortCircuit(ASTBinaryExpression* exp, lowerCtx* ctx
     ctx->blk = rightBlock;
     IrParameter* right = astLowerExpression(exp->right, ctx);
 
-    IrParameter* compare2 = IrParametersCreate(ctx->ir, 3);
-    IrParameterNewVReg(ctx->fn, compare2);
-    IrParameterConstant(compare2 + 1, 0, 8);
-    IrParameterReference(compare2 + 2, right);
-    IrInstruction* cmpInst2 =
-        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare2, 3);
-    IrInstructionCondition(cmpInst2, IR_COMPARE_NOT_EQUAL);
+    IrParameter* compare2 = tryFoldEqualToZero(right, IR_COMPARE_NOT_EQUAL, ctx);
 
     IrParameter* jump = IrParametersCreate(ctx->ir, 1);
     IrParameterBlock(jump, retBlock);
@@ -906,13 +906,7 @@ static void astLowerWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     ctx->blk = conditionBlock;
     IrParameter* condition = astLowerExpression(ast->control, ctx);
 
-    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
-    IrParameterNewVReg(ctx->fn, compare);
-    IrParameterConstant(compare + 1, 0, 8);
-    IrParameterReference(compare + 2, condition);
-    IrInstruction* compareInstruction =
-        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
-    IrInstructionCondition(compareInstruction, IR_COMPARE_NOT_EQUAL);
+    IrParameter* compare = tryFoldEqualToZero(condition, IR_COMPARE_NOT_EQUAL, ctx);
 
     IrParameter* compareJump = IrParametersCreate(ctx->ir, 3);
     IrParameterReference(compareJump, compare);
@@ -980,13 +974,7 @@ static void astLowerDoWhile(ASTIterationStatement* ast, lowerCtx* ctx) {
     ctx->blk = conditionBlock;
     IrParameter* condition = astLowerExpression(ast->control, ctx);
 
-    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
-    IrParameterNewVReg(ctx->fn, compare);
-    IrParameterConstant(compare + 1, 0, 8);
-    IrParameterReference(compare + 2, condition);
-    IrInstruction* compareInstruction =
-        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
-    IrInstructionCondition(compareInstruction, IR_COMPARE_NOT_EQUAL);
+    IrParameter* compare = tryFoldEqualToZero(condition, IR_COMPARE_NOT_EQUAL, ctx);
 
     IrParameter* compareJump = IrParametersCreate(ctx->ir, 3);
     IrParameterReference(compareJump, compare);
@@ -1040,13 +1028,7 @@ static void astLowerFor(ASTIterationStatement* ast, lowerCtx* ctx) {
     ctx->blk = conditionBlock;
     IrParameter* condition = astLowerExpression(ast->control, ctx);
 
-    IrParameter* compare = IrParametersCreate(ctx->ir, 3);
-    IrParameterNewVReg(ctx->fn, compare);
-    IrParameterConstant(compare + 1, 0, 8);
-    IrParameterReference(compare + 2, condition);
-    IrInstruction* compareInstruction =
-        IrInstructionSetCreate(ctx->ir, ctx->blk, IR_INS_COMPARE, compare, 3);
-    IrInstructionCondition(compareInstruction, IR_COMPARE_NOT_EQUAL);
+    IrParameter* compare = tryFoldEqualToZero(condition, IR_COMPARE_NOT_EQUAL, ctx);
 
     IrParameter* compareJump = IrParametersCreate(ctx->ir, 3);
     IrParameterReference(compareJump, compare);

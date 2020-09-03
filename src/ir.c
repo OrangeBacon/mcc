@@ -581,6 +581,23 @@ void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
     inst->as.ssa.comparison = cmp;
 }
 
+void IrInvertCondition(IrInstruction* inst) {
+    if(!inst->as.ssa.hasCondition) return;
+
+    IrComparison new;
+    switch(inst->as.ssa.comparison) {
+        case IR_COMAPRE_LESS: new = IR_COMPARE_GREATER_EQUAL; break;
+        case IR_COMPARE_EQUAL: new = IR_COMPARE_NOT_EQUAL; break;
+        case IR_COMPARE_GREATER: new = IR_COMPARE_LESS_EQUAL; break;
+        case IR_COMPARE_GREATER_EQUAL: new = IR_COMAPRE_LESS; break;
+        case IR_COMPARE_LESS_EQUAL: new = IR_COMPARE_GREATER; break;
+        case IR_COMPARE_NOT_EQUAL: new = IR_COMPARE_EQUAL; break;
+        case IR_COMPARE_MAX: new = IR_COMPARE_MAX; break; // invalid hopefully
+    }
+
+    inst->as.ssa.comparison = new;
+}
+
 // --------------- //
 // VARIABLE LOOKUP //
 // --------------- //
