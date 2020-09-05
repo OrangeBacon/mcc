@@ -270,6 +270,7 @@ typedef struct TranslationContext {
     MemoryPool* pool;
 
     // state
+    LexerTokenType previousPrinted;
     bool tokenPrinterAtStart;
     const unsigned char* fileName;
 

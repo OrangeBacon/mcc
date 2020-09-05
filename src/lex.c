@@ -24,6 +24,149 @@ static void StringTypePrint(LexerStringType t) {
     }
 }
 
+static LexerTokenType stringLikeTokens[] = {
+    TOKEN_KW_AUTO,
+    TOKEN_KW_BREAK,
+    TOKEN_KW_CASE,
+    TOKEN_KW_CHAR,
+    TOKEN_KW_CONST,
+    TOKEN_KW_CONTINUE,
+    TOKEN_KW_DEFAULT,
+    TOKEN_KW_DO,
+    TOKEN_KW_DOUBLE,
+    TOKEN_KW_ELSE,
+    TOKEN_KW_ENUM,
+    TOKEN_KW_EXTERN,
+    TOKEN_KW_FLOAT,
+    TOKEN_KW_FOR,
+    TOKEN_KW_GOTO,
+    TOKEN_KW_IF,
+    TOKEN_KW_INLINE,
+    TOKEN_KW_INT,
+    TOKEN_KW_LONG,
+    TOKEN_KW_REGISTER,
+    TOKEN_KW_RESTRICT,
+    TOKEN_KW_RETURN,
+    TOKEN_KW_SHORT,
+    TOKEN_KW_SIGNED,
+    TOKEN_KW_SIZEOF,
+    TOKEN_KW_STATIC,
+    TOKEN_KW_STRUCT,
+    TOKEN_KW_SWITCH,
+    TOKEN_KW_TYPEDEF,
+    TOKEN_KW_UNION,
+    TOKEN_KW_UNSIGNED,
+    TOKEN_KW_VOID,
+    TOKEN_KW_VOLATILE,
+    TOKEN_KW_WHILE,
+    TOKEN_KW_ALIGNAS,
+    TOKEN_KW_ALIGNOF,
+    TOKEN_KW_ATOMIC,
+    TOKEN_KW_BOOL,
+    TOKEN_KW_COMPLEX,
+    TOKEN_KW_GENERIC,
+    TOKEN_KW_IMAGINARY,
+    TOKEN_KW_NORETURN,
+    TOKEN_KW_STATICASSERT,
+    TOKEN_KW_THREADLOCAL,
+    TOKEN_PP_NUMBER,
+    TOKEN_IDENTIFIER_L,
+    TOKEN_CHARACTER_L,
+    TOKEN_STRING_L,
+};
+
+static LexerTokenType puncLikeTokens[] = {
+    TOKEN_PUNC_DOT,
+    TOKEN_PUNC_ARROW,
+    TOKEN_PUNC_PLUS_PLUS,
+    TOKEN_PUNC_MINUS_MINUS,
+    TOKEN_PUNC_AND,
+    TOKEN_PUNC_STAR,
+    TOKEN_PUNC_PLUS,
+    TOKEN_PUNC_MINUS,
+    TOKEN_PUNC_TILDE,
+    TOKEN_PUNC_BANG,
+    TOKEN_PUNC_SLASH,
+    TOKEN_PUNC_PERCENT,
+    TOKEN_PUNC_LESS_LESS,
+    TOKEN_PUNC_GREATER_GREATER,
+    TOKEN_PUNC_LESS,
+    TOKEN_PUNC_GREATER,
+    TOKEN_PUNC_LESS_EQUAL,
+    TOKEN_PUNC_GREATER_EQUAL,
+    TOKEN_PUNC_EQUAL_EQUAL,
+    TOKEN_PUNC_BANG_EQUAL,
+    TOKEN_PUNC_CARET,
+    TOKEN_PUNC_OR,
+    TOKEN_PUNC_AND_AND,
+    TOKEN_PUNC_OR_OR,
+    TOKEN_PUNC_QUESTION,
+    TOKEN_PUNC_COLON,
+    TOKEN_PUNC_ELIPSIS,
+    TOKEN_PUNC_EQUAL,
+    TOKEN_PUNC_STAR_EQUAL,
+    TOKEN_PUNC_SLASH_EQUAL,
+    TOKEN_PUNC_PERCENT_EQUAL,
+    TOKEN_PUNC_PLUS_EQUAL,
+    TOKEN_PUNC_MINUS_EQUAL,
+    TOKEN_PUNC_LESS_LESS_EQUAL,
+    TOKEN_PUNC_GREATER_GREATER_EQUAL,
+    TOKEN_PUNC_AND_EQUAL,
+    TOKEN_PUNC_CARET_EQUAL,
+    TOKEN_PUNC_PIPE_EQUAL,
+    TOKEN_PUNC_HASH,
+    TOKEN_PUNC_HASH_HASH,
+    TOKEN_PUNC_LESS_COLON, // [
+    TOKEN_PUNC_COLON_GREATER, // ]
+    TOKEN_PUNC_LESS_PERCENT, // {
+    TOKEN_PUNC_PERCENT_GREATER, // }
+    TOKEN_PUNC_PERCENT_COLON, // #
+    TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON, // ##
+};
+
+static LexerTokenType couldBeInNumber[] = {
+    TOKEN_PUNC_DOT,
+    TOKEN_PUNC_ARROW,
+    TOKEN_PUNC_PLUS_PLUS,
+    TOKEN_PUNC_MINUS_MINUS,
+    TOKEN_PUNC_PLUS,
+    TOKEN_PUNC_MINUS,
+    TOKEN_PUNC_PLUS_EQUAL,
+    TOKEN_PUNC_MINUS_EQUAL,
+};
+
+bool TokenPasteAvoidance(LexerTokenType left, LexerTokenType right) {
+    // token spacing adjustments, so re-lexing works properly
+    bool leftIncluded = false;
+    bool rightIncluded = false;
+    for(unsigned int i = 0; i < sizeof(stringLikeTokens)/sizeof(LexerTokenType); i++) {
+        if(stringLikeTokens[i] == left) leftIncluded = true;
+        if(stringLikeTokens[i] == right) rightIncluded = true;
+        if(leftIncluded && rightIncluded) break;
+    }
+
+    if(leftIncluded && rightIncluded) {
+        return true;
+    }
+
+    if(left == TOKEN_PP_NUMBER) {
+        for(unsigned int i = 0; i < sizeof(couldBeInNumber)/sizeof(LexerTokenType); i++) {
+            if(couldBeInNumber[i] == right) return true;
+        }
+    }
+
+    leftIncluded = false;
+    rightIncluded = false;
+
+    for(unsigned int i = 0; i < sizeof(puncLikeTokens)/sizeof(LexerTokenType); i++) {
+        if(puncLikeTokens[i] == left) leftIncluded = true;
+        if(puncLikeTokens[i] == right) rightIncluded = true;
+        if(leftIncluded && rightIncluded) break;
+    }
+
+    return leftIncluded && rightIncluded;
+}
+
 static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
     if(ctx->debugPrint) {
         printf("%llu:%llu", tok->loc->line, tok->loc->column);
@@ -32,15 +175,20 @@ static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
         printf(" token=%d", tok->type);
         printf(" data(%llu) ", tok->loc->length);
     } else {
+        bool printedWhitespace = false;
         if(tok->renderStartOfLine && !ctx->tokenPrinterAtStart) {
             printf("\n");
+            printedWhitespace = true;
         }
         ctx->tokenPrinterAtStart = false;
         if(tok->whitespaceBefore) {
             printf("%*s", (int)tok->indent, "");
+            printedWhitespace |= tok->indent > 0;
+        }
+        if(!printedWhitespace && TokenPasteAvoidance(ctx->previousPrinted, tok->type)) {
+            printf(" ");
         }
     }
-
     switch(tok->type) {
         case TOKEN_KW_AUTO: printf("auto"); break;
         case TOKEN_KW_BREAK: printf("break"); break;
@@ -157,6 +305,7 @@ static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
     if(ctx->debugPrint) {
         printf("\n");
     }
+    ctx->previousPrinted = tok->type;
 }
 
 static void LexerStringInit(LexerString* str, TranslationContext* ctx, size_t size) {
@@ -192,6 +341,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
     ctx->fileName = fileName;
     ctx->phase1consumed = 0;
     ctx->phase1IgnoreNewLine = '\0';
+    ctx->previousPrinted = TOKEN_EOF_L;
     ctx->phase1Location = (SourceLocation) {
         .fileName = fileName,
         .column = 0,
@@ -578,9 +728,18 @@ static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
                         if(Phase3Peek(ctx) == '*' && Phase3PeekNext(ctx) == '/') {
                             break;
                         }
-                        if(Phase3Peek(ctx) == '\n') Phase3NewLine(tok, ctx, '\r');
-                        if(Phase3Peek(ctx) == '\r') Phase3NewLine(tok, ctx, '\r');
-                        Phase3Advance(ctx);
+                        bool advanced = false;
+                        if(Phase3Peek(ctx) == '\n') {
+                            Phase3NewLine(tok, ctx, '\r');
+                            advanced = true;
+                        }
+                        if(Phase3Peek(ctx) == '\r') {
+                            Phase3NewLine(tok, ctx, '\r');
+                            advanced = true;
+                        }
+                        if(!advanced) {
+                            Phase3Advance(ctx);
+                        }
                     }
                     if(Phase3AtEnd(ctx)) {
                         fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->phase3.currentLocation->line, ctx->phase3.currentLocation->column);
@@ -886,9 +1045,13 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
 
         case '.':
             if(isDigit(ctx->phase3.peek)) break;
-            Phase3Make(tok,
-                ctx->phase3.peek == '.' && ctx->phase3.peekNext == '.' ?
-                TOKEN_PUNC_ELIPSIS : TOKEN_PUNC_DOT);
+            if(ctx->phase3.peek == '.' && ctx->phase3.peekNext == '.') {
+                Phase3Advance(ctx);
+                Phase3Advance(ctx);
+                Phase3Make(tok, TOKEN_PUNC_ELIPSIS);
+            } else {
+                Phase3Make(tok, TOKEN_PUNC_DOT);
+            }
             return;
         case '%': Phase3Make(tok,
             Phase3Match(ctx, '=') ? TOKEN_PUNC_PERCENT_EQUAL :
@@ -1508,6 +1671,7 @@ static EnterContextResult ParseObjectMacro(MacroContext* macro, LexerToken* tok,
     if(result.itemCount > 0) {
         result.items[0].indent = tok->indent;
         result.items[0].renderStartOfLine = tok->renderStartOfLine;
+        result.items[0].whitespaceBefore = tok->whitespaceBefore;
     }
 
     *tok = result.items[0];
@@ -1577,7 +1741,7 @@ static EnterContextResult ParseFunctionMacro(
     }
 
     if(next->type != TOKEN_PUNC_RIGHT_PAREN) {
-        fprintf(stderr, "Error: Unterminated function macro call\n");
+        fprintf(stderr, "Error: Unterminated function macro call [%lld:%lld]\n", tok->loc->line, tok->loc->column);
         return CONTEXT_MACRO_NULL;
     }
 
@@ -1596,6 +1760,11 @@ static EnterContextResult ParseFunctionMacro(
             TokenList arg = args.items[tok->data.integer];
             for(unsigned int j = 0; j < arg.itemCount; j++) {
                 ARRAY_PUSH(substituted, item, arg.items[j]);
+                if(j == 0) {
+                    substituted.items[substituted.itemCount-1].indent = tok->indent;
+                    substituted.items[substituted.itemCount-1].renderStartOfLine = tok->renderStartOfLine;
+                    substituted.items[substituted.itemCount-1].whitespaceBefore = tok->whitespaceBefore;
+                }
             }
         } else {
             ARRAY_PUSH(substituted, item, *tok);
@@ -1623,6 +1792,7 @@ static EnterContextResult ParseFunctionMacro(
     if(result.itemCount > 0) {
         result.items[0].indent = tok->indent;
         result.items[0].renderStartOfLine = tok->renderStartOfLine;
+        result.items[0].whitespaceBefore = tok->whitespaceBefore;
     }
 
     if(result.itemCount <= 0) {
