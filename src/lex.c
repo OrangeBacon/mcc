@@ -1651,17 +1651,28 @@ static void ExpandTokenList(
 }
 
 // expand an object macro
-static EnterContextResult ParseObjectMacro(MacroContext* macro, LexerToken* tok, TranslationContext* ctx) {
+static EnterContextResult ParseObjectMacro(
+    MacroContext* macro,
+    LexerToken* tok,
+    TranslationContext* ctx,
+    Phase4GetterFn advance,
+    Phase4GetterFn peek,
+    void* getCtx
+) {
     if(tok->data.node->as.object.itemCount <= 0) {
         return CONTEXT_MACRO_NULL;
     }
 
-    tok->data.node->macroExpansionEnabled = false;
-    TokenList toBeExpanded = tok->data.node->as.object;
-
+    JointTokenStream stream = {
+        .list = &tok->data.node->as.object,
+        .macroContext = tok->data.node,
+        .second = getCtx,
+        .secondAdvance = advance,
+        .secondPeek = peek,
+    };
     TokenList result;
-    ExpandTokenList(ctx, &result, TokenListAdvance, TokenListPeek, ReturnFalse, &toBeExpanded);
-
+    tok->data.node->macroExpansionEnabled = false;
+    ExpandTokenList(ctx, &result, JointTokenAdvance, JointTokenPeek, JointTokenEarlyExit, &stream);
     tok->data.node->macroExpansionEnabled = true;
 
     if(result.itemCount <= 0) {
@@ -1817,7 +1828,7 @@ EXPAND_LINE_FN {
 
     switch(tok->data.node->type) {
         case NODE_MACRO_OBJECT:
-            return ParseObjectMacro(macro, tok, ctx);
+            return ParseObjectMacro(macro, tok, ctx, advance, peek, getCtx);
         case NODE_MACRO_FUNCTION:
             return ParseFunctionMacro(macro, tok, ctx, advance, peek, getCtx);
         case NODE_MACRO_INTEGER:
