@@ -1629,10 +1629,7 @@ static void ExpandTokenList(
 
         // expand the new macro
         MacroContext macro = {0};
-        EnterContextResult res = ExpandSingleMacro(t, ctx, &macro, advance, peek, getCtx);
-        if(res == CONTEXT_MACRO_NULL) {
-            continue;
-        }
+        ExpandSingleMacro(t, ctx, &macro, advance, peek, getCtx);
 
         // append the new tokens to the current buffer
         for(unsigned int i = 0; i < macro.tokenCount; i++){
@@ -1663,8 +1660,11 @@ static EnterContextResult ParseObjectMacro(
         return CONTEXT_MACRO_NULL;
     }
 
+    // copy token list otherwise the tokens are globably removed
+    // from the macro's hash node.
+    TokenList objCopy = tok->data.node->as.object;
     JointTokenStream stream = {
-        .list = &tok->data.node->as.object,
+        .list = &objCopy,
         .macroContext = tok->data.node,
         .second = getCtx,
         .secondAdvance = advance,
