@@ -134,21 +134,14 @@ static LexerTokenType couldBeInNumber[] = {
     TOKEN_PUNC_MINUS_EQUAL,
 };
 
-bool TokenPasteAvoidance(LexerToken* left, LexerTokenType right) {
-    // token spacing adjustments, so re-lexing works properly
-    bool leftIncluded = false;
-    bool rightIncluded = false;
-    for(unsigned int i = 0; i < sizeof(stringLikeTokens)/sizeof(LexerTokenType); i++) {
-        if(stringLikeTokens[i] == left->type) leftIncluded = true;
-        if(stringLikeTokens[i] == right) rightIncluded = true;
-        if(leftIncluded && rightIncluded) break;
-    }
-
-    if(leftIncluded && rightIncluded) {
-        return true;
-    }
-
-    if(left->type == TOKEN_PP_NUMBER && right == TOKEN_PUNC_DOT) {
+// Is a space required between the left and right tokens?
+// A space is required when re-lexing the source file with the two tokens
+// adjacent would be different compared with having a space inbetween.
+// This function is not perfectly accurate, todo in the future
+// Does not deal with TOKEN_INTEGER_L or TOKEN_FLOATING_L, assumes no spacing
+// - todo when integer/floating parsing is implemented
+bool TokenPasteAvoidance(LexerToken* left, LexerToken* right) {
+    if(left->type == TOKEN_PP_NUMBER && right->type == TOKEN_PUNC_DOT) {
         return true;
     }
 
@@ -156,9 +149,30 @@ bool TokenPasteAvoidance(LexerToken* left, LexerTokenType right) {
         char c = left->data.string.buffer[left->data.string.count-1];
         if(c == 'e' || c == 'E' || c == 'p' || c == 'P') {
             for(unsigned int i = 0; i < sizeof(couldBeInNumber)/sizeof(LexerTokenType); i++) {
-                if(couldBeInNumber[i] == right) return true;
+                if(couldBeInNumber[i] == right->type) return true;
             }
         }
+    }
+
+    // string and charater literal u/U/L/u8 prefix avoidance
+    if(right->type == TOKEN_STRING_L || right->type == TOKEN_CHARACTER_L) {
+        if(left->type != TOKEN_PP_NUMBER && left->type != TOKEN_IDENTIFIER_L) {
+            return false;
+        }
+
+        return right->data.string.type != STRING_NONE;
+    }
+
+    bool leftIncluded = false;
+    bool rightIncluded = false;
+    for(unsigned int i = 0; i < sizeof(stringLikeTokens)/sizeof(LexerTokenType); i++) {
+        if(stringLikeTokens[i] == left->type) leftIncluded = true;
+        if(stringLikeTokens[i] == right->type) rightIncluded = true;
+        if(leftIncluded && rightIncluded) break;
+    }
+
+    if(leftIncluded && rightIncluded) {
+        return true;
     }
 
     leftIncluded = false;
@@ -166,7 +180,7 @@ bool TokenPasteAvoidance(LexerToken* left, LexerTokenType right) {
 
     for(unsigned int i = 0; i < sizeof(puncLikeTokens)/sizeof(LexerTokenType); i++) {
         if(puncLikeTokens[i] == left->type) leftIncluded = true;
-        if(puncLikeTokens[i] == right) rightIncluded = true;
+        if(puncLikeTokens[i] == right->type) rightIncluded = true;
         if(leftIncluded && rightIncluded) break;
     }
 
@@ -191,7 +205,7 @@ static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
             printf("%*s", (int)tok->indent, "");
             printedWhitespace |= tok->indent > 0;
         }
-        if(!printedWhitespace && TokenPasteAvoidance(&ctx->previousPrinted, tok->type)) {
+        if(!printedWhitespace && TokenPasteAvoidance(&ctx->previousPrinted, tok)) {
             printf(" ");
         }
     }
