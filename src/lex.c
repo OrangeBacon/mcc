@@ -1132,6 +1132,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
             tableSet(ctx->phase3.hashNodes, tok->data.string.buffer, tok->data.string.count, node);
         }
         tok->data.node = node;
+        tok->data.attemptExpansion = true;
 
         return;
     }
@@ -1588,6 +1589,7 @@ typedef enum EnterContextResult {
     CONTEXT_MACRO_TOKEN,
     CONTEXT_MACRO_NULL,
     CONTEXT_NOT_MACRO,
+    CONTEXT_DISABLED_MACRO,
 } EnterContextResult;
 
 /*
@@ -1621,7 +1623,8 @@ static void ExpandTokenList(
     Phase4GetterFn advance,
     Phase4GetterFn peek,
     Phase4BoolFn earlyExit,
-    void* getCtx) {
+    void* getCtx,
+    bool disableNonExpandedIdentifiers) {
     ARRAY_ALLOC(LexerToken, *result, item);
     LexerToken* t = ARRAY_PUSH_PTR(*result, item);
     while(true) {
@@ -1629,7 +1632,10 @@ static void ExpandTokenList(
 
         // expand the new macro
         MacroContext macro = {0};
-        ExpandSingleMacro(t, ctx, &macro, advance, peek, getCtx);
+        EnterContextResult res = ExpandSingleMacro(t, ctx, &macro, advance, peek, getCtx);
+        if(res == CONTEXT_DISABLED_MACRO && disableNonExpandedIdentifiers) {
+            t->data.attemptExpansion = false;
+        }
 
         // append the new tokens to the current buffer
         for(unsigned int i = 0; i < macro.tokenCount; i++){
@@ -1672,7 +1678,7 @@ static EnterContextResult ParseObjectMacro(
     };
     TokenList result;
     tok->data.node->macroExpansionEnabled = false;
-    ExpandTokenList(ctx, &result, JointTokenAdvance, JointTokenPeek, JointTokenEarlyExit, &stream);
+    ExpandTokenList(ctx, &result, JointTokenAdvance, JointTokenPeek, JointTokenEarlyExit, &stream, true);
     tok->data.node->macroExpansionEnabled = true;
 
     if(result.itemCount <= 0) {
@@ -1744,7 +1750,7 @@ static EnterContextResult ParseFunctionMacro(
         }
 
         TokenList* result = ARRAY_PUSH_PTR(args, item);
-        ExpandTokenList(ctx, result, TokenListAdvance, TokenListPeek, ReturnFalse, &arg);
+        ExpandTokenList(ctx, result, TokenListAdvance, TokenListPeek, ReturnFalse, &arg, false);
 
         if(next->type == TOKEN_PUNC_RIGHT_PAREN || next->type == TOKEN_EOF_L) {
             break;
@@ -1797,7 +1803,7 @@ static EnterContextResult ParseFunctionMacro(
     };
     TokenList result;
     tok->data.node->macroExpansionEnabled = false;
-    ExpandTokenList(ctx, &result, JointTokenAdvance, JointTokenPeek, JointTokenEarlyExit, &stream);
+    ExpandTokenList(ctx, &result, JointTokenAdvance, JointTokenPeek, JointTokenEarlyExit, &stream, true);
     tok->data.node->macroExpansionEnabled = true;
 
     if(result.itemCount > 0) {
@@ -1822,8 +1828,11 @@ static EnterContextResult ParseFunctionMacro(
 // returns a buffer containing the expaned tokens
 // assumes the first token has already been consumed from the relavant stream
 EXPAND_LINE_FN {
-    if(tok->type != TOKEN_IDENTIFIER_L || tok->data.node->type == NODE_VOID || !tok->data.node->macroExpansionEnabled) {
+    if(tok->type != TOKEN_IDENTIFIER_L || tok->data.node->type == NODE_VOID) {
         return CONTEXT_NOT_MACRO;
+    }
+    if(!tok->data.node->macroExpansionEnabled || !tok->data.attemptExpansion) {
+        return CONTEXT_DISABLED_MACRO;
     }
 
     switch(tok->data.node->type) {

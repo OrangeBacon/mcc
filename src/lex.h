@@ -175,7 +175,10 @@ typedef struct LexerToken {
         double floating;
         LexerString string;
         char character;
-        struct HashNode* node;
+        struct {
+            struct HashNode* node;
+            bool attemptExpansion;
+        };
     } data;
 } LexerToken;
 
