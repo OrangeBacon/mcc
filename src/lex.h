@@ -214,10 +214,6 @@ typedef struct TokenList {
     ARRAY_DEFINE(LexerToken, item);
 } TokenList;
 
-typedef struct TokenListList {
-    ARRAY_DEFINE(TokenList, item);
-} TokenListList;
-
 typedef struct FnMacro {
     ARRAY_DEFINE(LexerToken, argument);
     ARRAY_DEFINE(LexerToken, replacement);

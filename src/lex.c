@@ -1704,6 +1704,57 @@ static EnterContextResult ParseObjectMacro(
     return CONTEXT_MACRO_TOKEN;
 }
 
+// Container for the argument tokens passed into a function macro.
+// The tokens are lazily stringified or macro expanded as required.  This avoids
+// calculating stringification/expansion if not required.  Also it avoids
+// emitting errors relating to macro expansion, if the argument never undergoes
+// macro expansion.
+typedef struct ArgumentItem {
+    TokenList tokens;
+    TokenList expanded;
+    LexerToken string;
+    bool hasExpanded;
+    bool hasString;
+} ArgumentItem;
+
+typedef struct ArgumentItemList {
+    ARRAY_DEFINE(ArgumentItem, item);
+} ArgumentItemList;
+
+// macro expand a function macro argument
+// if the argument was already expanded, return the previous expansion
+// to avoid expanding the argument multiple times
+static TokenList* expandArgument(TranslationContext* ctx, ArgumentItem* arg) {
+    if(arg->hasExpanded) {
+        return &arg->expanded;
+    }
+
+    arg->expanded = (TokenList){0};
+    ExpandTokenList(ctx, &arg->expanded, TokenListAdvance, TokenListPeek, ReturnFalse, &arg->tokens, false);
+    arg->hasExpanded = true;
+
+    return &arg->expanded;
+}
+
+// returns the stringified version of a token using the # operator
+// caches the resultant token to avoid recalculation
+static LexerToken* stringifyArgument(ArgumentItem* arg) {
+    arg->string = (LexerToken){
+        .isStartOfLine = false,
+        .indent = 0,
+        .renderStartOfLine = false,
+        .type = TOKEN_STRING_L,
+        .whitespaceBefore = false,
+        .data.string = {
+            .type = STRING_NONE,
+            .count = 0,
+            .capacity = 0,
+            .buffer = "",
+        }
+    };
+    return &arg->string;
+}
+
 static EnterContextResult ParseFunctionMacro(
     MacroContext* macro,
     LexerToken* tok,
@@ -1720,28 +1771,31 @@ static EnterContextResult ParseFunctionMacro(
     LexerToken lparen;
     advance(&lparen, getCtx);
 
-    TokenListList args;
-    ARRAY_ALLOC(TokenList, args, item);
+    ArgumentItemList args;
+    ARRAY_ALLOC(ArgumentItem, args, item);
 
     // gather arguments and macro expand them
+    // this guarantees that there will be at least one argument parsed
     LexerToken* next;
     while(true) {
-        TokenList arg;
-        ARRAY_ALLOC(LexerToken, arg, item);
+        ArgumentItem* arg = ARRAY_PUSH_PTR(args, item);
+        ARRAY_ALLOC(LexerToken, arg->tokens, item);
+        arg->hasExpanded = false;
+        arg->hasString = false;
 
         int bracketDepth = 0;
         while(true) {
-            next = ARRAY_PUSH_PTR(arg, item);
+            next = ARRAY_PUSH_PTR(arg->tokens, item);
             advance(next, getCtx);
 
             if(next->type == TOKEN_PUNC_COMMA && bracketDepth == 0) {
-                arg.itemCount--;
+                arg->tokens.itemCount--;
                 break;
             } else if(next->type == TOKEN_PUNC_LEFT_PAREN) {
                 bracketDepth++;
             } else if(next->type == TOKEN_PUNC_RIGHT_PAREN) {
                 if(bracketDepth == 0) {
-                    arg.itemCount--;
+                    arg->tokens.itemCount--;
                     break;
                 } else {
                     bracketDepth--;
@@ -1751,12 +1805,9 @@ static EnterContextResult ParseFunctionMacro(
             }
         }
 
-        if(arg.itemCount > 0) {
-            arg.items[0].indent = 0;
+        if(arg->tokens.itemCount > 0) {
+            arg->tokens.items[0].indent = 0;
         }
-
-        TokenList* result = ARRAY_PUSH_PTR(args, item);
-        ExpandTokenList(ctx, result, TokenListAdvance, TokenListPeek, ReturnFalse, &arg, false);
 
         if(next->type == TOKEN_PUNC_RIGHT_PAREN || next->type == TOKEN_EOF_L) {
             break;
@@ -1768,27 +1819,45 @@ static EnterContextResult ParseFunctionMacro(
         return CONTEXT_MACRO_NULL;
     }
 
+    FnMacro* fn = &tok->data.node->as.function;
+    if(fn->argumentCount == 0 && (args.itemCount > 1 || args.items[0].tokens.itemCount > 0)) {
+        fprintf(stderr, "Error: Arguments provided to macro call, none expected\n");
+        return CONTEXT_MACRO_NULL;
+    }
+    if(fn->argumentCount > 0 && fn->argumentCount != args.itemCount) {
+        fprintf(stderr, "Error: Not enough arguments provided to macro call\n");
+        return CONTEXT_MACRO_NULL;
+    }
+
     TokenList substituted;
     ARRAY_ALLOC(LexerToken, substituted, item);
 
     // substitute arguments into replacement list
-    FnMacro* fn = &tok->data.node->as.function;
     for(unsigned int i = 0; i < fn->replacementCount; i++) {
         LexerToken* tok = &fn->replacements[i];
+
         if(tok->type == TOKEN_MACRO_ARG) {
-            if(tok->data.integer > args.itemCount) {
-                fprintf(stderr, "Error: bad arguments\n");
-                continue;
-            }
-            TokenList arg = args.items[tok->data.integer];
-            for(unsigned int j = 0; j < arg.itemCount; j++) {
-                ARRAY_PUSH(substituted, item, arg.items[j]);
+            TokenList* arg = expandArgument(ctx, &args.items[tok->data.integer]);
+            for(unsigned int j = 0; j < arg->itemCount; j++) {
+                ARRAY_PUSH(substituted, item, arg->items[j]);
                 if(j == 0) {
                     substituted.items[substituted.itemCount-1].indent = tok->indent;
                     substituted.items[substituted.itemCount-1].renderStartOfLine = tok->renderStartOfLine;
                     substituted.items[substituted.itemCount-1].whitespaceBefore = tok->whitespaceBefore;
                 }
             }
+        } else if(tok->type == TOKEN_PUNC_HASH || tok->type == TOKEN_PUNC_PERCENT_COLON) {
+            i++;
+            LexerToken* argToken = &fn->replacements[i];
+            if(argToken->type != TOKEN_MACRO_ARG) {
+                fprintf(stderr, "Error: Stringification operator applied to non-argument token\n");
+                return CONTEXT_MACRO_NULL;
+            }
+            LexerToken* str = stringifyArgument(&args.items[argToken->data.integer]);
+            str->indent = tok->indent;
+            str->renderStartOfLine = tok->renderStartOfLine;
+            str->whitespaceBefore = tok->whitespaceBefore;
+            ARRAY_PUSH(substituted, item, *str);
         } else {
             ARRAY_PUSH(substituted, item, *tok);
         }
