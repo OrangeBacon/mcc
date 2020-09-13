@@ -81,7 +81,6 @@ int driver(int argc, char** argv) {
             TranslationContext ctx = {
                 .trigraphs = true,
                 .tabSize = 4,
-                .debugPrint = false,
                 .search = search,
             };
             TranslationContextInit(&ctx, &pool, (unsigned char*)files.datas[i]);

@@ -187,7 +187,19 @@ bool TokenPasteAvoidance(LexerToken* left, LexerToken* right) {
     return leftIncluded && rightIncluded;
 }
 
-static void TokenPrint(TranslationContext* ctx, LexerToken* tok) {
+typedef struct TokenPrintCtx {
+    bool debugPrint;
+    bool tokenPrinterAtStart;
+    LexerToken previousPrinted;
+} TokenPrintCtx;
+
+static void TokenPrintCtxInit(TokenPrintCtx* ctx) {
+    ctx->tokenPrinterAtStart = true;
+    ctx->debugPrint = false;
+    ctx->previousPrinted = (LexerToken){.type = TOKEN_EOF_L};
+}
+
+static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
     if(ctx->debugPrint) {
         printf("%llu:%llu", tok->loc->line, tok->loc->column);
         if(tok->renderStartOfLine) printf(" bol");
@@ -357,11 +369,9 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
 
     ctx->pool = pool;
-    ctx->tokenPrinterAtStart = true;
     ctx->fileName = fileName;
     ctx->phase1consumed = 0;
     ctx->phase1IgnoreNewLine = '\0';
-    ctx->previousPrinted.type = TOKEN_EOF_L;
     ctx->phase1Location = (SourceLocation) {
         .fileName = fileName,
         .column = 0,
@@ -1291,8 +1301,10 @@ static void Phase3Initialise(TranslationContext* ctx) {
 void runPhase3(TranslationContext* ctx) {
     Phase3Initialise(ctx);
     LexerToken tok;
+    TokenPrintCtx printCtx;
+    TokenPrintCtxInit(&printCtx);
     while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
-        TokenPrint(ctx, &tok);
+        TokenPrint(&printCtx, &tok);
     }
 }
 
@@ -1318,7 +1330,6 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
     if(parent != NULL) {
         ctx->trigraphs = parent->trigraphs;
         ctx->tabSize = parent->tabSize;
-        ctx->debugPrint = parent->debugPrint;
         ctx->search = parent->search;
         ctx->pool = parent->pool;
         ctx->phase4.depth = parent->phase4.depth + 1;
@@ -2098,8 +2109,10 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 void runPhase4(TranslationContext* ctx) {
     Phase4Initialise(ctx, NULL, true);
     LexerToken tok;
+    TokenPrintCtx printCtx;
+    TokenPrintCtxInit(&printCtx);
     while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
-        TokenPrint(ctx, &tok);
+        TokenPrint(&printCtx, &tok);
     }
     printf("\n");
 }

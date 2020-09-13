@@ -264,13 +264,10 @@ typedef struct TranslationContext {
     // settings
     bool trigraphs;
     size_t tabSize;
-    bool debugPrint;
     IncludeSearchPath search;
     MemoryPool* pool;
 
     // state
-    LexerToken previousPrinted;
-    bool tokenPrinterAtStart;
     const unsigned char* fileName;
 
     unsigned char* phase1source;
