@@ -6,6 +6,7 @@
 #include "memory.h"
 #include "file.h"
 #include "symbolTable.h"
+#include "lexString.h"
 
 typedef struct SourceLocation {
     const unsigned char* fileName;
@@ -13,21 +14,6 @@ typedef struct SourceLocation {
     size_t column;
     size_t length;
 } SourceLocation;
-
-typedef enum LexerStringType {
-    STRING_NONE,
-    STRING_U8,
-    STRING_WCHAR,
-    STRING_16,
-    STRING_32,
-} LexerStringType;
-
-typedef struct LexerString {
-    char* buffer;
-    size_t capacity;
-    size_t count;
-    LexerStringType type;
-} LexerString;
 
 // What sort of token is it, used for both preprocessor and regular
 // tokens, however not all values are valid in each scenario

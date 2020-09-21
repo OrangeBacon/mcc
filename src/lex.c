@@ -10,32 +10,12 @@
 #include "file.h"
 
 #include "lextoken.h"
+#include "lextoken.h"
 
 // End of file
 // default is -1, which is the same as 0xff, but type conversions work
 // better with unsigned char this way
 #define END_OF_FILE 0xff
-
-static void LexerStringInit(LexerString* str, TranslationContext* ctx, size_t size) {
-    str->buffer = memoryArrayPushN(&ctx->stringArr, size + 1);
-    str->buffer[0] = '\0';
-    str->capacity = size;
-    str->count = 0;
-    str->type = STRING_NONE;
-}
-
-static void LexerStringAddC(LexerString* str, TranslationContext* ctx, char c) {
-    if(str->count >= str->capacity) {
-        char* buffer = memoryArrayPushN(&ctx->stringArr, str->capacity * 2 + 1);
-        strncpy(buffer, str->buffer, str->capacity);
-        str->buffer = buffer;
-        str->capacity *= 2;
-    }
-
-    str->buffer[str->count] = c;
-    str->buffer[str->count + 1] = '\0';
-    str->count++;
-}
 
 // Setup function
 void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const unsigned char* fileName) {
@@ -531,28 +511,28 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, LexerToken* tok
 
     // UTF-8 Encoder - see ISO/IEC 10646:2017 p15
     if(num < 0x007F) {
-        LexerStringAddC(&tok->data.string, ctx, num);
+        LexerStringAddChar(&tok->data.string, ctx, num);
     } else if(num < 0x07FF) {
         unsigned char o1 = 0xC0 | (num >> 6);
         unsigned char o2 = 0x80 | (num & 0x3F);
-        LexerStringAddC(&tok->data.string, ctx, o1);
-        LexerStringAddC(&tok->data.string, ctx, o2);
+        LexerStringAddChar(&tok->data.string, ctx, o1);
+        LexerStringAddChar(&tok->data.string, ctx, o2);
     } else if(num < 0xFFFF) {
         unsigned char o1 = 0xE0 | (num >> 12);
         unsigned char o2 = 0x80 | ((num >> 6) & 0x3F);
         unsigned char o3 = 0x80 | (num & 0x3F);
-        LexerStringAddC(&tok->data.string, ctx, o1);
-        LexerStringAddC(&tok->data.string, ctx, o2);
-        LexerStringAddC(&tok->data.string, ctx, o3);
+        LexerStringAddChar(&tok->data.string, ctx, o1);
+        LexerStringAddChar(&tok->data.string, ctx, o2);
+        LexerStringAddChar(&tok->data.string, ctx, o3);
     } else if(num < 0x10FFFF) {
         unsigned char o1 = 0xF0 | (num >> 18);
         unsigned char o2 = 0x80 | ((num >> 12) & 0x3F);
         unsigned char o3 = 0x80 | ((num >> 6) & 0x3F);
         unsigned char o4 = 0x80 | (num & 0x3F);
-        LexerStringAddC(&tok->data.string, ctx, o1);
-        LexerStringAddC(&tok->data.string, ctx, o2);
-        LexerStringAddC(&tok->data.string, ctx, o3);
-        LexerStringAddC(&tok->data.string, ctx, o4);
+        LexerStringAddChar(&tok->data.string, ctx, o1);
+        LexerStringAddChar(&tok->data.string, ctx, o2);
+        LexerStringAddChar(&tok->data.string, ctx, o3);
+        LexerStringAddChar(&tok->data.string, ctx, o4);
     } else {
         fprintf(stderr, "Error: UCS code point out of range: Maximum = 0x10FFFF\n");
         tok->type = TOKEN_ERROR_L;
@@ -595,11 +575,11 @@ static void ParseString(TranslationContext* ctx, LexerToken* tok, unsigned char 
     c = Phase3Peek(ctx);
     while(!Phase3AtEnd(ctx) && c != start) {
         Phase3Advance(ctx);
-        LexerStringAddC(&tok->data.string, ctx, c);
+        LexerStringAddChar(&tok->data.string, ctx, c);
 
         // skip escape sequences so that \" does not end a string
         if(c == '\\') {
-            LexerStringAddC(&tok->data.string, ctx, Phase3Advance(ctx));
+            LexerStringAddChar(&tok->data.string, ctx, Phase3Advance(ctx));
         } else if(c == '\n') {
             fprintf(stderr, "Error: %s literal unterminated at end of line\n", start == '\'' ? "character" : "string");
             tok->type = TOKEN_ERROR_L;
@@ -640,7 +620,7 @@ static void ParseHeaderName(TranslationContext* ctx, LexerToken* tok, unsigned c
             return;
         }
 
-        LexerStringAddC(&tok->data.string, ctx, c);
+        LexerStringAddChar(&tok->data.string, ctx, c);
         c = Phase3Peek(ctx);
     }
 
@@ -820,7 +800,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
                 // regular character
                 // if not already done, consume it and join to the identifier
                 if(!consumedCharacter) Phase3Advance(ctx);
-                LexerStringAddC(&tok->data.string, ctx, c);
+                LexerStringAddChar(&tok->data.string, ctx, c);
             }
 
             // advance
@@ -847,7 +827,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
     if(isDigit(c) || c == '.') {
         tok->type = TOKEN_PP_NUMBER;
         LexerStringInit(&tok->data.string, ctx, 10);
-        LexerStringAddC(&tok->data.string, ctx, c);
+        LexerStringAddChar(&tok->data.string, ctx, c);
 
         unsigned char c = Phase3Peek(ctx);
         while(!Phase3AtEnd(ctx)) {
@@ -862,7 +842,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
                 break;
             }
 
-            LexerStringAddC(&tok->data.string, ctx, c);
+            LexerStringAddChar(&tok->data.string, ctx, c);
             c = Phase3Peek(ctx);
         }
         return;
@@ -977,10 +957,10 @@ static void Phase3Initialise(TranslationContext* ctx) {
 void runPhase3(TranslationContext* ctx) {
     Phase3Initialise(ctx);
     LexerToken tok;
-    TokenPrintCtx printCtx;
-    TokenPrintCtxInit(&printCtx, stdout);
+    TokenPrintCtxFile printCtx;
+    TokenPrintCtxInitFile(&printCtx, stdout, ctx);
     while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
-        TokenPrint(&printCtx, &tok);
+        TokenPrintFile(&printCtx, &tok);
     }
     fprintf(stdout, "\n");
 }
@@ -1786,10 +1766,13 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 void runPhase4(TranslationContext* ctx) {
     Phase4Initialise(ctx, NULL, true);
     LexerToken tok;
-    TokenPrintCtx printCtx;
-    TokenPrintCtxInit(&printCtx, stdout);
+    TokenPrintCtxFile printCtx;
+    TokenPrintCtxInitFile(&printCtx, stdout, ctx);
     while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
-        TokenPrint(&printCtx, &tok);
+        TokenPrintFile(&printCtx, &tok);
     }
     fprintf(stdout, "\n");
+
+    (void)TokenPrintString;
+    (void)TokenPrintCtxInitString;
 }

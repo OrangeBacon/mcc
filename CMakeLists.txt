@@ -28,6 +28,7 @@ add_executable(mcc
     src/argParser.c
     src/driver.c
     src/lex.c
+    src/lexString.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})

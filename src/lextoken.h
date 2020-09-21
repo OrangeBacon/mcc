@@ -1,4 +1,6 @@
 #include "lex.h"
+#include "lexString.h"
+#define __USE_MINGW_ANSI_STDIO 1
 #include <stdio.h>
 
 // This file implements a token printer.  The printer needs to work with
@@ -6,17 +8,63 @@
 // the string handling, so this header can be included twice with different
 // macro definitions, to avoid duplicating code.
 // It also includes options to have the printed output escape special characters
-// e.g. if printing " or \ in a string literal.
+// e.g. if printing " or \ in a string literal. (TODO)
 
-static void StringTypePrint(LexerStringType t, FILE* file) {
+// Printing: use the PRINT() macro, which prints based on the type of the value
+// provided to it. The first argument is the current token print ctx.
+// Character literals cannot be printed as they have int type by default,
+// use a string literal or a variable instead.
+
+#ifndef LEX_TOKEN_H
+#   define PRINT_TYPE FILE*
+#   define PRINT_TYPE_NAME File
+#   define PRINT(c, value) fprintf((c)->file, _Generic((value), \
+        char*: "%s", \
+        char: "%c", \
+        LexerTokenType: "%d", \
+        size_t: "%llu", \
+        intmax_t: "%lld", \
+        double: "%f" \
+        ), (value))
+#else
+#   define PRINT_TYPE LexerString*
+#   define PRINT_TYPE_NAME String
+#   define PRINT(c, value) _Generic((value), \
+        char*: LexerStringAddString, \
+        char: LexerStringAddChar, \
+        LexerTokenType: LexerStringAddInt, \
+        size_t: LexerStringAddSizeT, \
+        intmax_t: LexerStringAddIntMaxT, \
+        double: LexerStringAddDouble \
+        )((c)->file, (c)->ctx, (value))
+#endif
+
+#define JOIN(a,b) JOIN_(a,b)
+#define JOIN_(a,b) a##b
+
+#define TokenPrintCtx JOIN(TokenPrintCtx, PRINT_TYPE_NAME)
+typedef struct TokenPrintCtx {
+    bool debugPrint;
+    bool tokenPrinterAtStart;
+    LexerToken previousPrinted;
+    TranslationContext* ctx;
+    PRINT_TYPE file;
+} TokenPrintCtx;
+
+#define StringTypePrint JOIN(StringTypePrint, PRINT_TYPE_NAME)
+static void StringTypePrint(LexerStringType t, TokenPrintCtx* ctx) {
+    (void)ctx;
     switch(t) {
         case STRING_NONE: return;
-        case STRING_U8: fprintf(file, "u8"); return;
-        case STRING_WCHAR: fprintf(file, "L"); return;
-        case STRING_16: fprintf(file, "u"); return;
-        case STRING_32: fprintf(file, "U"); return;
+        case STRING_U8: PRINT(ctx, "u8"); return;
+        case STRING_WCHAR: PRINT(ctx, "L"); return;
+        case STRING_16: PRINT(ctx, "u"); return;
+        case STRING_32: PRINT(ctx, "U"); return;
     }
 }
+
+#ifndef LEX_TOKEN_H
+#define LEX_TOKEN_H
 
 static LexerTokenType stringLikeTokens[] = {
     TOKEN_KW_AUTO,
@@ -181,157 +229,195 @@ bool TokenPasteAvoidance(LexerToken* left, LexerToken* right) {
     return leftIncluded && rightIncluded;
 }
 
-typedef struct TokenPrintCtx {
-    bool debugPrint;
-    bool tokenPrinterAtStart;
-    LexerToken previousPrinted;
-    FILE* file;
-} TokenPrintCtx;
+#endif
 
-static void TokenPrintCtxInit(TokenPrintCtx* ctx, FILE* file) {
+#define TokenPrintCtxInit JOIN(TokenPrintCtxInit, PRINT_TYPE_NAME)
+static void TokenPrintCtxInit(TokenPrintCtx* ctx, PRINT_TYPE file, TranslationContext* alloc) {
     ctx->tokenPrinterAtStart = true;
     ctx->debugPrint = false;
     ctx->previousPrinted = (LexerToken){.type = TOKEN_EOF_L};
+    ctx->ctx = alloc;
     ctx->file = file;
 }
 
+#define TokenPrint JOIN(TokenPrint, PRINT_TYPE_NAME)
 static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
     if(ctx->debugPrint) {
-        fprintf(ctx->file, "%llu:%llu", tok->loc->line, tok->loc->column);
-        if(tok->renderStartOfLine) fprintf(ctx->file, " bol");
-        if(tok->whitespaceBefore) fprintf(ctx->file, " white=%llu", tok->indent);
-        fprintf(ctx->file, " token=%d", tok->type);
-        fprintf(ctx->file, " data(%llu) ", tok->loc->length);
+        PRINT(ctx, tok->loc->line);
+        PRINT(ctx, ":");
+        PRINT(ctx, tok->loc->column);
+        if(tok->renderStartOfLine){
+            PRINT(ctx, " bol");
+        }
+        if(tok->whitespaceBefore) {
+            PRINT(ctx, " white=");
+            PRINT(ctx, tok->indent);
+        }
+        PRINT(ctx, " token=");
+        PRINT(ctx, tok->type);
+        PRINT(ctx, " data(");
+        PRINT(ctx, tok->loc->length);
+        PRINT(ctx, ") ");
     } else {
         bool printedWhitespace = false;
         if(tok->renderStartOfLine && !ctx->tokenPrinterAtStart) {
-            fprintf(ctx->file, "\n");
+            PRINT(ctx, "\n");
             printedWhitespace = true;
         }
         ctx->tokenPrinterAtStart = false;
         if(tok->whitespaceBefore) {
-            fprintf(ctx->file, "%*s", (int)tok->indent, "");
+            for(size_t i = 0; i < tok->indent; i++){
+                PRINT(ctx, " ");
+            }
             printedWhitespace |= tok->indent > 0;
         }
         if(!printedWhitespace && TokenPasteAvoidance(&ctx->previousPrinted, tok)) {
-            fprintf(ctx->file, " ");
+            PRINT(ctx, " ");
         }
     }
     switch(tok->type) {
-        case TOKEN_KW_AUTO: fprintf(ctx->file, "auto"); break;
-        case TOKEN_KW_BREAK: fprintf(ctx->file, "break"); break;
-        case TOKEN_KW_CASE: fprintf(ctx->file, "case"); break;
-        case TOKEN_KW_CHAR: fprintf(ctx->file, "char"); break;
-        case TOKEN_KW_CONST: fprintf(ctx->file, "const"); break;
-        case TOKEN_KW_CONTINUE: fprintf(ctx->file, "continue"); break;
-        case TOKEN_KW_DEFAULT: fprintf(ctx->file, "default"); break;
-        case TOKEN_KW_DO: fprintf(ctx->file, "do"); break;
-        case TOKEN_KW_DOUBLE: fprintf(ctx->file, "double"); break;
-        case TOKEN_KW_ELSE: fprintf(ctx->file, "else"); break;
-        case TOKEN_KW_ENUM: fprintf(ctx->file, "enum"); break;
-        case TOKEN_KW_EXTERN: fprintf(ctx->file, "extern"); break;
-        case TOKEN_KW_FLOAT: fprintf(ctx->file, "float"); break;
-        case TOKEN_KW_FOR: fprintf(ctx->file, "for"); break;
-        case TOKEN_KW_GOTO: fprintf(ctx->file, "goto"); break;
-        case TOKEN_KW_IF: fprintf(ctx->file, "if"); break;
-        case TOKEN_KW_INLINE: fprintf(ctx->file, "inline"); break;
-        case TOKEN_KW_INT: fprintf(ctx->file, "int"); break;
-        case TOKEN_KW_LONG: fprintf(ctx->file, "long"); break;
-        case TOKEN_KW_REGISTER: fprintf(ctx->file, "register"); break;
-        case TOKEN_KW_RESTRICT: fprintf(ctx->file, "restrict"); break;
-        case TOKEN_KW_RETURN: fprintf(ctx->file, "return"); break;
-        case TOKEN_KW_SHORT: fprintf(ctx->file, "short"); break;
-        case TOKEN_KW_SIGNED: fprintf(ctx->file, "signed"); break;
-        case TOKEN_KW_SIZEOF: fprintf(ctx->file, "sizeof"); break;
-        case TOKEN_KW_STATIC: fprintf(ctx->file, "static"); break;
-        case TOKEN_KW_STRUCT: fprintf(ctx->file, "struct"); break;
-        case TOKEN_KW_SWITCH: fprintf(ctx->file, "switch"); break;
-        case TOKEN_KW_TYPEDEF: fprintf(ctx->file, "typedef"); break;
-        case TOKEN_KW_UNION: fprintf(ctx->file, "union"); break;
-        case TOKEN_KW_UNSIGNED: fprintf(ctx->file, "unsigned"); break;
-        case TOKEN_KW_VOID: fprintf(ctx->file, "void"); break;
-        case TOKEN_KW_VOLATILE: fprintf(ctx->file, "volatile"); break;
-        case TOKEN_KW_WHILE: fprintf(ctx->file, "while"); break;
-        case TOKEN_KW_ALIGNAS: fprintf(ctx->file, "_Alignas"); break;
-        case TOKEN_KW_ALIGNOF: fprintf(ctx->file, "_Alignof"); break;
-        case TOKEN_KW_ATOMIC: fprintf(ctx->file, "_Atomic"); break;
-        case TOKEN_KW_BOOL: fprintf(ctx->file, "_Bool"); break;
-        case TOKEN_KW_COMPLEX: fprintf(ctx->file, "_Complex"); break;
-        case TOKEN_KW_GENERIC: fprintf(ctx->file, "_Generic"); break;
-        case TOKEN_KW_IMAGINARY: fprintf(ctx->file, "_Imaginary"); break;
-        case TOKEN_KW_NORETURN: fprintf(ctx->file, "_Noreturn"); break;
-        case TOKEN_KW_STATICASSERT: fprintf(ctx->file, "_Static_assert"); break;
-        case TOKEN_KW_THREADLOCAL: fprintf(ctx->file, "_Thread_local"); break;
-        case TOKEN_PUNC_LEFT_SQUARE: fprintf(ctx->file, "["); break;
-        case TOKEN_PUNC_RIGHT_SQUARE: fprintf(ctx->file, "]"); break;
-        case TOKEN_PUNC_LEFT_PAREN: fprintf(ctx->file, "("); break;
-        case TOKEN_PUNC_RIGHT_PAREN: fprintf(ctx->file, ")"); break;
-        case TOKEN_PUNC_LEFT_BRACE: fprintf(ctx->file, "{"); break;
-        case TOKEN_PUNC_RIGHT_BRACE: fprintf(ctx->file, "}"); break;
-        case TOKEN_PUNC_DOT: fprintf(ctx->file, "."); break;
-        case TOKEN_PUNC_ARROW: fprintf(ctx->file, "->"); break;
-        case TOKEN_PUNC_PLUS_PLUS: fprintf(ctx->file, "++"); break;
-        case TOKEN_PUNC_MINUS_MINUS: fprintf(ctx->file, "--"); break;
-        case TOKEN_PUNC_AND: fprintf(ctx->file, "&"); break;
-        case TOKEN_PUNC_STAR: fprintf(ctx->file, "*"); break;
-        case TOKEN_PUNC_PLUS: fprintf(ctx->file, "+"); break;
-        case TOKEN_PUNC_MINUS: fprintf(ctx->file, "-"); break;
-        case TOKEN_PUNC_TILDE: fprintf(ctx->file, "~"); break;
-        case TOKEN_PUNC_BANG: fprintf(ctx->file, "!"); break;
-        case TOKEN_PUNC_SLASH: fprintf(ctx->file, "/"); break;
-        case TOKEN_PUNC_PERCENT: fprintf(ctx->file, "%%"); break;
-        case TOKEN_PUNC_LESS_LESS: fprintf(ctx->file, "<<"); break;
-        case TOKEN_PUNC_GREATER_GREATER: fprintf(ctx->file, ">>"); break;
-        case TOKEN_PUNC_LESS: fprintf(ctx->file, "<"); break;
-        case TOKEN_PUNC_GREATER: fprintf(ctx->file, ">"); break;
-        case TOKEN_PUNC_LESS_EQUAL: fprintf(ctx->file, "<="); break;
-        case TOKEN_PUNC_GREATER_EQUAL: fprintf(ctx->file, ">="); break;
-        case TOKEN_PUNC_EQUAL_EQUAL: fprintf(ctx->file, "=="); break;
-        case TOKEN_PUNC_BANG_EQUAL: fprintf(ctx->file, "!="); break;
-        case TOKEN_PUNC_CARET: fprintf(ctx->file, "^"); break;
-        case TOKEN_PUNC_OR: fprintf(ctx->file, "|"); break;
-        case TOKEN_PUNC_AND_AND: fprintf(ctx->file, "&&"); break;
-        case TOKEN_PUNC_OR_OR: fprintf(ctx->file, "||"); break;
-        case TOKEN_PUNC_QUESTION: fprintf(ctx->file, "?"); break;
-        case TOKEN_PUNC_COLON: fprintf(ctx->file, ":"); break;
-        case TOKEN_PUNC_SEMICOLON: fprintf(ctx->file, ";"); break;
-        case TOKEN_PUNC_ELIPSIS: fprintf(ctx->file, "..."); break;
-        case TOKEN_PUNC_EQUAL: fprintf(ctx->file, "="); break;
-        case TOKEN_PUNC_STAR_EQUAL: fprintf(ctx->file, "*="); break;
-        case TOKEN_PUNC_SLASH_EQUAL: fprintf(ctx->file, "/="); break;
-        case TOKEN_PUNC_PERCENT_EQUAL: fprintf(ctx->file, "%%="); break;
-        case TOKEN_PUNC_PLUS_EQUAL: fprintf(ctx->file, "+="); break;
-        case TOKEN_PUNC_MINUS_EQUAL: fprintf(ctx->file, "-="); break;
-        case TOKEN_PUNC_LESS_LESS_EQUAL: fprintf(ctx->file, "<<="); break;
-        case TOKEN_PUNC_GREATER_GREATER_EQUAL: fprintf(ctx->file, ">>="); break;
-        case TOKEN_PUNC_AND_EQUAL: fprintf(ctx->file, "&="); break;
-        case TOKEN_PUNC_CARET_EQUAL: fprintf(ctx->file, "^="); break;
-        case TOKEN_PUNC_PIPE_EQUAL: fprintf(ctx->file, "|="); break;
-        case TOKEN_PUNC_COMMA: fprintf(ctx->file, ","); break;
-        case TOKEN_PUNC_HASH: fprintf(ctx->file, "#"); break;
-        case TOKEN_PUNC_HASH_HASH: fprintf(ctx->file, "##"); break;
-        case TOKEN_PUNC_LESS_COLON: fprintf(ctx->file, "<:"); break;
-        case TOKEN_PUNC_COLON_GREATER: fprintf(ctx->file, ":>"); break;
-        case TOKEN_PUNC_LESS_PERCENT: fprintf(ctx->file, "<%%"); break;
-        case TOKEN_PUNC_PERCENT_GREATER: fprintf(ctx->file, "%%>"); break;
-        case TOKEN_PUNC_PERCENT_COLON: fprintf(ctx->file, "%%:"); break;
-        case TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON: fprintf(ctx->file, "%%:%%:"); break;
-        case TOKEN_HEADER_NAME: fprintf(ctx->file, "\"%s\"", tok->data.string.buffer); break;
-        case TOKEN_SYS_HEADER_NAME: fprintf(ctx->file, "<%s>", tok->data.string.buffer); break;
-        case TOKEN_PP_NUMBER: fprintf(ctx->file, "%s", tok->data.string.buffer); break;
-        case TOKEN_IDENTIFIER_L: fprintf(ctx->file, "%s", tok->data.node->name.data.string.buffer); break;
-        case TOKEN_INTEGER_L: fprintf(ctx->file, "%llu", tok->data.integer); break;
-        case TOKEN_FLOATING_L: fprintf(ctx->file, "%f", tok->data.floating); break;
-        case TOKEN_CHARACTER_L: StringTypePrint(tok->data.string.type, ctx->file); fprintf(ctx->file, "'%s'", tok->data.string.buffer); break;
-        case TOKEN_STRING_L: StringTypePrint(tok->data.string.type, ctx->file); fprintf(ctx->file, "\"%s\"", tok->data.string.buffer); break;
-        case TOKEN_MACRO_ARG: fprintf(ctx->file, "argument(%lld)", tok->data.integer); break;
-        case TOKEN_UNKNOWN_L: fprintf(ctx->file, "%c", tok->data.character); break;
-        case TOKEN_ERROR_L: fprintf(ctx->file, "error token"); break;
+        case TOKEN_KW_AUTO: PRINT(ctx, "auto"); break;
+        case TOKEN_KW_BREAK: PRINT(ctx, "break"); break;
+        case TOKEN_KW_CASE: PRINT(ctx, "case"); break;
+        case TOKEN_KW_CHAR: PRINT(ctx, "char"); break;
+        case TOKEN_KW_CONST: PRINT(ctx, "const"); break;
+        case TOKEN_KW_CONTINUE: PRINT(ctx, "continue"); break;
+        case TOKEN_KW_DEFAULT: PRINT(ctx, "default"); break;
+        case TOKEN_KW_DO: PRINT(ctx, "do"); break;
+        case TOKEN_KW_DOUBLE: PRINT(ctx, "double"); break;
+        case TOKEN_KW_ELSE: PRINT(ctx, "else"); break;
+        case TOKEN_KW_ENUM: PRINT(ctx, "enum"); break;
+        case TOKEN_KW_EXTERN: PRINT(ctx, "extern"); break;
+        case TOKEN_KW_FLOAT: PRINT(ctx, "float"); break;
+        case TOKEN_KW_FOR: PRINT(ctx, "for"); break;
+        case TOKEN_KW_GOTO: PRINT(ctx, "goto"); break;
+        case TOKEN_KW_IF: PRINT(ctx, "if"); break;
+        case TOKEN_KW_INLINE: PRINT(ctx, "inline"); break;
+        case TOKEN_KW_INT: PRINT(ctx, "int"); break;
+        case TOKEN_KW_LONG: PRINT(ctx, "long"); break;
+        case TOKEN_KW_REGISTER: PRINT(ctx, "register"); break;
+        case TOKEN_KW_RESTRICT: PRINT(ctx, "restrict"); break;
+        case TOKEN_KW_RETURN: PRINT(ctx, "return"); break;
+        case TOKEN_KW_SHORT: PRINT(ctx, "short"); break;
+        case TOKEN_KW_SIGNED: PRINT(ctx, "signed"); break;
+        case TOKEN_KW_SIZEOF: PRINT(ctx, "sizeof"); break;
+        case TOKEN_KW_STATIC: PRINT(ctx, "static"); break;
+        case TOKEN_KW_STRUCT: PRINT(ctx, "struct"); break;
+        case TOKEN_KW_SWITCH: PRINT(ctx, "switch"); break;
+        case TOKEN_KW_TYPEDEF: PRINT(ctx, "typedef"); break;
+        case TOKEN_KW_UNION: PRINT(ctx, "union"); break;
+        case TOKEN_KW_UNSIGNED: PRINT(ctx, "unsigned"); break;
+        case TOKEN_KW_VOID: PRINT(ctx, "void"); break;
+        case TOKEN_KW_VOLATILE: PRINT(ctx, "volatile"); break;
+        case TOKEN_KW_WHILE: PRINT(ctx, "while"); break;
+        case TOKEN_KW_ALIGNAS: PRINT(ctx, "_Alignas"); break;
+        case TOKEN_KW_ALIGNOF: PRINT(ctx, "_Alignof"); break;
+        case TOKEN_KW_ATOMIC: PRINT(ctx, "_Atomic"); break;
+        case TOKEN_KW_BOOL: PRINT(ctx, "_Bool"); break;
+        case TOKEN_KW_COMPLEX: PRINT(ctx, "_Complex"); break;
+        case TOKEN_KW_GENERIC: PRINT(ctx, "_Generic"); break;
+        case TOKEN_KW_IMAGINARY: PRINT(ctx, "_Imaginary"); break;
+        case TOKEN_KW_NORETURN: PRINT(ctx, "_Noreturn"); break;
+        case TOKEN_KW_STATICASSERT: PRINT(ctx, "_Static_assert"); break;
+        case TOKEN_KW_THREADLOCAL: PRINT(ctx, "_Thread_local"); break;
+        case TOKEN_PUNC_LEFT_SQUARE: PRINT(ctx, "["); break;
+        case TOKEN_PUNC_RIGHT_SQUARE: PRINT(ctx, "]"); break;
+        case TOKEN_PUNC_LEFT_PAREN: PRINT(ctx, "("); break;
+        case TOKEN_PUNC_RIGHT_PAREN: PRINT(ctx, ")"); break;
+        case TOKEN_PUNC_LEFT_BRACE: PRINT(ctx, "{"); break;
+        case TOKEN_PUNC_RIGHT_BRACE: PRINT(ctx, "}"); break;
+        case TOKEN_PUNC_DOT: PRINT(ctx, "."); break;
+        case TOKEN_PUNC_ARROW: PRINT(ctx, "->"); break;
+        case TOKEN_PUNC_PLUS_PLUS: PRINT(ctx, "++"); break;
+        case TOKEN_PUNC_MINUS_MINUS: PRINT(ctx, "--"); break;
+        case TOKEN_PUNC_AND: PRINT(ctx, "&"); break;
+        case TOKEN_PUNC_STAR: PRINT(ctx, "*"); break;
+        case TOKEN_PUNC_PLUS: PRINT(ctx, "+"); break;
+        case TOKEN_PUNC_MINUS: PRINT(ctx, "-"); break;
+        case TOKEN_PUNC_TILDE: PRINT(ctx, "~"); break;
+        case TOKEN_PUNC_BANG: PRINT(ctx, "!"); break;
+        case TOKEN_PUNC_SLASH: PRINT(ctx, "/"); break;
+        case TOKEN_PUNC_PERCENT: PRINT(ctx, "%"); break;
+        case TOKEN_PUNC_LESS_LESS: PRINT(ctx, "<<"); break;
+        case TOKEN_PUNC_GREATER_GREATER: PRINT(ctx, ">>"); break;
+        case TOKEN_PUNC_LESS: PRINT(ctx, "<"); break;
+        case TOKEN_PUNC_GREATER: PRINT(ctx, ">"); break;
+        case TOKEN_PUNC_LESS_EQUAL: PRINT(ctx, "<="); break;
+        case TOKEN_PUNC_GREATER_EQUAL: PRINT(ctx, ">="); break;
+        case TOKEN_PUNC_EQUAL_EQUAL: PRINT(ctx, "=="); break;
+        case TOKEN_PUNC_BANG_EQUAL: PRINT(ctx, "!="); break;
+        case TOKEN_PUNC_CARET: PRINT(ctx, "^"); break;
+        case TOKEN_PUNC_OR: PRINT(ctx, "|"); break;
+        case TOKEN_PUNC_AND_AND: PRINT(ctx, "&&"); break;
+        case TOKEN_PUNC_OR_OR: PRINT(ctx, "||"); break;
+        case TOKEN_PUNC_QUESTION: PRINT(ctx, "?"); break;
+        case TOKEN_PUNC_COLON: PRINT(ctx, ":"); break;
+        case TOKEN_PUNC_SEMICOLON: PRINT(ctx, ";"); break;
+        case TOKEN_PUNC_ELIPSIS: PRINT(ctx, "..."); break;
+        case TOKEN_PUNC_EQUAL: PRINT(ctx, "="); break;
+        case TOKEN_PUNC_STAR_EQUAL: PRINT(ctx, "*="); break;
+        case TOKEN_PUNC_SLASH_EQUAL: PRINT(ctx, "/="); break;
+        case TOKEN_PUNC_PERCENT_EQUAL: PRINT(ctx, "%="); break;
+        case TOKEN_PUNC_PLUS_EQUAL: PRINT(ctx, "+="); break;
+        case TOKEN_PUNC_MINUS_EQUAL: PRINT(ctx, "-="); break;
+        case TOKEN_PUNC_LESS_LESS_EQUAL: PRINT(ctx, "<<="); break;
+        case TOKEN_PUNC_GREATER_GREATER_EQUAL: PRINT(ctx, ">>="); break;
+        case TOKEN_PUNC_AND_EQUAL: PRINT(ctx, "&="); break;
+        case TOKEN_PUNC_CARET_EQUAL: PRINT(ctx, "^="); break;
+        case TOKEN_PUNC_PIPE_EQUAL: PRINT(ctx, "|="); break;
+        case TOKEN_PUNC_COMMA: PRINT(ctx, ","); break;
+        case TOKEN_PUNC_HASH: PRINT(ctx, "#"); break;
+        case TOKEN_PUNC_HASH_HASH: PRINT(ctx, "##"); break;
+        case TOKEN_PUNC_LESS_COLON: PRINT(ctx, "<:"); break;
+        case TOKEN_PUNC_COLON_GREATER: PRINT(ctx, ":>"); break;
+        case TOKEN_PUNC_LESS_PERCENT: PRINT(ctx, "<%"); break;
+        case TOKEN_PUNC_PERCENT_GREATER: PRINT(ctx, "%>"); break;
+        case TOKEN_PUNC_PERCENT_COLON: PRINT(ctx, "%:"); break;
+        case TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON: PRINT(ctx, "%:%:"); break;
+        case TOKEN_HEADER_NAME:
+            PRINT(ctx, "\"");
+            PRINT(ctx, tok->data.string.buffer);
+            PRINT(ctx, "\""); break;
+        case TOKEN_SYS_HEADER_NAME:
+            PRINT(ctx, "<");
+            PRINT(ctx, tok->data.string.buffer);
+            PRINT(ctx, ">"); break;
+        case TOKEN_PP_NUMBER: PRINT(ctx, tok->data.string.buffer); break;
+        case TOKEN_IDENTIFIER_L: PRINT(ctx, tok->data.node->name.data.string.buffer); break;
+        case TOKEN_INTEGER_L: PRINT(ctx, tok->data.integer); break;
+        case TOKEN_FLOATING_L: PRINT(ctx, tok->data.floating); break;
+        case TOKEN_CHARACTER_L:
+            StringTypePrint(tok->data.string.type, ctx);
+            PRINT(ctx, "\'");
+            PRINT(ctx, tok->data.string.buffer);
+            PRINT(ctx, "\'"); break;
+        case TOKEN_STRING_L:
+            StringTypePrint(tok->data.string.type, ctx);
+            PRINT(ctx, "\"");
+            PRINT(ctx, tok->data.string.buffer);
+            PRINT(ctx, "\""); break;
+        case TOKEN_MACRO_ARG:
+            PRINT(ctx, "argument(");
+            PRINT(ctx, tok->data.integer);
+            PRINT(ctx, ")");
+            break;
+        case TOKEN_UNKNOWN_L: PRINT(ctx, tok->data.character); break;
+        case TOKEN_ERROR_L: PRINT(ctx, "error token"); break;
         case TOKEN_EOF_L: break;
     }
 
     if(ctx->debugPrint) {
-        fprintf(ctx->file, "\n");
+        PRINT(ctx, "\n");
     }
     ctx->previousPrinted = *tok;
 }
+
+#undef PRINT_TYPE
+#undef PRINT_TYPE_NAME
+#undef PRINT
+#undef JOIN
+#undef JOIN_
+#undef StringTypePrint
+#undef TokenPrintCtx
+#undef TokenPrintCtxInit
+#undef TokenPrint
