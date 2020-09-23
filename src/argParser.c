@@ -108,7 +108,7 @@ static void parseOption(argParser* parser, const char* current) {
 static void parsePosition(argParser* parser) {
     for(unsigned int i = 0; i < parser->settingCount; i++) {
         argArgument* arg = &parser->settings[i];
-        if(!arg->isOption && !arg->isDone) {
+        if(!arg->isOption && !arg->isMode && !arg->isDone) {
 
             parser->canGetArg = true;
             parser->canGetInternalArg = false;
