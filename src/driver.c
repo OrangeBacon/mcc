@@ -17,6 +17,7 @@ static struct stringList includeFiles = {0};
 static bool printAst = false;
 static bool printIr = false;
 static int translationPhaseCount = 8;
+static const char* testPath = NULL;
 
 static void preprocessFlag(struct argParser* parser, void* _) {
     (void)_;
@@ -42,7 +43,14 @@ static void preprocessFlag(struct argParser* parser, void* _) {
     translationPhaseCount = value;
 }
 
+typedef enum topModes {
+    MODE_TEST
+} topModes;
+
 static struct argArgument topArguments[] = {
+    [MODE_TEST] = {"$test", '\0', "run the compiler's test suite", argMode, (struct argArgument[]) {
+        {"!test-path", '\0', "location of the test suite", argOneString, &testPath}
+    }},
     {"!input", '\0', "file to process", argPush, &files},
     {"-print-ast", 'a', "prints the ast to stdout", argSet, &printAst},
     {"-print-ir", 'i', "prints the ir to stdout", argSet, &printIr},
@@ -69,6 +77,11 @@ int driver(int argc, char** argv) {
 
     bool hadError = parseArgs(&argparser);
     if(hadError) return EXIT_FAILURE;
+
+    if(topArguments[MODE_TEST].isDone) {
+        fprintf(stderr, "running tests: %s\nTODO\n", testPath);
+        return EXIT_SUCCESS;
+    }
 
     MemoryPool pool;
     memoryPoolAlloc(&pool, 1ULL*TiB);

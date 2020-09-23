@@ -10,7 +10,7 @@ typedef struct argArgument argArgument;
 
 // is a character representing a setting in the setting name
 static bool isSigil(char c) {
-    return c == '-' || c == '!';
+    return c == '-' || c == '!' || c == '$';
 }
 
 // process and remove all sigils from all setting names
@@ -20,6 +20,7 @@ static void parseArgumentSigils(argArgument* arg) {
         switch(*start) {
             case '-': arg->isOption = true; break;
             case '!': arg->isRequired = true; break;
+            case '$': arg->isMode = true; break;
         }
         start++;
     }
@@ -35,10 +36,23 @@ void argError(argParser* parser, const char* message, ...) {
     if(parser->argc < 0) {
         fprintf(stderr, "Error at end of parameters: ");
     } else {
-        fprintf(stderr, "Error at parameter %d: ", parser->initialArgc - parser->argc);
+        fprintf(stderr, "Error at parameter %d: ", parser->initialArgc - parser->argc + 1);
     }
     vfprintf(stderr, message, args);
     fprintf(stderr, "\n");
+
+    va_end(args);
+}
+
+static void argInternalError(argParser* parser, const char* message, ...) {
+    va_list args;
+    va_start(args, message);
+
+    parser->hasError = true;
+
+    fprintf(stderr, "Internal Argument Parser Error: ");
+    vfprintf(stderr, message, args);
+    fprintf(stderr, "\nPlease report this as a bug to the program you are running.\n");
 
     va_end(args);
 }
@@ -108,26 +122,85 @@ static void parsePosition(argParser* parser) {
     argError(parser, "Could not find use for positional argument");
 }
 
+// add argArgument to the parser, given that the argument is of option type
+static void setupOption(argParser* parser, argArgument* currentArg) {
+    size_t nameLength = strlen(currentArg->name);
+    if(tableHas(&parser->argumentTable, currentArg->name, nameLength)) {
+        argInternalError(parser, "Duplicate argument name: %s", currentArg->name);
+        return;
+    }
+    TABLE_SET(parser->argumentTable, currentArg->name, nameLength, currentArg);
+
+    if(currentArg->shortName != '\0') {
+        if(tableHas(&parser->shortArgTable, &currentArg->shortName, 1)) {
+            argInternalError(parser, "Duplicate short argument name: %c", currentArg->shortName);
+            return;
+        }
+        TABLE_SET(parser->shortArgTable, &currentArg->shortName, 1, currentArg);
+    }
+}
+
+// add argArgument to the parser, given that the argument is of mode type
+static void setupMode(argParser* parser, argArgument* currentArg) {
+    if(currentArg->isRequired) {
+        argInternalError(parser, "Required modes are invalid: %s", currentArg->name);
+        return;
+    }
+    if(currentArg->isOption) {
+        argInternalError(parser, "Optional modes are invalid: %s", currentArg->name);
+        return;
+    }
+
+    size_t nameLength = strlen(currentArg->name);
+    if(tableHas(&parser->modes, currentArg->name, nameLength)) {
+        argInternalError(parser, "Duplicated mode: %s", currentArg->name);
+        return;
+    }
+
+    TABLE_SET(parser->modes, currentArg->name, nameLength, currentArg);
+}
+
 // main parser
 bool parseArgs(argParser* parser) {
     unsigned int settingCount = 0;
-    parser->initialArgc = parser->argc;
+    if(parser->initialArgc == 0){
+        parser->initialArgc = parser->argc;
+    }
 
     TABLE_INIT(parser->argumentTable, argArgument*);
     TABLE_INIT(parser->shortArgTable, argArgument*);
+    TABLE_INIT(parser->modes, argArgument*);
 
     argArgument* currentArg = parser->settings;
     while(currentArg->name != NULL) {
         parseArgumentSigils(currentArg);
         if(currentArg->isOption) {
-            TABLE_SET(parser->argumentTable, currentArg->name,
-                strlen(currentArg->name), currentArg);
-            TABLE_SET(parser->shortArgTable, &currentArg->shortName, 1, currentArg);
+            setupOption(parser, currentArg);
+        } else if(currentArg->isMode) {
+            setupMode(parser, currentArg);
         }
         currentArg++;
         settingCount++;
+
+        if(parser->hasError) {
+            return true;
+        }
     }
     parser->settingCount = settingCount;
+
+    // check for possible new mode
+    if(parser->argc > 0) {
+        const char* name = parser->argv[0];
+        size_t len = strlen(name);
+        if(tableHas(&parser->modes, name, len)) {
+            parser->argc--;
+            parser->argv++;
+            argArgument* arg = tableGet(&parser->modes, name, len);
+            invokeOption(parser, arg, name, len);
+            arg->isDone = true;
+            return parser->hasError;
+        }
+    }
 
     bool isParsingOptions = true;
 
@@ -156,7 +229,7 @@ bool parseArgs(argParser* parser) {
     for(unsigned int i = 0; i < settingCount; i++) {
         argArgument* arg = &parser->settings[i];
         if(arg->isRequired) {
-            argError(parser, "missing required argument %s", arg->name);
+            argError(parser, "missing required %sargument: %s", arg->isOption?"":"positional ", arg->name);
         }
     }
 
@@ -257,7 +330,7 @@ void argSet(argParser* parser, void* ctx) {
 }
 
 // callback to push value
-void argPush(struct argParser* parser, void* ctx) {
+void argPush(argParser* parser, void* ctx) {
     struct stringList* list = ctx;
     if(list->datas == NULL) {
         ARRAY_ALLOC(const char*, *list, data);
@@ -267,4 +340,30 @@ void argPush(struct argParser* parser, void* ctx) {
     if(str == NULL) return;
 
     ARRAY_PUSH(*list, data, str);
+}
+
+// callback to set a single string option
+void argOneString(argParser* parser, void* ctx) {
+    const char** str = (const char**)ctx;
+
+    const char* arg = argNextString(parser, true);
+    if(str == NULL) return;
+
+    parser->currentArgument->isDone = true;
+    *str = arg;
+}
+
+// callback to run a new mode
+void argMode(argParser* parser, void* ctx) {
+    argParser new = {
+        parser->argc,
+        parser->argv,
+        ctx
+    };
+    new.initialArgc = parser->initialArgc;
+
+    bool hadError = parseArgs(&new);
+    if(hadError) {
+        parser->hasError = true;
+    }
 }

@@ -17,6 +17,7 @@ struct argParser {
 
     Table argumentTable;
     Table shortArgTable;
+    Table modes;
 
     bool hasError : 1;
     bool canGetArg : 1;
@@ -33,6 +34,7 @@ struct argArgument {
     bool isOption : 1;
     bool isRequired : 1;
     bool isDone : 1;
+    bool isMode : 1;
 };
 
 struct stringList {
@@ -43,6 +45,8 @@ bool parseArgs(struct argParser*);
 
 void argSet(struct argParser* parser, void* ctx);
 void argPush(struct argParser* parser, void* ctx);
+void argOneString(struct argParser* parser, void* ctx);
+void argMode(struct argParser* parser, void* ctx);
 
 void argError(struct argParser* parser, const char* message, ...);
 
