@@ -29,6 +29,7 @@ add_executable(mcc
     src/driver.c
     src/lex.c
     src/lexString.c
+    src/test.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})

@@ -29,6 +29,7 @@ typedef enum SystemType {
 } SystemType;
 
 void FilesInit();
+Path getStartupDirectory();
 void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const char** includePaths, size_t includeCount);
 const char* IncludeSearchPathFindSys(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName);
 const char* IncludeSearchPathFindUser(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName);

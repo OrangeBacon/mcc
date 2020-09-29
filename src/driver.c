@@ -11,13 +11,14 @@
 #include "parser.h"
 #include "x64Encode.h"
 #include "lex.h"
+#include "test.h"
 
 static struct stringList files = {0};
 static struct stringList includeFiles = {0};
 static bool printAst = false;
 static bool printIr = false;
 static int translationPhaseCount = 8;
-static const char* testPath = NULL;
+static const char* testPath = ".";
 
 static void preprocessFlag(struct argParser* parser, void* _) {
     (void)_;
@@ -79,7 +80,7 @@ int driver(int argc, char** argv) {
     if(hadError) return EXIT_FAILURE;
 
     if(topArguments[MODE_TEST].isDone) {
-        fprintf(stderr, "running tests: %s\nTODO\n", testPath);
+        runTests(testPath);
         return EXIT_SUCCESS;
     }
 

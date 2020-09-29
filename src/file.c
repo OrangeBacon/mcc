@@ -38,6 +38,10 @@ void FilesInit() {
     }
 }
 
+Path getStartupDirectory() {
+    return currentDirectory;
+}
+
 // Attempt to findd MinGW based on where it installed itself on my computer
 // only detects the 64 bit version, no plans for 32 bit support
 static void FindMinGWW64WinBuilds(IncludeSearchPath* search) {
@@ -194,6 +198,12 @@ static void AddIncludes(IncludeSearchPath* search, const char** includePaths, si
         int len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, includePaths[i], -1, NULL, 0);
         wchar_t* buf = ArenaAlloc(sizeof(wchar_t) * len);
         MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, includePaths[i], -1, buf, len);
+
+        for(int i = 0; i < len; i++) {
+            if(buf[i] == L'/') {
+                buf[i] = L'\\';
+            }
+        }
 
         if(buf[0] == '-') {
             wchar_t* path;
