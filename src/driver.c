@@ -71,17 +71,11 @@ int driver(int argc, char** argv) {
         topArguments,
     };
 
-    fprintf(stderr, "arguments:\n");
-    for(int i = 0; i < argc; i++) {
-        fprintf(stderr, "arg %d: %s\n", i, argv[i]);
-    }
-
     bool hadError = parseArgs(&argparser);
     if(hadError) return EXIT_FAILURE;
 
     if(topArguments[MODE_TEST].isDone) {
-        runTests(testPath);
-        return EXIT_SUCCESS;
+        return runTests(testPath);
     }
 
     MemoryPool pool;

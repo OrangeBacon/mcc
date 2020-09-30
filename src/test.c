@@ -1,5 +1,6 @@
 #include "test.h"
 
+#define __USE_MINGW_ANSI_STDIO 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -17,8 +18,11 @@
 
 // Simple end-to-end tests.
 
-typedef void (*directoryIterCallback)(wchar_t* path, wchar_t* file, void* ctx);
+typedef void (*directoryIterCallback)(char* path, size_t length, void* ctx);
 
+// recursively iterate directory, calling the call back with the absolute
+// path of every valid file within the base path.
+// returns false if a file system error occured (e.g. file not found)
 static bool iterateDirectory(wchar_t* basePath, directoryIterCallback callback, void* ctx) {
     wchar_t* searchPath;
     PathAllocCombine(basePath, TEXT("*"), LongPath, &searchPath);
@@ -44,7 +48,16 @@ static bool iterateDirectory(wchar_t* basePath, directoryIterCallback callback, 
             LocalFree(newDir);
 
         } else {
-            callback(basePath, ffd.cFileName, ctx);
+            wchar_t* path;
+            PathAllocCombine(basePath, ffd.cFileName, LongPath, &path);
+
+            // remove wchar_t from callback
+            size_t len = WideCharToMultiByte(CP_ACP, 0, path, -1, NULL, 0, NULL, NULL);
+            char* buf = ArenaAlloc(sizeof(char) * len);
+            WideCharToMultiByte(CP_ACP, 0, path, -1, buf, len, NULL, NULL);
+
+            callback(buf, len - 1, ctx);
+            LocalFree(path);
         }
     } while(FindNextFile(hFind, &ffd) != 0);
 
@@ -60,17 +73,25 @@ static bool iterateDirectory(wchar_t* basePath, directoryIterCallback callback, 
 }
 
 typedef struct testCtx {
-    int testCount;
+    ARRAY_DEFINE(char*, path);
 } testCtx;
 
-static void runSingleTest(wchar_t* path, wchar_t* file, void* voidCtx) {
+// check if a file could be a test (i.e. has ".har" extension)
+// if valid add to an array
+// length = length of the path supplied, on windows can be up to 32k, i.e.
+// greater than max path potentially, as using \\?\ paths
+static void runSingleTest(char* path, size_t length, void* voidCtx) {
     testCtx* ctx = voidCtx;
-    fwprintf(stderr, L"%s%s\n", path, file);
-    ctx->testCount++;
+
+    if(length <= 4 || strncmp(path + length - 4, ".har", 4) != 0) {
+        return;
+    }
+
+    ARRAY_PUSH(*ctx, path, path);
 }
 
+// main function, return exits the program
 int runTests(const char* testPath) {
-    fprintf(stderr, "running tests: \n");
     // command line input is not wide char, so make it so
     int len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, testPath, -1, NULL, 0);
     wchar_t* widePath = ArenaAlloc(sizeof(wchar_t) * len);
@@ -88,16 +109,28 @@ int runTests(const char* testPath) {
     wchar_t* folderPath;
     PathAllocCombine(startupDirectory.buf, widePath, LongPath | SlashPath, &folderPath);
 
-    testCtx ctx = {0};
+    testCtx ctx;
+    ARRAY_ALLOC(char*, ctx, path);
 
     bool result = iterateDirectory(folderPath, runSingleTest, &ctx);
-    LocalFree(folderPath);
 
     if(result == false) {
-        fprintf(stderr, "finding tests failed\n");
+        fwprintf(stderr, L"Finding tests failed. Does \"%s\" exist?\n", folderPath);
+        LocalFree(folderPath);
+        return EXIT_FAILURE;
     }
 
-    fprintf(stderr, "Found %d tests\n", ctx.testCount);
+    LocalFree(folderPath);
 
-    return result;
+    if(ctx.pathCount == 0) {
+        fprintf(stderr, "Found no test files. Exiting.\n");
+        return EXIT_SUCCESS;
+    }
+
+    fprintf(stderr, "Found %d test%s:\n", ctx.pathCount, ctx.pathCount==1?"":"s");
+    for(unsigned int i = 0; i < ctx.pathCount; i++) {
+        fprintf(stderr, "\t%s\n", ctx.paths[i]);
+    }
+
+    return EXIT_SUCCESS;
 }
