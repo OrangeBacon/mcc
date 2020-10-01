@@ -98,6 +98,7 @@ static void gatherTests(char* path, size_t length, void* voidCtx) {
     ARRAY_PUSH(*ctx, test, ((testDescriptor){.path = path, .succeeded = false}));
 }
 
+// a single section of a har file
 typedef struct harSingleFile {
     bool isDrectory;
     const unsigned char* path;
@@ -107,6 +108,7 @@ typedef struct harSingleFile {
     int expectedExitCodeParam;
 } harSingleFile;
 
+// a whole har file and related parsing context
 typedef struct harContext {
     size_t fileLength;
     unsigned char* file;
@@ -131,6 +133,9 @@ static unsigned char peek(harContext* ctx) {
     return val;
 }
 
+// consume the next character from the stream and return it.
+// updates the line and column counters
+// treats '\r\n' and '\n\r' and '\r' as all equal to a return of '\n'
 static unsigned char advance(harContext* ctx) {
     if(isEOF(ctx)) return '\0';
     unsigned char val = ctx->file[ctx->consumed];
@@ -150,16 +155,24 @@ static unsigned char advance(harContext* ctx) {
     return val;
 }
 
+// advance by n characters
 static void advanceN(harContext* ctx, size_t n) {
     for(size_t i = 0; i < n; i++) advance(ctx);
 }
 
+// skip spaces and tabs in the context
 static void skipWhitespace(harContext* ctx) {
     while(!isEOF(ctx) && (peek(ctx) == ' ' || peek(ctx) == '\t')) {
         advance(ctx);
     }
 }
 
+// parse the header to a file section in the har file
+// examples:
+//  main.c
+//  "spaces file name.c"
+//  cmd exit=15
+//  main.c -other seperator stuff ignored till the end of the line
 static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
     file->path = &ctx->file[ctx->consumed];
     file->pathLength = 0;
@@ -172,6 +185,10 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
 
     if(peek(ctx) != seperator && peek(ctx) != '\n') {
         return false;
+    }
+
+    if(file->path[file->pathLength - 1] == '/') {
+        file->isDrectory = true;
     }
 
     while(true) {
@@ -190,10 +207,11 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
 
         // exit property - used to specify command expected exit codes
         if(strncmp((char*)&ctx->file[ctx->consumed], "exit", 4) == 0) {
-            advanceN(ctx, 4);
-            if(advance(ctx) != '=') {
+            advanceN(ctx, 4); // consume 'exit'
+            if(peek(ctx) != '=') {
                 return false;
             }
+            advance(ctx); // consume '='
             unsigned char* end;
             intmax_t num = strtoimax((char*)&ctx->file[ctx->consumed], (char**)&end, 0);
 
@@ -243,6 +261,9 @@ static void runSingleTest(testDescriptor* test) {
         fprintf(stderr, "\t\t%.*s", (int)file->pathLength, file->path);
         if(file->expectedExitCodeParam != 0) {
             fprintf(stderr, " exit = %d", file->expectedExitCodeParam);
+        }
+        if(file->isDrectory) {
+            fprintf(stderr, " directory");
         }
         fprintf(stderr, "\n");
     }
