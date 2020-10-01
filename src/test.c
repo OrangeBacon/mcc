@@ -189,9 +189,11 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
 
     if(file->path[file->pathLength - 1] == '/') {
         file->isDrectory = true;
+    } else {
+        file->isDrectory = false;
     }
 
-    while(true) {
+    while(!isEOF(ctx)) {
         skipWhitespace(ctx);
 
         // end of header line
@@ -208,10 +210,12 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
         // exit property - used to specify command expected exit codes
         if(strncmp((char*)&ctx->file[ctx->consumed], "exit", 4) == 0) {
             advanceN(ctx, 4); // consume 'exit'
+            skipWhitespace(ctx);
             if(peek(ctx) != '=') {
                 return false;
             }
             advance(ctx); // consume '='
+            skipWhitespace(ctx);
             unsigned char* end;
             intmax_t num = strtoimax((char*)&ctx->file[ctx->consumed], (char**)&end, 0);
 
@@ -229,6 +233,39 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
         return false;
     }
 
+    if(peek(ctx) == '\n') advance(ctx);
+
+    return true;
+}
+
+// parse all of a file section in the har archive
+static bool parseHarFileSection(harContext* ctx) {
+    if(strncmp((char*)&ctx->file[ctx->consumed], (char*)ctx->seperator, ctx->seperatorLength) != 0) {
+        return false;
+    }
+    advanceN(ctx, ctx->seperatorLength);
+    skipWhitespace(ctx);
+
+    harSingleFile* file = ARRAY_PUSH_PTR(*ctx, file);
+    if(!parseFileHeader(ctx, file)) {
+        return false;
+    }
+
+    if(file->isDrectory) {
+        return true;
+    }
+
+    file->content = &ctx->file[ctx->consumed];
+    file->contentLength = 0;
+    while(!isEOF(ctx)) {
+        if(strncmp((char*)&ctx->file[ctx->consumed], (char*)ctx->seperator, ctx->seperatorLength) == 0) {
+            break;
+        }
+        while(!isEOF(ctx) && advance(ctx) != '\n') {
+            file->contentLength++;
+        }
+    }
+
     return true;
 }
 
@@ -241,20 +278,20 @@ static void runSingleTest(testDescriptor* test) {
     ctx.file = (unsigned char*)readFileLen(test->path, &ctx.fileLength);
     ARRAY_ALLOC(harSingleFile, ctx, file);
 
+    // detect length of the file's seperator, without consuming it from the stream
     ctx.seperator = ctx.file;
-    while(!isEOF(&ctx) && peek(&ctx) != ' ') {
-        advance(&ctx);
+    while(ctx.seperatorLength < ctx.fileLength && ctx.file[ctx.seperatorLength] != ' ') {
+        ctx.seperatorLength++;
     }
-    ctx.seperatorLength = ctx.consumed;
-    skipWhitespace(&ctx);
 
-    fprintf(stderr, "\t\tseplen = %lld\n", ctx.seperatorLength);
+    while(!isEOF(&ctx) && parseHarFileSection(&ctx)){}
 
-    if(!parseFileHeader(&ctx, ARRAY_PUSH_PTR(ctx, file))) {
+    if(!isEOF(&ctx)) {
         fprintf(stderr, "\t\ttest parsing failed at %lld:%lld\n", ctx.line, ctx.column);
-        test->succeeded = false;
         return;
     }
+
+    fprintf(stderr, "\t\tseplen = %lld\n", ctx.seperatorLength);
 
     for(unsigned int i = 0; i < ctx.fileCount; i++) {
         harSingleFile* file = &ctx.files[i];
