@@ -428,6 +428,9 @@ bool deepCreateDirectory(wchar_t* path) {
     return createDirRecurse(path, len);
 }
 
+// create file and all previous directories in the path
+// returns write only syncronous handle to the file
+// if the file already exists, it is overwritten.
 HANDLE deepCreateFile(wchar_t* path) {
     size_t len = wcslen(path);
 
@@ -442,4 +445,60 @@ HANDLE deepCreateFile(wchar_t* path) {
     }
 
     return CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FLAG_ATTRIBUTE_NORMAL, NULL);
+}
+
+// recursively delete all files and folders in a directory
+// errors if read-only files are found.
+// no error if the provided directory does not exist
+bool deepDeleteDirectory(wchar_t* path) {
+    wchar_t* searchPath;
+    PathAllocCombine(path, TEXT("*"), PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH, &searchPath);
+
+    WIN32_FIND_DATAW ffd;
+    HANDLE hFind = FindFirstFileW(searchPath, &ffd);
+
+    if(hFind == INVALID_HANDLE_VALUE) {
+        // not a problem if the directory already doesnt exist
+        LocalFree(searchPath);
+        return true;
+    }
+
+    bool succeeded = true;
+
+    do {
+        if(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            if(wcscmp(ffd.cFileName, L".") == 0 || wcscmp(ffd.cFileName, L"..") == 0) {
+                continue;
+            }
+            wchar_t* newDir;
+            PathAllocCombine(path, ffd.cFileName, PathFlags, &newDir);
+            succeeded &= deepDeleteDirectory(newDir);
+            if(!succeeded) return false;
+            succeeded &= RemoveDirectoryW(newDir);
+            if(!succeeded) return false;
+            LocalFree(newDir);
+
+            if(!succeeded) {
+                return false;
+            }
+
+        } else {
+            wchar_t* newPath;
+            PathAllocCombine(path, ffd.cFileName, PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH, &newPath);
+
+            succeeded &= DeleteFileW(newPath);
+            LocalFree(newPath);
+            if(!succeeded) return false;
+        }
+    } while(FindNextFile(hFind, &ffd) != 0);
+
+    DWORD error = GetLastError();
+    if(error != ERROR_NO_MORE_FILES) {
+        LocalFree(searchPath);
+        return false;
+    }
+
+    LocalFree(searchPath);
+    FindClose(hFind);
+    return succeeded;
 }

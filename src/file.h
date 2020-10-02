@@ -42,5 +42,6 @@ char* readFileLen(const char* name, size_t* len);
 
 bool deepCreateDirectory(wchar_t* path);
 void* deepCreateFile(wchar_t* path);
+bool deepDeleteDirectory(wchar_t* path);
 
 #endif

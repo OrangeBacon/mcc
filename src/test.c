@@ -240,6 +240,11 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
     }
 
     if(peek(ctx) == '\n') advance(ctx);
+
+    // Make the path a null terminated string.  This edits the har file's
+    // buffer, however the area edited will have already been read by this
+    // point, or an error will have occured and the function will have returned
+    // so this is safe to do.
     file->path[pathLength] = '\0';
 
     return true;
@@ -385,8 +390,16 @@ int runTests(const char* testPath, const char* tempPath) {
 
     wchar_t* fullTempPath;
     PathAllocCombine(startupDirectory.buf, pathToWchar(tempPath), LongPath | SlashPath, &fullTempPath);
+    if(!deepDeleteDirectory(fullTempPath)) {
+        fprintf(stderr, "Failed to empty test directory.\n");
+        LocalFree(fullTempPath);
+        return EXIT_FAILURE;
+    }
+
     if(!deepCreateDirectory(fullTempPath)) {
-        fprintf(stderr, "Failed to create test directory");
+        fprintf(stderr, "Failed to create test directory.\n");
+        LocalFree(fullTempPath);
+        return EXIT_FAILURE;
     }
     const char* charTempPath = wcharToChar(fullTempPath, NULL);
     LocalFree(fullTempPath);
