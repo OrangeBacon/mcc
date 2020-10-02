@@ -21,6 +21,7 @@ static Path currentDirectory;
 #define PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH 0x00000010
 #define PATHCCH_ENSURE_TRAILING_SLASH 0x00000020
 #define S_OK ((HRESULT)0x00000000)
+#define FLAG_ATTRIBUTE_NORMAL 0x80
 
 // common flags for path processing
 #define PathFlags (PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH | PATHCCH_ENSURE_TRAILING_SLASH)
@@ -345,6 +346,32 @@ const char* IncludeSearchPathFindUser(IncludeSearchState* state, IncludeSearchPa
     return IncludeSearchPathFindSys(state, path, fileName);
 }
 
+ wchar_t* pathToWchar(const char* str) {
+    int len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, str, -1, NULL, 0);
+    wchar_t* wideStr = ArenaAlloc(sizeof(wchar_t) * len);
+    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, str, -1, wideStr, len);
+
+    for(int i = 0; i < len; i++) {
+        if(wideStr[i] == L'/') {
+            wideStr[i] = L'\\';
+        }
+    }
+
+    return wideStr;
+}
+
+char* wcharToChar(const wchar_t* str, size_t* lenPtr) {
+    size_t len = WideCharToMultiByte(CP_ACP, 0, str, -1, NULL, 0, NULL, NULL);
+    char* buf = ArenaAlloc(sizeof(char) * len);
+    WideCharToMultiByte(CP_ACP, 0, str, -1, buf, len, NULL, NULL);
+
+    if(lenPtr != NULL) {
+        *lenPtr = len - 1;
+    }
+
+    return buf;
+}
+
 char* readFile(const char* name) {
     size_t _;
     return readFileLen(name, &_);
@@ -371,4 +398,48 @@ char* readFileLen(const char* name, size_t* len) {
     *len = read;
 
     return buf;
+}
+
+static bool createDirRecurse(wchar_t* path, size_t pathLen) {
+    DWORD attrs = GetFileAttributesW(path);
+
+    if(attrs == INVALID_FILE_ATTRIBUTES) {
+        for(size_t i = pathLen - 2; i > 4; i--) {
+            if(path[i] == L'\\') {
+                wchar_t character = path[i + 1];
+                path[i + 1] = L'\0';
+                createDirRecurse(path, i);
+                path[i + 1] = character;
+                break;
+            }
+        }
+
+        return CreateDirectoryW(path, NULL);
+    } else {
+        return true;
+    }
+}
+
+// note: only compatable with UNC \\?\ paths that are slash terminated
+bool deepCreateDirectory(wchar_t* path) {
+    size_t len = wcslen(path);
+    if(wcsncmp(path, L"\\\\?\\", 4) != 0) return false;
+    if(path[len - 1] != L'\\') return false;
+    return createDirRecurse(path, len);
+}
+
+HANDLE deepCreateFile(wchar_t* path) {
+    size_t len = wcslen(path);
+
+    for(size_t i = len - 1; i >= 1; i--) {
+        if(path[i] == L'\\') {
+            wchar_t character = path[i + 1];
+            path[i + 1] = L'\0';
+            deepCreateDirectory(path);
+            path[i + 1] = character;
+            break;
+        }
+    }
+
+    return CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FLAG_ATTRIBUTE_NORMAL, NULL);
 }

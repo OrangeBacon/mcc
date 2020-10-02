@@ -34,8 +34,13 @@ void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const cha
 const char* IncludeSearchPathFindSys(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName);
 const char* IncludeSearchPathFindUser(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName);
 
+wchar_t* pathToWchar(const char* str);
+char* wcharToChar(const wchar_t* str, size_t* lenPtr);
 
 char* readFile(const char* name);
 char* readFileLen(const char* name, size_t* len);
+
+bool deepCreateDirectory(wchar_t* path);
+void* deepCreateFile(wchar_t* path);
 
 #endif

@@ -20,14 +20,18 @@
 #define SlashPath PATHCCH_ENSURE_TRAILING_SLASH
 
 // Simple? end-to-end tests.
+// note: This most definitely uses the Win32 api, good luck to myself
+// when attempting to port it to a non-windows system!
 
 typedef struct testDescriptor {
     char* path;
     bool succeeded;
+    const char* testNamePath;
 } testDescriptor;
 
 typedef struct testCtx {
     ARRAY_DEFINE(testDescriptor, test);
+    size_t basePathLen;
 } testCtx;
 
 typedef void (*directoryIterCallback)(char* path, size_t length, void* ctx);
@@ -51,7 +55,7 @@ static bool iterateDirectory(wchar_t* basePath, directoryIterCallback callback, 
 
     do {
         if(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            if(_wcsicmp(ffd.cFileName, L".") == 0 || _wcsicmp(ffd.cFileName, L"..") == 0) {
+            if(wcscmp(ffd.cFileName, L".") == 0 || wcscmp(ffd.cFileName, L"..") == 0) {
                 continue;
             }
             wchar_t* newDir;
@@ -64,11 +68,9 @@ static bool iterateDirectory(wchar_t* basePath, directoryIterCallback callback, 
             PathAllocCombine(basePath, ffd.cFileName, LongPath, &path);
 
             // remove wchar_t from callback
-            size_t len = WideCharToMultiByte(CP_ACP, 0, path, -1, NULL, 0, NULL, NULL);
-            char* buf = ArenaAlloc(sizeof(char) * len);
-            WideCharToMultiByte(CP_ACP, 0, path, -1, buf, len, NULL, NULL);
-
-            callback(buf, len - 1, ctx);
+            size_t len;
+            char* buf = wcharToChar(path, &len);
+            callback(buf, len, ctx);
             LocalFree(path);
         }
     } while(FindNextFile(hFind, &ffd) != 0);
@@ -95,14 +97,17 @@ static void gatherTests(char* path, size_t length, void* voidCtx) {
         return;
     }
 
-    ARRAY_PUSH(*ctx, test, ((testDescriptor){.path = path, .succeeded = false}));
+    ARRAY_PUSH(*ctx, test, ((testDescriptor){
+        .path = path,
+        .succeeded = false,
+        .testNamePath = path + ctx->basePathLen,
+    }));
 }
 
 // a single section of a har file
 typedef struct harSingleFile {
     bool isDrectory;
-    const unsigned char* path;
-    size_t pathLength;
+    unsigned char* path;
     const unsigned char* content;
     size_t contentLength;
     int expectedExitCodeParam;
@@ -110,6 +115,7 @@ typedef struct harSingleFile {
 
 // a whole har file and related parsing context
 typedef struct harContext {
+    testDescriptor* test;
     size_t fileLength;
     unsigned char* file;
     size_t consumed;
@@ -175,19 +181,19 @@ static void skipWhitespace(harContext* ctx) {
 //  main.c -other seperator stuff ignored till the end of the line
 static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
     file->path = &ctx->file[ctx->consumed];
-    file->pathLength = 0;
+    size_t pathLength = 0;
 
     char seperator = file->path[0] == '"' ? '"' : ' ';
     while(!isEOF(ctx) && peek(ctx) != '\n' && peek(ctx) != seperator) {
         advance(ctx);
-        file->pathLength++;
+        pathLength++;
     }
 
     if(peek(ctx) != seperator && peek(ctx) != '\n') {
         return false;
     }
 
-    if(file->path[file->pathLength - 1] == '/') {
+    if(file->path[pathLength - 1] == '/') {
         file->isDrectory = true;
     } else {
         file->isDrectory = false;
@@ -234,6 +240,7 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
     }
 
     if(peek(ctx) == '\n') advance(ctx);
+    file->path[pathLength] = '\0';
 
     return true;
 }
@@ -269,12 +276,51 @@ static bool parseHarFileSection(harContext* ctx) {
     return true;
 }
 
+// extract har file onto the file systems
+static bool createDirectoryFromTest(harContext* ctx, const char* tempPath) {
+    wchar_t* longTempPath = pathToWchar(tempPath);
+    wchar_t* longNamePath = pathToWchar(ctx->test->testNamePath);
+    wchar_t* path;
+    PathAllocCombine(longTempPath, longNamePath, LongPath | SlashPath, &path);
+    bool result = deepCreateDirectory(path);
+
+    // for each file in the archive
+    for(unsigned int i = 0; i < ctx->fileCount; i++) {
+        harSingleFile* harFile = &ctx->files[i];
+        wchar_t* filePath;
+        PathAllocCombine(path, pathToWchar((char*)harFile->path), LongPath, &filePath);
+
+        if(harFile->isDrectory) {
+            if(!deepCreateDirectory(filePath)) {
+                return false;
+            }
+        } else {
+            HANDLE hFile = deepCreateFile(filePath);
+            LocalFree(filePath);
+
+            DWORD bytesWritten;
+            if(!WriteFile(hFile, harFile->content, harFile->contentLength, &bytesWritten, NULL)) {
+                CloseHandle(hFile);
+                return false;
+            }
+            if(bytesWritten != harFile->contentLength) {
+                CloseHandle(hFile);
+                return false;
+            }
+            CloseHandle(hFile);
+        }
+    }
+
+    LocalFree(path);
+    return result;
+}
+
 // test files use the human archive format
 // see https://github.com/marler8997/har
-static void runSingleTest(testDescriptor* test) {
+static void runSingleTest(testDescriptor* test, const char* tempPath) {
     fprintf(stderr, "\t%s\n", test->path);
 
-    harContext ctx = {.column = 1, .line = 1};
+    harContext ctx = {.column = 1, .line = 1, .test = test};
     ctx.file = (unsigned char*)readFileLen(test->path, &ctx.fileLength);
     ARRAY_ALLOC(harSingleFile, ctx, file);
 
@@ -291,11 +337,14 @@ static void runSingleTest(testDescriptor* test) {
         return;
     }
 
-    fprintf(stderr, "\t\tseplen = %lld\n", ctx.seperatorLength);
+    if(!createDirectoryFromTest(&ctx, tempPath)) {
+        fprintf(stderr, "\t\ttest directory setup failed\n");
+        return;
+    }
 
     for(unsigned int i = 0; i < ctx.fileCount; i++) {
         harSingleFile* file = &ctx.files[i];
-        fprintf(stderr, "\t\t%.*s", (int)file->pathLength, file->path);
+        fprintf(stderr, "\t\t%s", file->path);
         if(file->expectedExitCodeParam != 0) {
             fprintf(stderr, " exit = %d", file->expectedExitCodeParam);
         }
@@ -307,25 +356,16 @@ static void runSingleTest(testDescriptor* test) {
 }
 
 // main function, return exits the program
-int runTests(const char* testPath) {
-    // command line input is not wide char, so make it so
-    int len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, testPath, -1, NULL, 0);
-    wchar_t* widePath = ArenaAlloc(sizeof(wchar_t) * len);
-    MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, testPath, -1, widePath, len);
-
-    for(int i = 0; i < len; i++) {
-        if(widePath[i] == L'/') {
-            widePath[i] = L'\\';
-        }
-    }
+int runTests(const char* testPath, const char* tempPath) {
 
     // append startup directory, so not relative to working directory, incase
     // changed somewhere else.
     Path startupDirectory = getStartupDirectory();
     wchar_t* folderPath;
-    PathAllocCombine(startupDirectory.buf, widePath, LongPath | SlashPath, &folderPath);
+    PathAllocCombine(startupDirectory.buf, pathToWchar(testPath), LongPath | SlashPath, &folderPath);
 
-    testCtx ctx;
+    testCtx ctx = {0};
+    wcharToChar(folderPath, &ctx.basePathLen);
     ARRAY_ALLOC(testDescriptor, ctx, test);
 
     bool result = iterateDirectory(folderPath, gatherTests, &ctx);
@@ -343,10 +383,18 @@ int runTests(const char* testPath) {
         return EXIT_SUCCESS;
     }
 
+    wchar_t* fullTempPath;
+    PathAllocCombine(startupDirectory.buf, pathToWchar(tempPath), LongPath | SlashPath, &fullTempPath);
+    if(!deepCreateDirectory(fullTempPath)) {
+        fprintf(stderr, "Failed to create test directory");
+    }
+    const char* charTempPath = wcharToChar(fullTempPath, NULL);
+    LocalFree(fullTempPath);
+
     fprintf(stderr, "Executing %d test%s:\n", ctx.testCount, ctx.testCount==1?"":"s");
     for(unsigned int i = 0; i < ctx.testCount; i++) {
         // TODO: parallelise this
-        runSingleTest(&ctx.tests[i]);
+        runSingleTest(&ctx.tests[i], charTempPath);
     }
 
     return EXIT_SUCCESS;

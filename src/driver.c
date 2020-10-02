@@ -19,6 +19,7 @@ static bool printAst = false;
 static bool printIr = false;
 static int translationPhaseCount = 8;
 static const char* testPath = ".";
+static const char* tempPath = "./testTemp/";
 
 static void preprocessFlag(struct argParser* parser, void* _) {
     (void)_;
@@ -50,7 +51,9 @@ typedef enum topModes {
 
 static struct argArgument topArguments[] = {
     [MODE_TEST] = {"$test", '\0', "run the compiler's test suite", argMode, (struct argArgument[]) {
-        {"!test-path", '\0', "location of the test suite", argOneString, &testPath}
+        {"!test-path", '\0', "location of the test suite", argOneString, &testPath},
+        {"-temp-path", 't', "location to store temporary files", argOneString, &tempPath},
+        {0},
     }},
     {"!input", '\0', "file to process", argPush, &files},
     {"-print-ast", 'a', "prints the ast to stdout", argSet, &printAst},
@@ -75,7 +78,7 @@ int driver(int argc, char** argv) {
     if(hadError) return EXIT_FAILURE;
 
     if(topArguments[MODE_TEST].isDone) {
-        return runTests(testPath);
+        return runTests(testPath, tempPath);
     }
 
     MemoryPool pool;
