@@ -346,10 +346,21 @@ const char* IncludeSearchPathFindUser(IncludeSearchState* state, IncludeSearchPa
     return IncludeSearchPathFindSys(state, path, fileName);
 }
 
- wchar_t* pathToWchar(const char* str) {
+wchar_t* charToWchar(const char* str, int* lenPtr) {
     int len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, str, -1, NULL, 0);
     wchar_t* wideStr = ArenaAlloc(sizeof(wchar_t) * len);
     MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, str, -1, wideStr, len);
+
+    if(lenPtr != NULL) {
+        *lenPtr = len;
+    }
+
+    return wideStr;
+}
+
+wchar_t* pathToWchar(const char* str) {
+    int len;
+    wchar_t* wideStr = charToWchar(str, &len);
 
     for(int i = 0; i < len; i++) {
         if(wideStr[i] == L'/') {

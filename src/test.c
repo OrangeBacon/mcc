@@ -16,6 +16,7 @@
 
 #define PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH 0x00000010
 #define PATHCCH_ENSURE_TRAILING_SLASH 0x00000020
+#define FLAG_ATTRIBUTE_NORMAL 0x80
 #define LongPath PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH
 #define SlashPath PATHCCH_ENSURE_TRAILING_SLASH
 
@@ -108,9 +109,10 @@ static void gatherTests(char* path, size_t length, void* voidCtx) {
 typedef struct harSingleFile {
     bool isDrectory;
     unsigned char* path;
-    const unsigned char* content;
+    unsigned char* content;
     size_t contentLength;
     int expectedExitCodeParam;
+    bool trimTrailingWhitespace;
 } harSingleFile;
 
 // a whole har file and related parsing context
@@ -124,6 +126,7 @@ typedef struct harContext {
     ARRAY_DEFINE(harSingleFile, file);
     unsigned char* seperator;
     size_t seperatorLength;
+    wchar_t* basePath;
 } harContext;
 
 static bool isEOF(harContext* ctx) {
@@ -181,6 +184,8 @@ static void skipWhitespace(harContext* ctx) {
 //  main.c -other seperator stuff ignored till the end of the line
 static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
     file->path = &ctx->file[ctx->consumed];
+    file->expectedExitCodeParam = 0;
+    file->trimTrailingWhitespace = false;
     size_t pathLength = 0;
 
     char seperator = file->path[0] == '"' ? '"' : ' ';
@@ -236,6 +241,14 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
             continue;
         }
 
+        // trim-trailing-whitespace property - if specified, '\n', ' ' and '\t'
+        // at the end of the file (not line) will be removed before storage
+        if(strncmp((char*)&ctx->file[ctx->consumed], "trim-trailing-whitespace", 24) == 0) {
+            advanceN(ctx, 24);
+            file->trimTrailingWhitespace = true;
+            continue;
+        }
+
         return false;
     }
 
@@ -276,6 +289,20 @@ static bool parseHarFileSection(harContext* ctx) {
         while(!isEOF(ctx) && advance(ctx) != '\n') {
             file->contentLength++;
         }
+        file->contentLength++;
+    }
+
+    // apply trim-trailing-whitespace modifier if required
+    if(file->trimTrailingWhitespace) {
+        // reverse file iteration from file->contentLength-1 downto 0 both inclusive
+        for(size_t i = file->contentLength; i-- > 0;) {
+            char current = file->content[i];
+            if(current == '\n' || current == ' ' || current == '\t') {
+                file->contentLength--;
+            } else {
+                break;
+            }
+        }
     }
 
     return true;
@@ -288,6 +315,7 @@ static bool createDirectoryFromTest(harContext* ctx, const char* tempPath) {
     wchar_t* path;
     PathAllocCombine(longTempPath, longNamePath, LongPath | SlashPath, &path);
     bool result = deepCreateDirectory(path);
+    ctx->basePath = path;
 
     // for each file in the archive
     for(unsigned int i = 0; i < ctx->fileCount; i++) {
@@ -316,11 +344,160 @@ static bool createDirectoryFromTest(harContext* ctx, const char* tempPath) {
         }
     }
 
-    LocalFree(path);
     return result;
 }
 
-// test files use the human archive format
+static harSingleFile* findFile(harContext* ctx, const char* name) {
+    for(unsigned int i = 0; i < ctx->fileCount; i++) {
+        harSingleFile* file = &ctx->files[i];
+        if(strcmp(name, (char*)file->path) == 0) {
+            return file;
+        }
+    }
+    return NULL;
+}
+
+// Workaround GetModuleFileNameW - if the buffer is not big enough
+// the call truncates the result and returns how much was written,
+// so there is no way of getting the correct buffer length required.
+// This repeatedly calls it with bigger buffers until one is used that
+// is long enough to store all the characters.
+static wchar_t* getCurrentExecutableName() {
+    unsigned int bufLen = 256;
+
+    while(bufLen < 32768) {
+        wchar_t* buf = ArenaAlloc(sizeof(wchar_t) * bufLen);
+
+        unsigned int retLen = GetModuleFileNameW(NULL, buf, bufLen);
+
+        // call failed
+        if(retLen == 0) {
+            return NULL;
+        } else if(retLen <= bufLen) {
+            return buf;
+        }
+        bufLen <<= 1;
+    }
+
+    return NULL;
+}
+
+static bool createChildProcess(harContext* ctx) {
+    // security for pipe creation
+    SECURITY_ATTRIBUTES secAttr;
+    secAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+    secAttr.bInheritHandle = true;
+    secAttr.lpSecurityDescriptor = NULL;
+
+    HANDLE childOutRead = NULL;
+    HANDLE childOutWrite = NULL;
+    HANDLE childInRead = NULL;
+    HANDLE childInWrite = NULL;
+
+    // create stdout for the new process
+    if(!CreatePipe(&childOutRead, &childOutWrite, &secAttr, 0)) {
+        return false;
+    }
+    if(!SetHandleInformation(childOutRead, HANDLE_FLAG_INHERIT, 0)) {
+        return false;
+    }
+
+    // Create stdin for the new process - pipe is required but not currently
+    // ever written to.  If stdin support is required, this pipe would be
+    // used for that.
+    if(!CreatePipe(&childInRead, &childInWrite, &secAttr, 0)) {
+        return false;
+    }
+    if(!SetHandleInformation(childInWrite, HANDLE_FLAG_INHERIT, 0)) {
+        return false;
+    }
+
+    // create command line arguments
+    wchar_t* wideProgramName = getCurrentExecutableName();
+
+    harSingleFile* commandFile = findFile(ctx, "cmd");
+    wchar_t* commandFileContent = charToWchar((char*)commandFile->content, NULL);
+
+    size_t len = 1 + wcslen(wideProgramName) + 2 + wcslen(commandFileContent) + 1;
+    wchar_t* wideCommandLine = ArenaAlloc(len * sizeof(wchar_t));
+    wideCommandLine[0] = L'\0';
+    wcscat(wideCommandLine, L"\"");
+    wcscat(wideCommandLine, wideProgramName);
+    wcscat(wideCommandLine, L"\" ");
+    wcscat(wideCommandLine, commandFileContent);
+
+    // windows metadata infomation, specifies the previously created
+    // stdin/stdout handles that should be used
+    PROCESS_INFORMATION procInfo = {0};
+    STARTUPINFOW startupinfo = {0};
+    startupinfo.cb = sizeof(STARTUPINFOW);
+    startupinfo.hStdError = childOutWrite;
+    startupinfo.hStdOutput = childOutWrite;
+    startupinfo.hStdInput = childInRead;
+    startupinfo.dwFlags |= STARTF_USESTDHANDLES;
+
+    bool success = CreateProcessW(
+        wideProgramName,
+        wideCommandLine,
+        NULL,
+        NULL,
+        true,
+        0,
+        NULL,
+        ctx->basePath,
+        &startupinfo,
+        &procInfo);
+
+    if(!success) {
+        DWORD err = GetLastError();
+        LPTSTR buffer;
+        FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&buffer, 0, NULL);
+
+        fprintf(stderr, "CreateProcess: %ls\n", buffer);
+        LocalFree(buffer);
+
+        return false;
+    }
+
+    // these could be used for process monitoring, etc
+    CloseHandle(procInfo.hProcess);
+    CloseHandle(procInfo.hThread);
+
+    // these have to be closed so child process ending can be recognised
+    CloseHandle(childOutWrite);
+    CloseHandle(childInRead);
+
+    //
+    wchar_t* outputPath;
+    PathAllocCombine(ctx->basePath, TEXT("processOutput.txt"), LongPath, &outputPath);
+    HANDLE outputFile = CreateFileW(outputPath, GENERIC_WRITE, 0, NULL,
+        CREATE_ALWAYS, FLAG_ATTRIBUTE_NORMAL, NULL);
+
+    if(outputFile == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    char output[BUFSIZ];
+
+    while(true) {
+        DWORD bytesRead;
+        success = ReadFile(childOutRead, output, BUFSIZ, &bytesRead, NULL);
+        if(!success || bytesRead == 0) break;
+
+        DWORD bytesWritten;
+        success = WriteFile(outputFile, output, bytesRead, &bytesWritten, NULL);
+        if(!success) break;
+    }
+
+    CloseHandle(childOutRead);
+    CloseHandle(childInWrite);
+    CloseHandle(outputFile);
+
+    return success;
+}
+
+// test files are based on the human archive format
 // see https://github.com/marler8997/har
 static void runSingleTest(testDescriptor* test, const char* tempPath) {
     fprintf(stderr, "\t%s\n", test->path);
@@ -335,11 +512,16 @@ static void runSingleTest(testDescriptor* test, const char* tempPath) {
         ctx.seperatorLength++;
     }
 
-    while(!isEOF(&ctx) && parseHarFileSection(&ctx)){}
+    while(!isEOF(&ctx)) {
+        if(!parseHarFileSection(&ctx)) {
+            fprintf(stderr, "\t\ttest parsing failed at %lld:%lld\n", ctx.line, ctx.column);
+            return;
+        }
+    }
 
-    if(!isEOF(&ctx)) {
-        fprintf(stderr, "\t\ttest parsing failed at %lld:%lld\n", ctx.line, ctx.column);
-        return;
+    for(unsigned int i = 0; i < ctx.fileCount; i++) {
+        harSingleFile* file = &ctx.files[i];
+        file->content[file->contentLength] = '\0';
     }
 
     if(!createDirectoryFromTest(&ctx, tempPath)) {
@@ -358,6 +540,9 @@ static void runSingleTest(testDescriptor* test, const char* tempPath) {
         }
         fprintf(stderr, "\n");
     }
+
+    createChildProcess(&ctx);
+    LocalFree(ctx.basePath);
 }
 
 // main function, return exits the program

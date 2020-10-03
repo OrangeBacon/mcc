@@ -34,6 +34,7 @@ void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const cha
 const char* IncludeSearchPathFindSys(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName);
 const char* IncludeSearchPathFindUser(IncludeSearchState* state, IncludeSearchPath* path, const char* fileName);
 
+wchar_t* charToWchar(const char* str, int* lenPtr);
 wchar_t* pathToWchar(const char* str);
 char* wcharToChar(const wchar_t* str, size_t* lenPtr);
 
