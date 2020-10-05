@@ -325,10 +325,21 @@ static bool parseHarFileSection(harContext* ctx) {
         if(strncmp((char*)&ctx->file[ctx->consumed], (char*)ctx->seperator, ctx->seperatorLength) == 0) {
             break;
         }
-        while(!isEOF(ctx) && advance(ctx) != '\n') {
+        while(!isEOF(ctx) && peek(ctx) != '\n') {
+            advance(ctx);
             file->contentLength++;
         }
-        file->contentLength++;
+
+        // do not add '\0' to file
+        if(peek(ctx) == '\n') {
+            advance(ctx);
+            file->contentLength++;
+        }
+    }
+
+    // remove newline from next header, if there is going to be another header
+    if(!isEOF(ctx)) {
+        file->contentLength--;
     }
 
     // apply trim-trailing-whitespace modifier if required
@@ -478,6 +489,166 @@ static void printTestSuccess() {
     printf(" ]\n");
 }
 
+// mutably remove crlf from string, replace with lf
+// returns new string length
+static size_t removeCRLF(char* str, size_t len) {
+
+    // reverse iterate through file
+    // if find \r\n translate to \n
+    // if find \r, translate to \n
+    size_t newLen = len;
+
+    char prev = str[len - 1];
+    for(size_t i = len - 1; i-- > 0;) {
+        char current = str[i];
+        if(current == '\r' && prev == '\n') {
+            memmove(&str[i], &str[i]+1, (len+1)-i);
+            newLen--;
+        } else if(prev == '\r') {
+            str[i+1] = '\n';
+        }
+        prev = current;
+    }
+
+    return newLen;
+}
+
+// print a character as an escape sequence
+static void printEscape(char c) {
+    switch (c) {
+        case '\"': printf("\\\""); return;
+        case '\'': printf("\\\'"); return;
+        case '\\': printf("\\\\"); return;
+        case '\n': printf("\\n"); return;
+        case '\t': printf("\\t"); return;
+        default:
+            if (iscntrl(c)) {
+                printf("\\%03o", c);
+            } else {
+                putchar(c);
+            }
+    }
+}
+
+// compare a file from a har archive to a handle to a file
+// emit (hopefully helpful ish) error if different.
+// translates crlf->lf from CreateFile
+static bool testFileEqual(harContext* ctx, HANDLE output, const char* expectedName) {
+    harSingleFile* harFile = findFile(ctx, expectedName);
+
+    char fileData[BUFSIZ];
+    LARGE_INTEGER fileSize;
+    if(!GetFileSizeEx(output, &fileSize)) {
+        printTestFail();
+        printf("\t\tUnable to determine how much output was written\n");
+    }
+
+    // no output expected, none found
+    if(fileSize.QuadPart == 0 && (harFile == NULL || harFile->contentLength == 0)) {
+        return true;
+    }
+
+    if(fileSize.QuadPart != 0 && (harFile == NULL || harFile->contentLength == 0)) {
+        printTestFail();
+        printf("\t\t%s: expected no data, recieved %lld bytes\n", expectedName, fileSize.QuadPart);
+        return false;
+    }
+
+    if(fileSize.QuadPart == 0 && harFile->contentLength != 0) {
+        printTestFail();
+        printf("\t\t%s: expected %lld bytes, recieved none\n", expectedName, harFile->contentLength);
+        return false;
+    }
+
+    if(!SetFilePointerEx(output, (LARGE_INTEGER){.QuadPart=0}, NULL, FILE_BEGIN)) {
+        printTestFail();
+        printf("\t\tUnable to seek in file\n");
+        return false;
+    }
+
+    size_t consumed = 0;
+    size_t line = 1;
+    size_t column = 0;
+
+    // iterate through the file handle
+    while(true) {
+        DWORD bytesRead;
+        if(!ReadFile(output, fileData, BUFSIZ, &bytesRead, NULL)) break;
+        if(bytesRead == 0) break;
+
+        // smallbytesread = bytes remaining after crlf->lf, subtract removed bytes
+        // from the handle's filesize, update bytes read using lf only value
+        size_t smallbytesRead = removeCRLF(fileData, bytesRead);
+        fileSize.QuadPart -= bytesRead - smallbytesRead;
+        bytesRead = smallbytesRead;
+
+        // compare bytesRead bytes of the file
+        for(DWORD i = 0; i < bytesRead; i++) {
+            if(consumed >= harFile->contentLength) {
+                printTestFail();
+                printf("\t\t%s: extra %lld bytes of data provided after expected output\n",
+                    expectedName, fileSize.QuadPart - harFile->contentLength);
+                return false;
+            }
+
+            unsigned char expected = harFile->content[consumed];
+            unsigned char actual = (unsigned char)fileData[i];
+            consumed++;
+
+            if(expected == '\n') {
+                line++;
+                column = 0;
+            } else {
+                column++;
+            }
+
+            if(expected != actual) {
+                printTestFail();
+                printf("\t\t%s: files differ at %lld:%lld of expected file.  Expecting '", expectedName, line, column);
+                printEscape(expected);
+                printf("', got '");
+                printEscape(actual);
+                printf("'\n");
+                return false;
+            }
+        }
+    }
+
+    if(consumed < harFile->contentLength) {
+        printTestFail();
+        printf("\t\t%s: expected %lld additional bytes of data, provided output correct\n",
+            expectedName, harFile->contentLength - fileSize.QuadPart);
+        return false;
+    }
+
+    return true;
+}
+
+// write temporary file to real file
+static bool writeToFs(harContext* ctx, HANDLE file, wchar_t* newFileName) {
+    char fileData[BUFSIZ];
+    wchar_t* fileName;
+
+    PathAllocCombine(ctx->basePath, newFileName, LongPath, &fileName);
+    HANDLE outputFile = CreateFileW(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if(!SetFilePointerEx(file, (LARGE_INTEGER){.QuadPart=0}, NULL, FILE_BEGIN)) {
+        return false;
+    }
+    while(true) {
+        DWORD bytesRead;
+        if(!ReadFile(file, fileData, BUFSIZ, &bytesRead, NULL)) break;
+        if(bytesRead == 0) break;
+        DWORD bytesWritten;
+        if(!WriteFile(outputFile, fileData, bytesRead, &bytesWritten, NULL)) {
+            return false;
+        }
+        if(bytesWritten != bytesRead) return false;
+    }
+    CloseHandle(outputFile);
+
+    return true;
+}
+
 static bool createChildProcess(harContext* ctx) {
 
     HANDLE childOut = INVALID_HANDLE_VALUE;
@@ -600,52 +771,22 @@ static bool createChildProcess(harContext* ctx) {
     CloseHandle(procInfo.hProcess);
     CloseHandle(procInfo.hThread);
 
-    char fileData[BUFSIZ];
-    wchar_t* fileName;
-
-    // copy output temp file to real file (todo: only run if errored)
-    PathAllocCombine(ctx->basePath, TEXT(stdOutFileName), LongPath, &fileName);
-    HANDLE outputFile = CreateFileW(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if(!SetFilePointerEx(childOut, (LARGE_INTEGER){.QuadPart=0}, NULL, FILE_BEGIN)) {
-        return false;
-    }
-    while(true) {
-        DWORD bytesRead;
-        if(!ReadFile(childOut, fileData, BUFSIZ, &bytesRead, NULL)) break;
-        if(bytesRead == 0) break;
-        DWORD bytesWritten;
-        if(!WriteFile(outputFile, fileData, bytesRead, &bytesWritten, NULL)) {
-            return false;
+    bool testSucceeded = true;
+    if(!testFileEqual(ctx, childOut, outCheckFileName) || !testFileEqual(ctx, childErr, errCheckFileName)) {
+        if(!writeToFs(ctx, childOut, TEXT(stdOutFileName)) || !writeToFs(ctx, childErr, TEXT(stdErrFileName))) {
+            printTestFail();
+            printf("\t\tUnable to write test error result to disk\n");
         }
-        if(bytesWritten != bytesRead) return false;
+        testSucceeded = false;
     }
-    CloseHandle(outputFile);
-
-    // same as above but for stderr
-    PathAllocCombine(ctx->basePath, TEXT(stdErrFileName), LongPath, &fileName);
-    HANDLE errFile = CreateFileW(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if(!SetFilePointerEx(childErr, (LARGE_INTEGER){.QuadPart=0}, NULL, FILE_BEGIN)) {
-        return false;
-    }
-    while(true) {
-        DWORD bytesRead;
-        if(!ReadFile(childErr, fileData, BUFSIZ, &bytesRead, NULL)) break;
-        if(bytesRead == 0) break;
-        DWORD bytesWritten;
-        if(!WriteFile(errFile, fileData, bytesRead, &bytesWritten, NULL)) {
-            return false;
-        }
-        if(bytesWritten != bytesRead) return false;
-    }
-    CloseHandle(errFile);
 
     CloseHandle(childOut);
     CloseHandle(childErr);
     if(childIn != INVALID_HANDLE_VALUE) CloseHandle(childIn);
 
-    printTestSuccess();
+    if(testSucceeded) printTestSuccess();
 
-    return true;
+    return testSucceeded;
 }
 
 // test files are based on the human archive format
@@ -742,10 +883,25 @@ int runTests(const char* testPath, const char* tempPath) {
     LocalFree(fullTempPath);
 
     printf("Executing %d test%s:\n", ctx.testCount, ctx.testCount==1?"":"s");
+    size_t succeededCount = 0;
     for(unsigned int i = 0; i < ctx.testCount; i++) {
         // TODO: parallelise this
         runSingleTest(&ctx.tests[i], charTempPath);
+
+        if(ctx.tests[i].succeeded) succeededCount++;
     }
 
-    return EXIT_SUCCESS;
+    if(succeededCount == ctx.testCount) {
+        setColor(TextGreen);
+        printf("Tests passed:\n");
+        resetColor();
+    } else {
+        setColor(TextRed);
+        printf("Tests failed:\n");
+        resetColor();
+    }
+
+    printf("\t%lld succeeded out of %d\n", succeededCount, ctx.testCount);
+
+    return succeededCount == ctx.testCount ? EXIT_SUCCESS : EXIT_FAILURE;
 }

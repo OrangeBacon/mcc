@@ -106,7 +106,6 @@ int driver(int argc, char** argv) {
             };
             TranslationContextInit(&ctx, &pool, (unsigned char*)files.datas[i]);
             counts[translationPhaseCount-1](&ctx);
-            fprintf(stderr, "hash nodes: %u\n", ctx.phase3.hashNodes->entryCount);
         }
         return EXIT_SUCCESS;
     }

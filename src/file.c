@@ -268,17 +268,6 @@ void IncludeSearchPathInit(IncludeSearchPath* search, SystemType type, const cha
     AddIncludes(search, includePaths, includeCount);
     FilterPaths(search->systems, search->systemCount, true);
     FilterPaths(search->users, search->userCount, false);
-
-    fprintf(stderr, "sys count: %d\n", search->systemCount);
-    for(unsigned int i = 0; i < search->systemCount; i++) {
-        if(!search->systems[i].valid) continue;
-        fprintf(stderr, "sys %d: %ls\n", i, search->systems[i].buf);
-    }
-    fprintf(stderr, "user count: %d\n", search->userCount);
-    for(unsigned int i = 0; i < search->userCount; i++) {
-        if(!search->users[i].valid) continue;
-        fprintf(stderr, "user %d: %ls\n", i, search->users[i].buf);
-    }
 }
 
 static const char* includeValidCheck(Path* currentPath, const char* fileName) {
