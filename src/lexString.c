@@ -13,7 +13,7 @@ void LexerStringInit(LexerString* str, TranslationContext* ctx, size_t size) {
 
 #define max(a,b) ((a)>(b)?(a):(b))
 
-static void expandString(TranslationContext* ctx, LexerString* str, size_t len) {
+static void expandString(struct TranslationContext* ctx, LexerString* str, size_t len) {
     if(str->count + len > str->capacity) {
         size_t newLen = max(str->capacity * 2, str->count + len) + 1;
         char* buffer = memoryArrayPushN(&ctx->stringArr, newLen);
@@ -23,7 +23,7 @@ static void expandString(TranslationContext* ctx, LexerString* str, size_t len) 
     }
 }
 
-void LexerStringAddChar(LexerString* str, TranslationContext* ctx, char c) {
+void LexerStringAddChar(LexerString* str, struct TranslationContext* ctx, char c) {
     expandString(ctx, str, 1);
 
     str->buffer[str->count] = c;
@@ -32,7 +32,7 @@ void LexerStringAddChar(LexerString* str, TranslationContext* ctx, char c) {
 }
 
 
-void LexerStringAddString(LexerString* str, TranslationContext* ctx, const char* c) {
+void LexerStringAddString(LexerString* str, struct TranslationContext* ctx, const char* c) {
     size_t len = strlen(c);
     expandString(ctx, str, len);
 
@@ -41,29 +41,71 @@ void LexerStringAddString(LexerString* str, TranslationContext* ctx, const char*
 }
 
 void LexerStringAddInt(LexerString* str, struct TranslationContext* ctx, int val) {
-    size_t len = snprintf(NULL, 0, "%d", val);
+    size_t len = snprintf(NULL, 0, "%d", val)+1;
     expandString(ctx, str, len);
     snprintf(&str->buffer[str->count], len, "%d", val);
     str->count += len;
 }
 
 void LexerStringAddSizeT(LexerString* str, struct TranslationContext* ctx, size_t val) {
-    size_t len = snprintf(NULL, 0, "%llu", val);
+    size_t len = snprintf(NULL, 0, "%llu", val)+1;
     expandString(ctx, str, len);
     snprintf(&str->buffer[str->count], len, "%llu", val);
     str->count += len;
 }
 
 void LexerStringAddIntMaxT(LexerString* str, struct TranslationContext* ctx, intmax_t val) {
-    size_t len = snprintf(NULL, 0, "%lld", val);
+    size_t len = snprintf(NULL, 0, "%lld", val)+1;
     expandString(ctx, str, len);
     snprintf(&str->buffer[str->count], len, "%lld", val);
     str->count += len;
 }
 
 void LexerStringAddDouble(LexerString* str, struct TranslationContext* ctx, double val) {
-    size_t len = snprintf(NULL, 0, "%f", val);
+    size_t len = snprintf(NULL, 0, "%f", val)+1;
     expandString(ctx, str, len);
     snprintf(&str->buffer[str->count], len, "%f", val);
     str->count += len;
+}
+
+// print lowest byte of val as hexadecimal, leading zero padded
+void LexerStringAdd2HexDigit(LexerString* str, struct TranslationContext* ctx, char val) {
+    size_t len = snprintf(NULL, 0, "%02x", val & 0xff)+1;
+    expandString(ctx, str, len);
+    snprintf(&str->buffer[str->count], len, "%02x", val & 0xff);
+    str->count += len;
+}
+
+// escape single character escape sequences from c,
+// print printable characters
+// for everything else use the '\xhh' format
+void LexerStringAddEscapedChar(LexerString* str, struct TranslationContext* ctx, char val) {
+    switch (val) {
+        case '\"': LexerStringAddString(str, ctx, "\\\""); return;
+        case '\'': LexerStringAddString(str, ctx, "\\\'"); return;
+        case '\\': LexerStringAddString(str, ctx, "\\\\"); return;
+        case '\?': LexerStringAddString(str, ctx, "\\?"); return;
+        case '\a': LexerStringAddString(str, ctx, "\\a"); return;
+        case '\b': LexerStringAddString(str, ctx, "\\b"); return;
+        case '\f': LexerStringAddString(str, ctx, "\\f"); return;
+        case '\n': LexerStringAddString(str, ctx, "\\n"); return;
+        case '\r': LexerStringAddString(str, ctx, "\\r"); return;
+        case '\t': LexerStringAddString(str, ctx, "\\t"); return;
+        case '\v': LexerStringAddString(str, ctx, "\\v"); return;
+        default:
+            if (val >= ' ' && val <= '~') {
+                LexerStringAddChar(str, ctx, val);
+            } else {
+                LexerStringAddString(str, ctx, "\\x");
+                LexerStringAdd2HexDigit(str, ctx, val);
+            }
+    }
+}
+
+// add a string to the LexerString, escaping all the characters
+void LexerStringAddEscapedString(LexerString* str, struct TranslationContext* ctx, const char* val) {
+    char c;
+    while((c = *val++)) {
+        LexerStringAddEscapedChar(str, ctx, c);
+    }
 }

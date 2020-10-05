@@ -28,5 +28,8 @@ void LexerStringAddInt(LexerString* str, struct TranslationContext* ctx, int val
 void LexerStringAddSizeT(LexerString* str, struct TranslationContext* ctx, size_t val);
 void LexerStringAddIntMaxT(LexerString* str, struct TranslationContext* ctx, intmax_t val);
 void LexerStringAddDouble(LexerString* str, struct TranslationContext* ctx, double val);
+void LexerStringAddMax2HexDigit(LexerString* str, struct TranslationContext* ctx, char c);
+void LexerStringAddEscapedChar(LexerString* str, struct TranslationContext* ctx, char c);
+void LexerStringAddEscapedString(LexerString* str, struct TranslationContext* ctx, const char* val);
 
 #endif

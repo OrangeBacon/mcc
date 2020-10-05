@@ -1437,20 +1437,48 @@ static TokenList* expandArgument(TranslationContext* ctx, ArgumentItem* arg, Lex
 
 // returns the stringified version of a token using the # operator
 // caches the resultant token to avoid recalculation
-static LexerToken* stringifyArgument(ArgumentItem* arg) {
-    arg->string = (LexerToken){
+static LexerToken* stringifyArgument(TranslationContext* ctx, ArgumentItem* arg) {
+    if(arg->hasString) {
+        return &arg->string;
+    }
+
+    if(arg->tokens.itemCount == 0) {
+        arg->string = (LexerToken){
+            .isStartOfLine = false,
+            .indent = 0,
+            .renderStartOfLine = false,
+            .type = TOKEN_STRING_L,
+            .whitespaceBefore = false,
+            .data.string = {
+                .type = STRING_NONE,
+                .count = 0,
+                .capacity = 0,
+                .buffer = "",
+            }
+        };
+        arg->hasString = true;
+        return &arg->string;
+    }
+
+    LexerString str;
+    LexerStringInit(&str, ctx, 50);
+    TokenPrintCtxString printCtx;
+    TokenPrintCtxInitString(&printCtx, &str, ctx);
+
+    for(unsigned int i = 0; i < arg->tokens.itemCount; i++) {
+        TokenPrintString(&printCtx, &arg->tokens.items[i]);
+    }
+
+    arg->string = (LexerToken) {
         .isStartOfLine = false,
         .indent = 0,
         .renderStartOfLine = false,
         .type = TOKEN_STRING_L,
         .whitespaceBefore = false,
-        .data.string = {
-            .type = STRING_NONE,
-            .count = 0,
-            .capacity = 0,
-            .buffer = "",
-        }
+        .data.string = str,
     };
+    arg->hasString = true;
+
     return &arg->string;
 }
 
@@ -1547,7 +1575,7 @@ static EnterContextResult ParseFunctionMacro(
                 fprintf(stderr, "Error: Stringification operator applied to non-argument token\n");
                 return CONTEXT_MACRO_NULL;
             }
-            LexerToken* str = stringifyArgument(&args.items[argToken->data.integer]);
+            LexerToken* str = stringifyArgument(ctx, &args.items[argToken->data.integer]);
             str->indent = tok->indent;
             str->renderStartOfLine = tok->renderStartOfLine;
             str->whitespaceBefore = tok->whitespaceBefore;
@@ -1779,7 +1807,4 @@ void runPhase4(TranslationContext* ctx) {
         TokenPrintFile(&printCtx, &tok);
     }
     fprintf(stdout, "\n");
-
-    (void)TokenPrintString;
-    (void)TokenPrintCtxInitString;
 }

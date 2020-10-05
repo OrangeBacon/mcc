@@ -7,8 +7,8 @@
 // both FILE* pointers and LexerString buffers, so macros are used to define
 // the string handling, so this header can be included twice with different
 // macro definitions, to avoid duplicating code.
-// It also includes options to have the printed output escape special characters
-// e.g. if printing " or \ in a string literal. (TODO)
+// It also includes escapes special characters if outputing to a LexerString
+// e.g. if printing " or \ in a string literal.
 
 // Printing: use the PRINT() macro, which prints based on the type of the value
 // provided to it. The first argument is the current token print ctx.
@@ -18,6 +18,7 @@
 #ifndef LEX_TOKEN_H
 #   define PRINT_TYPE FILE*
 #   define PRINT_TYPE_NAME File
+#   define PRINT_NUMERIC_ID 0
 #   define PRINT(c, value) fprintf((c)->file, _Generic((value), \
         char*: "%s", \
         char: "%c", \
@@ -29,9 +30,10 @@
 #else
 #   define PRINT_TYPE LexerString*
 #   define PRINT_TYPE_NAME String
+#   define PRINT_NUMERIC_ID 1
 #   define PRINT(c, value) _Generic((value), \
-        char*: LexerStringAddString, \
-        char: LexerStringAddChar, \
+        char*: LexerStringAddEscapedString, \
+        char: LexerStringAddEscapedChar, \
         LexerTokenType: LexerStringAddInt, \
         size_t: LexerStringAddSizeT, \
         intmax_t: LexerStringAddIntMaxT, \
@@ -242,10 +244,15 @@ static void TokenPrintCtxInit(TokenPrintCtx* ctx, PRINT_TYPE file, TranslationCo
 
 #define TokenPrint JOIN(TokenPrint, PRINT_TYPE_NAME)
 static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
+#if PRINT_NUMERIC_ID == 0
     if(ctx->debugPrint) {
-        PRINT(ctx, tok->loc->line);
-        PRINT(ctx, ":");
-        PRINT(ctx, tok->loc->column);
+        if(tok->loc) {
+            PRINT(ctx, tok->loc->line);
+            PRINT(ctx, ":");
+            PRINT(ctx, tok->loc->column);
+        } else {
+            PRINT(ctx, "<no location>");
+        }
         if(tok->renderStartOfLine){
             PRINT(ctx, " bol");
         }
@@ -256,7 +263,11 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
         PRINT(ctx, " token=");
         PRINT(ctx, tok->type);
         PRINT(ctx, " data(");
-        PRINT(ctx, tok->loc->length);
+        if(tok->loc) {
+            PRINT(ctx, tok->loc->length);
+        } else {
+            PRINT(ctx, "<no length>");
+        }
         PRINT(ctx, ") ");
     } else {
         bool printedWhitespace = false;
@@ -275,6 +286,15 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
             PRINT(ctx, " ");
         }
     }
+#elif PRINT_NUMERIC_ID == 1
+    // print one or minimal space to the string buffer for # operator
+    if(ctx->file->count != 0 &&
+        (tok->indent > 0 || tok->renderStartOfLine ||
+         TokenPasteAvoidance(&ctx->previousPrinted, tok))) {
+             PRINT(ctx, " ");
+    }
+#endif
+
     switch(tok->type) {
         case TOKEN_KW_AUTO: PRINT(ctx, "auto"); break;
         case TOKEN_KW_BREAK: PRINT(ctx, "break"); break;
@@ -414,6 +434,7 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
 
 #undef PRINT_TYPE
 #undef PRINT_TYPE_NAME
+#undef PRINT_NUMERIC_ID
 #undef PRINT
 #undef JOIN
 #undef JOIN_
