@@ -13,6 +13,7 @@
 #include <pathcch.h>
 
 #include "file.h"
+#include "colorText.h"
 
 #define PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH 0x00000010
 #define PATHCCH_ENSURE_TRAILING_SLASH 0x00000020
@@ -22,6 +23,10 @@
 
 #define stdOutFileName "processOut.txt"
 #define stdErrFileName "processErr.txt"
+#define commandFileName "cmd"
+#define stdInFileName "stdin"
+#define outCheckFileName "stdout"
+#define errCheckFileName "stderr"
 
 // Simple? end-to-end tests.
 // note: This most definitely uses the Win32 api, good luck to myself
@@ -354,6 +359,21 @@ static bool createDirectoryFromTest(harContext* ctx, const char* tempPath) {
     // for each file in the archive
     for(unsigned int i = 0; i < ctx->fileCount; i++) {
         harSingleFile* harFile = &ctx->files[i];
+
+        // dont write test metadata to file system
+        if(strcmp((char*)harFile->path, commandFileName) == 0) {
+            continue;
+        }
+        if(strcmp((char*)harFile->path, stdInFileName) == 0) {
+            continue;
+        }
+        if(strcmp((char*)harFile->path, outCheckFileName) == 0) {
+            continue;
+        }
+        if(strcmp((char*)harFile->path, errCheckFileName) == 0) {
+            continue;
+        }
+
         wchar_t* filePath;
         PathAllocCombine(path, pathToWchar((char*)harFile->path), LongPath, &filePath);
 
@@ -442,6 +462,22 @@ static bool createTempFile(wchar_t* folder, HANDLE* out) {
     return file != INVALID_HANDLE_VALUE;
 }
 
+static void printTestFail() {
+    printf("[");
+    setColor(TextRed);
+    printf("fail");
+    resetColor();
+    printf("]\n");
+}
+
+static void printTestSuccess() {
+    printf("[ ");
+    setColor(TextGreen);
+    printf("ok");
+    resetColor();
+    printf(" ]\n");
+}
+
 static bool createChildProcess(harContext* ctx) {
 
     HANDLE childOut = INVALID_HANDLE_VALUE;
@@ -449,18 +485,24 @@ static bool createChildProcess(harContext* ctx) {
     HANDLE childIn = INVALID_HANDLE_VALUE;
 
     if(!createTempFile(ctx->basePath, &childOut)) {
+        printTestFail();
+        printf("\t\tTemp file creation failed: stdout\n");
         return false;
     }
     if(!createTempFile(ctx->basePath, &childErr)) {
         CloseHandle(childOut);
+        printTestFail();
+        printf("\t\tTemp file creation failed: stderr\n");
         return false;
     }
 
-    harSingleFile* stdinFile = findFile(ctx, "stdin");
+    harSingleFile* stdinFile = findFile(ctx, stdInFileName);
     if(stdinFile != NULL) {
         if(!createTempFile(ctx->basePath, &childIn)) {
             CloseHandle(childOut);
             CloseHandle(childErr);
+            printTestFail();
+            printf("\t\tTemp file creation failed: stdin\n");
             return false;
         }
         DWORD bytesWritten;
@@ -470,6 +512,8 @@ static bool createChildProcess(harContext* ctx) {
             CloseHandle(childOut);
             CloseHandle(childErr);
             CloseHandle(childIn);
+            printTestFail();
+            printf("\t\tTemp file write failed: stdin\n");
             return false;
         }
     }
@@ -478,7 +522,7 @@ static bool createChildProcess(harContext* ctx) {
     // create command line arguments
     wchar_t* wideProgramName = getCurrentExecutableName();
 
-    harSingleFile* commandFile = findFile(ctx, "cmd");
+    harSingleFile* commandFile = findFile(ctx, commandFileName);
     wchar_t* commandFileContent = charToWchar((char*)commandFile->content, NULL);
 
     size_t len = 1 + wcslen(wideProgramName) + 2 + wcslen(commandFileContent) + 1;
@@ -517,7 +561,9 @@ static bool createChildProcess(harContext* ctx) {
         FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
             NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&buffer, 0, NULL);
 
-        fprintf(stderr, "CreateProcess: %ls\n", buffer);
+        printTestFail();
+        printf("\t\tProcess creation error: %ls\n", buffer);
+
         LocalFree(buffer);
 
         return false;
@@ -530,9 +576,12 @@ static bool createChildProcess(harContext* ctx) {
     // default timeout = 10 seconds
     DWORD result = WaitForSingleObject(procInfo.hProcess, timeout);
     if(result == WAIT_TIMEOUT) {
-        fprintf(stderr, "test timedout\n");
+        printTestFail();
+        printf("\t\tTest timedout at %dms\n", timeout);
         return false;
     } else if(result != WAIT_OBJECT_0) {
+        printTestFail();
+        printf("\t\tProcess completion wait failed\n");
         return false;
     }
 
@@ -542,7 +591,9 @@ static bool createChildProcess(harContext* ctx) {
     }
 
     if(exitCode != (DWORD)commandFile->expectedExitCodeParam) {
-        fprintf(stderr, "test unexpected exit code\n");
+        printTestFail();
+        printf("\t\tTest exited with unexpected exit code: %ld, expected: %d\n", exitCode,
+            commandFile->expectedExitCodeParam);
         return false;
     }
 
@@ -592,13 +643,15 @@ static bool createChildProcess(harContext* ctx) {
     CloseHandle(childErr);
     if(childIn != INVALID_HANDLE_VALUE) CloseHandle(childIn);
 
+    printTestSuccess();
+
     return true;
 }
 
 // test files are based on the human archive format
 // see https://github.com/marler8997/har
 static void runSingleTest(testDescriptor* test, const char* tempPath) {
-    fprintf(stderr, "\t%s\n", test->path);
+    printf("\t%-66s", test->path);
 
     harContext ctx = {.column = 1, .line = 1, .test = test};
     ctx.file = (unsigned char*)readFileLen(test->path, &ctx.fileLength);
@@ -612,16 +665,19 @@ static void runSingleTest(testDescriptor* test, const char* tempPath) {
 
     while(!isEOF(&ctx)) {
         if(!parseHarFileSection(&ctx)) {
-            fprintf(stderr, "\t\ttest parsing failed at %lld:%lld\n", ctx.line, ctx.column);
+            printTestFail();
+            printf("\t\ttest parsing failed at %lld:%lld\n", ctx.line, ctx.column);
             return;
         }
     }
 
     if(findFile(&ctx, stdOutFileName)) {
+        printTestFail();
         fprintf(stderr, "\t\ttest file cannot specify files named \""stdOutFileName"\"\n");
         return;
     }
     if(findFile(&ctx, stdErrFileName)) {
+        printTestFail();
         fprintf(stderr, "\t\ttest file cannot specify files named \""stdErrFileName"\"\n");
         return;
     }
@@ -632,23 +688,12 @@ static void runSingleTest(testDescriptor* test, const char* tempPath) {
     }
 
     if(!createDirectoryFromTest(&ctx, tempPath)) {
+        printTestFail();
         fprintf(stderr, "\t\ttest directory setup failed\n");
         return;
     }
 
-    for(unsigned int i = 0; i < ctx.fileCount; i++) {
-        harSingleFile* file = &ctx.files[i];
-        fprintf(stderr, "\t\t%s", file->path);
-        if(file->expectedExitCodeParam != 0) {
-            fprintf(stderr, " exit = %d", file->expectedExitCodeParam);
-        }
-        if(file->isDrectory) {
-            fprintf(stderr, " directory");
-        }
-        fprintf(stderr, "\n");
-    }
-
-    createChildProcess(&ctx);
+    test->succeeded = createChildProcess(&ctx);
     LocalFree(ctx.basePath);
 }
 
@@ -668,7 +713,7 @@ int runTests(const char* testPath, const char* tempPath) {
     bool result = iterateDirectory(folderPath, gatherTests, &ctx);
 
     if(result == false) {
-        fwprintf(stderr, L"Finding tests failed. Does \"%s\" exist?\n", folderPath);
+        fprintf(stderr, "Error: Finding tests failed. Does \"%ls\" exist?\n", folderPath);
         LocalFree(folderPath);
         return EXIT_FAILURE;
     }
@@ -683,20 +728,20 @@ int runTests(const char* testPath, const char* tempPath) {
     wchar_t* fullTempPath;
     PathAllocCombine(startupDirectory.buf, pathToWchar(tempPath), LongPath | SlashPath, &fullTempPath);
     if(!deepDeleteDirectory(fullTempPath)) {
-        fprintf(stderr, "Failed to empty test directory.\n");
+        fprintf(stderr, "Error: Failed to empty test directory.\n");
         LocalFree(fullTempPath);
         return EXIT_FAILURE;
     }
 
     if(!deepCreateDirectory(fullTempPath)) {
-        fprintf(stderr, "Failed to create test directory.\n");
+        fprintf(stderr, "Error: Failed to create test directory.\n");
         LocalFree(fullTempPath);
         return EXIT_FAILURE;
     }
     const char* charTempPath = wcharToChar(fullTempPath, NULL);
     LocalFree(fullTempPath);
 
-    fprintf(stderr, "Executing %d test%s:\n", ctx.testCount, ctx.testCount==1?"":"s");
+    printf("Executing %d test%s:\n", ctx.testCount, ctx.testCount==1?"":"s");
     for(unsigned int i = 0; i < ctx.testCount; i++) {
         // TODO: parallelise this
         runSingleTest(&ctx.tests[i], charTempPath);

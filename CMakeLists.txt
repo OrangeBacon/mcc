@@ -30,6 +30,7 @@ add_executable(mcc
     src/lex.c
     src/lexString.c
     src/test.c
+    src/colorText.c
 )
 target_include_directories(mcc PRIVATE src)
 target_compile_options(mcc PRIVATE ${CFLAGS})
