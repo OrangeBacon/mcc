@@ -792,7 +792,9 @@ static bool createChildProcess(harContext* ctx) {
 // test files are based on the human archive format
 // see https://github.com/marler8997/har
 static void runSingleTest(testDescriptor* test, const char* tempPath) {
-    printf("\t%-66s", test->path);
+    // one tab = 4, line width = 80, width of " [fail]" and " [ ok ]" = 7
+    // 80 - 4 - 7 = 69 space width for test path
+    printf("\t%-69s ", test->path);
 
     harContext ctx = {.column = 1, .line = 1, .test = test};
     ctx.file = (unsigned char*)readFileLen(test->path, &ctx.fileLength);
