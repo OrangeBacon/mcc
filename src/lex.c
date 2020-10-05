@@ -1716,10 +1716,16 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
             if(len == 7 && hash == stringHash("include", 7)) {
                 bool success = parseInclude(tok, ctx, false);
-                if(success) {
+
+                // not all header files have source code, they could be all
+                // preprocessor directives, so it could succeed, but produce
+                // an eof token when it is not end of file, causing processing
+                // to halt too early.
+                if(success && tok->type != TOKEN_EOF_L) {
                     ctx->phase4.previous = *tok;
                     return;
                 }
+                tok->type = TOKEN_ERROR_L;
                 previous.type = TOKEN_EOF_L;
                 continue;
             } else if(len == 12 && hash == stringHash("include_next", 12)) {
@@ -1729,6 +1735,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
                     ctx->phase4.previous = *tok;
                     return;
                 }
+                tok->type = TOKEN_ERROR_L;
                 previous.type = TOKEN_EOF_L;
                 continue;
             } else if(len == 6 && hash == stringHash("define", 6)) {

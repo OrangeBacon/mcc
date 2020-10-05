@@ -694,6 +694,11 @@ static bool createChildProcess(harContext* ctx) {
     wchar_t* wideProgramName = getCurrentExecutableName();
 
     harSingleFile* commandFile = findFile(ctx, commandFileName);
+    if(commandFile == NULL) {
+        printTestFail();
+        printf("\t\tNo test command section found\n");
+        return false;
+    }
     wchar_t* commandFileContent = charToWchar((char*)commandFile->content, NULL);
 
     size_t len = 1 + wcslen(wideProgramName) + 2 + wcslen(commandFileContent) + 1;
@@ -784,7 +789,14 @@ static bool createChildProcess(harContext* ctx) {
     CloseHandle(childErr);
     if(childIn != INVALID_HANDLE_VALUE) CloseHandle(childIn);
 
-    if(testSucceeded) printTestSuccess();
+    if(testSucceeded) {
+        printTestSuccess();
+
+        // remove metadata from successfull tests, allows seeing
+        // failing tests easier
+        deepDeleteDirectory(ctx->basePath);
+        RemoveDirectoryW(ctx->basePath);
+    }
 
     return testSucceeded;
 }
