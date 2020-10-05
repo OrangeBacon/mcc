@@ -801,6 +801,43 @@ static bool createChildProcess(harContext* ctx) {
     return testSucceeded;
 }
 
+// writes batch file to run the test, for debuging:
+// @echo off
+// progname args
+// echo exitcode = %errorlevel%
+static void createHelperBat(harContext* ctx) {
+    harSingleFile* cmd = findFile(ctx, commandFileName);
+    if(!cmd) return;
+
+    size_t fileLength;
+    char* programName = wcharToChar(getCurrentExecutableName(), &fileLength);
+    fileLength += cmd->contentLength;
+
+    char* content = "@echo off\npushd %s\n\"%s\" %s\necho exit code = %%errorlevel%%\npopd\n";
+    fileLength += strlen(content);
+
+    size_t baseLength;
+    // remove unc prefix
+    char* basePath = wcharToChar(ctx->basePath, &baseLength) + 4;
+    fileLength += baseLength - 4;
+
+    char* buf = ArenaAlloc(sizeof(char) * (fileLength + 1));
+    fileLength = sprintf(buf, content, basePath, programName, cmd->content);
+
+    wchar_t* fileName;
+    PathAllocCombine(ctx->basePath, TEXT("test.bat"), LongPath, &fileName);
+    HANDLE file = CreateFileW(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    if(file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    DWORD bytesWritten;
+    WriteFile(file, buf, fileLength, &bytesWritten, NULL);
+
+    CloseHandle(file);
+}
+
 // test files are based on the human archive format
 // see https://github.com/marler8997/har
 static void runSingleTest(testDescriptor* test, const char* tempPath) {
@@ -849,6 +886,11 @@ static void runSingleTest(testDescriptor* test, const char* tempPath) {
     }
 
     test->succeeded = createChildProcess(&ctx);
+
+    if(!test->succeeded) {
+        createHelperBat(&ctx);
+    }
+
     LocalFree(ctx.basePath);
 }
 
