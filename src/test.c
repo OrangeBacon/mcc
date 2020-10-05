@@ -20,6 +20,9 @@
 #define LongPath PATHCCH_ENSURE_IS_EXTENDED_LENGTH_PATH
 #define SlashPath PATHCCH_ENSURE_TRAILING_SLASH
 
+#define stdOutFileName "processOut.txt"
+#define stdErrFileName "processErr.txt"
+
 // Simple? end-to-end tests.
 // note: This most definitely uses the Win32 api, good luck to myself
 // when attempting to port it to a non-windows system!
@@ -113,6 +116,7 @@ typedef struct harSingleFile {
     size_t contentLength;
     int expectedExitCodeParam;
     bool trimTrailingWhitespace;
+    int timeout;
 } harSingleFile;
 
 // a whole har file and related parsing context
@@ -176,6 +180,41 @@ static void skipWhitespace(harContext* ctx) {
     }
 }
 
+typedef enum propertyState {
+    PROPERTY_NOT_FOUND,
+    PROPERTY_FAILED,
+    PROPERTY_SUCCEEDED,
+} propertyState;
+
+// parse header property <name> = <signed integer value>
+static propertyState parseIntProperty(harContext* ctx, int* property, const char* name) {
+    size_t len = strlen(name);
+    if(strncmp((char*)&ctx->file[ctx->consumed], name, len) == 0) {
+        advanceN(ctx, len); // consume name
+        skipWhitespace(ctx);
+        if(peek(ctx) != '=') {
+            return PROPERTY_FAILED;
+        }
+        advance(ctx); // consume '='
+        skipWhitespace(ctx);
+        unsigned char* end;
+        intmax_t num = strtoimax((char*)&ctx->file[ctx->consumed], (char**)&end, 0);
+
+        if(num > INT_MAX || (errno == ERANGE && num == INTMAX_MAX)) {
+            return PROPERTY_FAILED;
+        }
+        if(num < INT_MIN || (errno == ERANGE && num == INTMAX_MIN)) {
+            return PROPERTY_FAILED;
+        }
+        *property = num;
+        advanceN(ctx, end - &ctx->file[ctx->consumed]);
+
+        return PROPERTY_SUCCEEDED;
+    }
+
+    return PROPERTY_NOT_FOUND;
+}
+
 // parse the header to a file section in the har file
 // examples:
 //  main.c
@@ -185,6 +224,7 @@ static void skipWhitespace(harContext* ctx) {
 static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
     file->path = &ctx->file[ctx->consumed];
     file->expectedExitCodeParam = 0;
+    file->timeout = 0;
     file->trimTrailingWhitespace = false;
     size_t pathLength = 0;
 
@@ -219,25 +259,19 @@ static bool parseFileHeader(harContext* ctx, harSingleFile* file) {
         }
 
         // exit property - used to specify command expected exit codes
-        if(strncmp((char*)&ctx->file[ctx->consumed], "exit", 4) == 0) {
-            advanceN(ctx, 4); // consume 'exit'
-            skipWhitespace(ctx);
-            if(peek(ctx) != '=') {
-                return false;
-            }
-            advance(ctx); // consume '='
-            skipWhitespace(ctx);
-            unsigned char* end;
-            intmax_t num = strtoimax((char*)&ctx->file[ctx->consumed], (char**)&end, 0);
+        propertyState s = parseIntProperty(ctx, &file->expectedExitCodeParam, "exit");
+        if(s == PROPERTY_FAILED) {
+            return false;
+        } else if(s == PROPERTY_SUCCEEDED) {
+            continue;
+        }
 
-            if(num > INT_MAX || (errno == ERANGE && num == INTMAX_MAX)) {
-                return false;
-            }
-            if(num < INT_MIN || (errno == ERANGE && num == INTMAX_MIN)) {
-                return false;
-            }
-            file->expectedExitCodeParam = num;
-            advanceN(ctx, end - &ctx->file[ctx->consumed]);
+        // timeout property - used to specify command maximum timeout in milliseconds,
+        // if timeout == -1, infinite used, if timeout == 0, default used
+        s = parseIntProperty(ctx, &file->timeout, "timeout");
+        if(s == PROPERTY_FAILED) {
+            return false;
+        } else if(s == PROPERTY_SUCCEEDED) {
             continue;
         }
 
@@ -382,35 +416,64 @@ static wchar_t* getCurrentExecutableName() {
     return NULL;
 }
 
-static bool createChildProcess(harContext* ctx) {
-    // security for pipe creation
+// create temporary file that will be deleted when its handle is closed
+// the handle is inheritable, shareable, readable and writable
+static bool createTempFile(wchar_t* folder, HANDLE* out) {
+    wchar_t fileName[MAX_PATH];
+    if(!GetTempFileNameW(folder, TEXT("mcctest"), 0, fileName)) {
+        return false;
+    }
+
+    // allow handle inheritance
     SECURITY_ATTRIBUTES secAttr;
     secAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
     secAttr.bInheritHandle = true;
     secAttr.lpSecurityDescriptor = NULL;
 
-    HANDLE childOutRead = NULL;
-    HANDLE childOutWrite = NULL;
-    HANDLE childInRead = NULL;
-    HANDLE childInWrite = NULL;
+    HANDLE file = CreateFileW(fileName,
+        GENERIC_WRITE | GENERIC_READ,
+        FILE_SHARE_WRITE | FILE_SHARE_READ,
+        &secAttr, // inherited handle
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
+        NULL); // no template
 
-    // create stdout for the new process
-    if(!CreatePipe(&childOutRead, &childOutWrite, &secAttr, 0)) {
+    *out = file;
+    return file != INVALID_HANDLE_VALUE;
+}
+
+static bool createChildProcess(harContext* ctx) {
+
+    HANDLE childOut = INVALID_HANDLE_VALUE;
+    HANDLE childErr = INVALID_HANDLE_VALUE;
+    HANDLE childIn = INVALID_HANDLE_VALUE;
+
+    if(!createTempFile(ctx->basePath, &childOut)) {
         return false;
     }
-    if(!SetHandleInformation(childOutRead, HANDLE_FLAG_INHERIT, 0)) {
+    if(!createTempFile(ctx->basePath, &childErr)) {
+        CloseHandle(childOut);
         return false;
     }
 
-    // Create stdin for the new process - pipe is required but not currently
-    // ever written to.  If stdin support is required, this pipe would be
-    // used for that.
-    if(!CreatePipe(&childInRead, &childInWrite, &secAttr, 0)) {
-        return false;
+    harSingleFile* stdinFile = findFile(ctx, "stdin");
+    if(stdinFile != NULL) {
+        if(!createTempFile(ctx->basePath, &childIn)) {
+            CloseHandle(childOut);
+            CloseHandle(childErr);
+            return false;
+        }
+        DWORD bytesWritten;
+        bool success = WriteFile(childIn, stdinFile->content,
+            stdinFile->contentLength, &bytesWritten, NULL);
+        if(!success || bytesWritten != stdinFile->contentLength) {
+            CloseHandle(childOut);
+            CloseHandle(childErr);
+            CloseHandle(childIn);
+            return false;
+        }
     }
-    if(!SetHandleInformation(childInWrite, HANDLE_FLAG_INHERIT, 0)) {
-        return false;
-    }
+
 
     // create command line arguments
     wchar_t* wideProgramName = getCurrentExecutableName();
@@ -431,22 +494,22 @@ static bool createChildProcess(harContext* ctx) {
     PROCESS_INFORMATION procInfo = {0};
     STARTUPINFOW startupinfo = {0};
     startupinfo.cb = sizeof(STARTUPINFOW);
-    startupinfo.hStdError = childOutWrite;
-    startupinfo.hStdOutput = childOutWrite;
-    startupinfo.hStdInput = childInRead;
+    startupinfo.hStdError = childErr;
+    startupinfo.hStdOutput = childOut;
+    startupinfo.hStdInput = childIn;
     startupinfo.dwFlags |= STARTF_USESTDHANDLES;
 
     bool success = CreateProcessW(
-        wideProgramName,
-        wideCommandLine,
-        NULL,
-        NULL,
-        true,
-        0,
-        NULL,
-        ctx->basePath,
-        &startupinfo,
-        &procInfo);
+        wideProgramName, // executable file path
+        wideCommandLine, // command line arguments, space seperated
+        NULL, // process security
+        NULL, // thread security
+        true, // handle inheritance
+        0, // no flags specified
+        NULL, // no environment variable changes
+        ctx->basePath, // working directory
+        &startupinfo, // standard handle redirection, etc.
+        &procInfo); // info about the process
 
     if(!success) {
         DWORD err = GetLastError();
@@ -460,41 +523,76 @@ static bool createChildProcess(harContext* ctx) {
         return false;
     }
 
-    // these could be used for process monitoring, etc
-    CloseHandle(procInfo.hProcess);
-    CloseHandle(procInfo.hThread);
+    int timeout = 10000;
+    if(commandFile->timeout == -1) timeout = INFINITE;
+    if(commandFile->timeout != 0) timeout = commandFile->timeout;
 
-    // these have to be closed so child process ending can be recognised
-    CloseHandle(childOutWrite);
-    CloseHandle(childInRead);
-
-    //
-    wchar_t* outputPath;
-    PathAllocCombine(ctx->basePath, TEXT("processOutput.txt"), LongPath, &outputPath);
-    HANDLE outputFile = CreateFileW(outputPath, GENERIC_WRITE, 0, NULL,
-        CREATE_ALWAYS, FLAG_ATTRIBUTE_NORMAL, NULL);
-
-    if(outputFile == INVALID_HANDLE_VALUE) {
+    // default timeout = 10 seconds
+    DWORD result = WaitForSingleObject(procInfo.hProcess, timeout);
+    if(result == WAIT_TIMEOUT) {
+        fprintf(stderr, "test timedout\n");
+        return false;
+    } else if(result != WAIT_OBJECT_0) {
         return false;
     }
 
-    char output[BUFSIZ];
-
-    while(true) {
-        DWORD bytesRead;
-        success = ReadFile(childOutRead, output, BUFSIZ, &bytesRead, NULL);
-        if(!success || bytesRead == 0) break;
-
-        DWORD bytesWritten;
-        success = WriteFile(outputFile, output, bytesRead, &bytesWritten, NULL);
-        if(!success) break;
+    DWORD exitCode;
+    if(!GetExitCodeProcess(procInfo.hProcess, &exitCode)) {
+        return false;
     }
 
-    CloseHandle(childOutRead);
-    CloseHandle(childInWrite);
+    if(exitCode != (DWORD)commandFile->expectedExitCodeParam) {
+        fprintf(stderr, "test unexpected exit code\n");
+        return false;
+    }
+
+    CloseHandle(procInfo.hProcess);
+    CloseHandle(procInfo.hThread);
+
+    char fileData[BUFSIZ];
+    wchar_t* fileName;
+
+    // copy output temp file to real file (todo: only run if errored)
+    PathAllocCombine(ctx->basePath, TEXT(stdOutFileName), LongPath, &fileName);
+    HANDLE outputFile = CreateFileW(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if(!SetFilePointerEx(childOut, (LARGE_INTEGER){.QuadPart=0}, NULL, FILE_BEGIN)) {
+        return false;
+    }
+    while(true) {
+        DWORD bytesRead;
+        if(!ReadFile(childOut, fileData, BUFSIZ, &bytesRead, NULL)) break;
+        if(bytesRead == 0) break;
+        DWORD bytesWritten;
+        if(!WriteFile(outputFile, fileData, bytesRead, &bytesWritten, NULL)) {
+            return false;
+        }
+        if(bytesWritten != bytesRead) return false;
+    }
     CloseHandle(outputFile);
 
-    return success;
+    // same as above but for stderr
+    PathAllocCombine(ctx->basePath, TEXT(stdErrFileName), LongPath, &fileName);
+    HANDLE errFile = CreateFileW(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if(!SetFilePointerEx(childErr, (LARGE_INTEGER){.QuadPart=0}, NULL, FILE_BEGIN)) {
+        return false;
+    }
+    while(true) {
+        DWORD bytesRead;
+        if(!ReadFile(childErr, fileData, BUFSIZ, &bytesRead, NULL)) break;
+        if(bytesRead == 0) break;
+        DWORD bytesWritten;
+        if(!WriteFile(errFile, fileData, bytesRead, &bytesWritten, NULL)) {
+            return false;
+        }
+        if(bytesWritten != bytesRead) return false;
+    }
+    CloseHandle(errFile);
+
+    CloseHandle(childOut);
+    CloseHandle(childErr);
+    if(childIn != INVALID_HANDLE_VALUE) CloseHandle(childIn);
+
+    return true;
 }
 
 // test files are based on the human archive format
@@ -517,6 +615,15 @@ static void runSingleTest(testDescriptor* test, const char* tempPath) {
             fprintf(stderr, "\t\ttest parsing failed at %lld:%lld\n", ctx.line, ctx.column);
             return;
         }
+    }
+
+    if(findFile(&ctx, stdOutFileName)) {
+        fprintf(stderr, "\t\ttest file cannot specify files named \""stdOutFileName"\"\n");
+        return;
+    }
+    if(findFile(&ctx, stdErrFileName)) {
+        fprintf(stderr, "\t\ttest file cannot specify files named \""stdErrFileName"\"\n");
+        return;
     }
 
     for(unsigned int i = 0; i < ctx.fileCount; i++) {
