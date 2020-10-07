@@ -97,6 +97,10 @@ void* ArenaReAlloc(void* old_ptr, size_t old_size, size_t new_size);
 #define ARRAY_POP(container, name) \
     ((container).name##Count--,(container).name##s[(container).name##Count])
 
+// return and remove the first item in an array
+#define ARRAY_POP_FRONT(container, name) \
+    ((container).name##Count--,(container).name##s++,(container).name##s[-1])
+
 // container to hold virtual, non-committed memory areas
 typedef struct MemoryPool {
 

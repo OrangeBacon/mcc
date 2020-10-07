@@ -117,6 +117,10 @@ static LexerTokenType stringLikeTokens[] = {
     TOKEN_IDENTIFIER_L,
     TOKEN_CHARACTER_L,
     TOKEN_STRING_L,
+    TOKEN_MACRO_ARG,
+    TOKEN_ERROR_L,
+    TOKEN_PLACEHOLDER_L,
+    TOKEN_UNKNOWN_L,
 };
 
 static LexerTokenType puncLikeTokens[] = {
@@ -422,6 +426,7 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
             PRINT(ctx, ")");
             break;
         case TOKEN_UNKNOWN_L: PRINT(ctx, tok->data.character); break;
+        case TOKEN_PLACEHOLDER_L: PRINT(ctx, "placeholder"); break;
         case TOKEN_ERROR_L: PRINT(ctx, "error token"); break;
         case TOKEN_EOF_L: break;
     }

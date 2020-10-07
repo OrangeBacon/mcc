@@ -126,6 +126,7 @@ typedef enum LexerTokenType {
     TOKEN_STRING_L,
     TOKEN_MACRO_ARG,
     TOKEN_UNKNOWN_L,
+    TOKEN_PLACEHOLDER_L,
     TOKEN_ERROR_L,
     TOKEN_EOF_L,
 } LexerTokenType;

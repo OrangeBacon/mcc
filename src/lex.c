@@ -899,43 +899,46 @@ static void PredefinedMacros(TranslationContext* ctx) {
     line->name.data.string.count = 8;
     TABLE_SET(*ctx->phase3.hashNodes, "__LINE__", 8, line);
 
-#define INT_MACRO(pre, n, post, value) \
-    HashNode* n = ArenaAlloc(sizeof(HashNode)); \
-    n->type = NODE_MACRO_INTEGER; \
-    n->as.integer = (value); \
-    n->macroExpansionEnabled = true; \
-    n->hash = stringHash(#pre#n#post, strlen(#pre#n#post)); \
-    n->name.data.string.buffer = #pre#n#post; \
-    n->name.data.string.count = strlen(#pre#n#post); \
-    TABLE_SET(*ctx->phase3.hashNodes, #pre#n#post, strlen(#pre#n#post), n);
+#define INT_MACRO(stringname, value) do {\
+        size_t len = strlen(stringname); \
+        HashNode* m = ArenaAlloc(sizeof(HashNode)); \
+        m->type = NODE_MACRO_INTEGER; \
+        m->as.integer = (value); \
+        m->macroExpansionEnabled = true; \
+        m->hash = stringHash(stringname, len); \
+        m->name.data.string.buffer = stringname; \
+        m->name.data.string.count = len; \
+        TABLE_SET(*ctx->phase3.hashNodes, stringname, len, m); \
+    } while(0)
 
-    INT_MACRO(__, STDC, __, 1);
-    INT_MACRO(__, STDC_HOSTED, __, 1);
-    INT_MACRO(__, STDC_VERSION, __, 201112L);
-    INT_MACRO(__, STDC_UTF_16, __, 1);
-    INT_MACRO(__, STDC_UTF_32, __, 1);
-    INT_MACRO(__, STDC_NO_ATOMICS, __, 1);
-    INT_MACRO(__, STDC_NO_COMPLEX, __, 1);
-    INT_MACRO(__, STDC_NO_THREADS, __, 1);
-    INT_MACRO(__, STDC_NO_VLA, __, 1);
-    INT_MACRO(__, STDC_LIB_EXT1, __, 201112L);
-    INT_MACRO(__, x86_64_, _, 1);
-    INT_MACRO(__, x86_64, , 1);
-    INT_MACRO(W, IN32, , 1);
-    INT_MACRO(_WI, N32, , 1);
-    INT_MACRO(__W, IN32_, _, 1);
-    INT_MACRO(__, WIN32_, _, 1);
-    INT_MACRO(W, IN64, , 1);
-    INT_MACRO(_WI, N64, , 1);
-    INT_MACRO(__W, IN64_, _, 1);
-    INT_MACRO(__, WIN64_, _, 1);
+    INT_MACRO("__STDC__", 1);
+    INT_MACRO("__STDC_HOSTED__", 1);
+    INT_MACRO("__STDC_VERSION__", 201112L);
+    INT_MACRO("__STDC_UTF_16__", 1);
+    INT_MACRO("__STDC_UTF_32__", 1);
+    INT_MACRO("__STDC_NO_ATOMICS__", 1);
+    INT_MACRO("__STDC_NO_COMPLEX__", 1);
+    INT_MACRO("__STDC_NO_THREADS__", 1);
+    INT_MACRO("__STDC_NO_VLA__", 1);
+    INT_MACRO("__STDC_LIB_EXT1__", 201112L);
+    INT_MACRO("__x86_64__", 1);
+    INT_MACRO("__x86_64", 1);
+    INT_MACRO("WIN32", 1);
+    INT_MACRO("_WIN32", 1);
+    INT_MACRO("__WIN32__", 1);
+    INT_MACRO("__WIN32__", 1);
+    INT_MACRO("WIN64", 1);
+    INT_MACRO("_WIN64", 1);
+    INT_MACRO("__WIN64__", 1);
+    INT_MACRO("__WIN64__", 1);
 
 #undef INT_MACRO
 }
 
 // initialise the context for running phase 3
-static void Phase3Initialise(TranslationContext* ctx) {
-    Phase2Initialise(ctx);
+static void Phase3Initialise(TranslationContext* ctx, TranslationContext* parent, bool needPhase2) {
+    if(needPhase2) Phase2Initialise(ctx);
+
     ctx->phase3.mode = LEX_MODE_NO_HEADER,
     ctx->phase3.peek = '\0',
     ctx->phase3.peekNext = '\0',
@@ -946,7 +949,11 @@ static void Phase3Initialise(TranslationContext* ctx) {
     ctx->phase3.getter = Phase3GetFromPhase2;
 
     if(ctx->phase3.hashNodes == NULL) {
-        PredefinedMacros(ctx);
+        if(parent) {
+            ctx->phase3.hashNodes = parent->phase3.hashNodes;
+        } else {
+            PredefinedMacros(ctx);
+        }
     }
 
     Phase3AdvanceOverwrite(ctx);
@@ -955,7 +962,7 @@ static void Phase3Initialise(TranslationContext* ctx) {
 
 // helper to run upto and including phase 3
 void runPhase3(TranslationContext* ctx) {
-    Phase3Initialise(ctx);
+    Phase3Initialise(ctx, NULL, true);
     LexerToken tok;
     TokenPrintCtxFile printCtx;
     TokenPrintCtxInitFile(&printCtx, stdout, ctx);
@@ -973,7 +980,7 @@ void runPhase3(TranslationContext* ctx) {
 // _Pragma expansion
 // include resolution
 
-static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent, bool phase3Req) {
+static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent) {
     if(parent != NULL) {
         ctx->phase3.hashNodes = parent->phase3.hashNodes;
     } else {
@@ -995,7 +1002,7 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         ctx->phase4.previous.loc = &ctx->phase1Location;
     }
 
-    if(phase3Req) Phase3Initialise(ctx);
+    Phase3Initialise(ctx, NULL, true);
     Phase3Get(&ctx->phase4.peek, ctx);
 }
 
@@ -1065,7 +1072,7 @@ static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser, b
 
     ctx2->phase4.previous = ctx->phase4.previous;
     TranslationContextInit(ctx2, ctx->pool, (const unsigned char*)fileName);
-    Phase4Initialise(ctx2, ctx, true);
+    Phase4Initialise(ctx2, ctx);
     Phase4Get(tok, ctx2);
     return true;
 }
@@ -1482,6 +1489,25 @@ static LexerToken* stringifyArgument(TranslationContext* ctx, ArgumentItem* arg)
     return &arg->string;
 }
 
+// join two tokens into one token or return false
+static bool JoinTokens(LexerToken* result, LexerToken left, LexerToken right) {
+    // placeholder + placeholder => placeholder
+    // placeholder + * => placeholder
+    // * + placeholder => placeholder
+    // * + * => run phase 3, error if second token produced, etc
+
+    if(left.type == TOKEN_PLACEHOLDER_L) {
+        *result = right;
+        return true;
+    }
+    if(right.type == TOKEN_PLACEHOLDER_L) {
+        *result = left;
+        return true;
+    }
+
+    return false;
+}
+
 static EnterContextResult ParseFunctionMacro(
     MacroContext* macro,
     LexerToken* tok,
@@ -1559,14 +1585,53 @@ static EnterContextResult ParseFunctionMacro(
     TokenList substituted;
     ARRAY_ALLOC(LexerToken, substituted, item);
 
+    bool containsTokenConcatanation = false;
+
     // substitute arguments into replacement list
     for(unsigned int i = 0; i < fn->replacementCount; i++) {
         LexerToken* tok = &fn->replacements[i];
 
         if(tok->type == TOKEN_MACRO_ARG) {
-            TokenList* arg = expandArgument(ctx, &args.items[tok->data.integer], tok);
-            for(unsigned int j = 0; j < arg->itemCount; j++) {
-                ARRAY_PUSH(substituted, item, arg->items[j]);
+
+            // should macro expansion be applied to the argument's tokens?
+            // disabled for the ## operator
+            bool isExpanded = true;
+
+            // argument before ##
+            if(i + 1 < fn->replacementCount) {
+                LexerTokenType next = fn->replacements[i+1].type;
+                if(next == TOKEN_PUNC_HASH_HASH || next == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+                    isExpanded = false;
+                    containsTokenConcatanation = true;
+                }
+            }
+
+            // argument after ##
+            if(i > 0) {
+                LexerTokenType prev = fn->replacements[i-1].type;
+                if(prev == TOKEN_PUNC_HASH_HASH || prev == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+                    isExpanded = false;
+                    containsTokenConcatanation = true;
+                }
+            }
+
+            if(isExpanded) {
+                // no relation to token concatanation operator
+                TokenList* arg = expandArgument(ctx, &args.items[tok->data.integer], tok);
+                for(unsigned int j = 0; j < arg->itemCount; j++) {
+                    ARRAY_PUSH(substituted, item, arg->items[j]);
+                }
+            } else {
+                TokenList* arg = &args.items[tok->data.integer].tokens;
+                // empty argument -> standard says add placeholder token
+                if(arg->itemCount == 0) {
+                    LexerToken* placeholder = ARRAY_PUSH_PTR(substituted, item);
+                    placeholder->type = TOKEN_PLACEHOLDER_L;
+                } else {
+                    for(unsigned int j = 0; j < arg->itemCount; j++) {
+                        ARRAY_PUSH(substituted, item, arg->items[j]);
+                    }
+                }
             }
         } else if(tok->type == TOKEN_PUNC_HASH || tok->type == TOKEN_PUNC_PERCENT_COLON) {
             i++;
@@ -1589,10 +1654,58 @@ static EnterContextResult ParseFunctionMacro(
         return CONTEXT_MACRO_NULL;
     }
 
+    TokenList concatenated;
+
+    if(containsTokenConcatanation) {
+        // token concatanation operator application
+
+        // algorithm =
+        // maintain two lists - left + right
+        // right = all tokens, initially
+        // if pop front right == '##'
+        //    check left length > 0 && right length > 0
+        //    join pop front right to pop end left
+        //    push result to left
+        // else
+        //    push back left
+        // repeat until right empty
+        // result = left
+
+        TokenList left;
+        ARRAY_ALLOC(LexerToken, left, item);
+        TokenList right = substituted;
+
+        while(right.itemCount > 0) {
+            LexerToken current = ARRAY_POP_FRONT(right, item);
+            if(current.type == TOKEN_PUNC_HASH_HASH || current.type == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+                if(left.itemCount <= 0) {
+                    fprintf(stderr, "Error: No token before ## operator\n");
+                    return CONTEXT_MACRO_NULL;
+                }
+                if(right.itemCount <= 0) {
+                    fprintf(stderr, "Error: No token after ## operator\n");
+                    return CONTEXT_MACRO_NULL;
+                }
+                LexerToken leftT = ARRAY_POP(left, item);
+                LexerToken rightT = ARRAY_POP_FRONT(right, item);
+                LexerToken* new = ARRAY_PUSH_PTR(left, item);
+                if(!JoinTokens(new, leftT, rightT)) {
+                    fprintf(stderr, "Error unable to join tokens\n");
+                    return CONTEXT_MACRO_NULL;
+                }
+            } else {
+                ARRAY_PUSH(left, item, current);
+            }
+        }
+        concatenated = left;
+    } else {
+        concatenated = substituted;
+    }
+
     // macro expand the substituted list
 
     JointTokenStream stream = {
-        .list = &substituted,
+        .list = &concatenated,
         .macroContext = tok->data.node,
         .second = getCtx,
         .secondAdvance = advance,
@@ -1799,7 +1912,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
 
 // helper to run upto and including phase 4
 void runPhase4(TranslationContext* ctx) {
-    Phase4Initialise(ctx, NULL, true);
+    Phase4Initialise(ctx, NULL);
     LexerToken tok;
     TokenPrintCtxFile printCtx;
     TokenPrintCtxInitFile(&printCtx, stdout, ctx);
