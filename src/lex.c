@@ -33,6 +33,7 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
         .column = 0,
         .length = 0,
         .line = 1,
+        .sourceText = ctx->phase1source,
     };
 }
 
@@ -114,6 +115,7 @@ static unsigned char Phase1AdvanceOverwrite(TranslationContext* ctx, bool* succe
     ctx->phase1consumed++;
     ctx->phase1Location.length = 1;
     ctx->phase1Location.column++;
+    ctx->phase1Location.sourceText = &ctx->phase1source[ctx->phase1consumed - 1];
     unsigned char c = ctx->phase1source[ctx->phase1consumed - 1];
     Phase1NewLine(ctx, c);
     *succeeded = true;
@@ -294,7 +296,8 @@ void runPhase2(TranslationContext* ctx) {
 // comments -> whitespace
 // tracking begining of line + prior whitespace in tokens
 
-static unsigned char Phase3GetFromPhase2(TranslationContext* ctx, SourceLocation* loc) {
+static unsigned char Phase3GetFromPhase2(void* voidCtx, SourceLocation* loc) {
+    TranslationContext* ctx = voidCtx;
     unsigned char c = Phase2Get(ctx);
     *loc = ctx->phase2CurrentLoc;
     return c;
@@ -308,7 +311,7 @@ static unsigned char Phase3Advance(TranslationContext* ctx) {
 
     ctx->phase3.peek = ctx->phase3.peekNext;
     ctx->phase3.peekLoc = ctx->phase3.peekNextLoc;
-    ctx->phase3.peekNext = ctx->phase3.getter(ctx, &ctx->phase3.peekNextLoc);
+    ctx->phase3.peekNext = ctx->phase3.getter(ctx->phase3.getterCtx, &ctx->phase3.peekNextLoc);
 
     return ret;
 }
@@ -321,7 +324,7 @@ static unsigned char Phase3AdvanceOverwrite(TranslationContext* ctx) {
 
     ctx->phase3.peek = ctx->phase3.peekNext;
     ctx->phase3.peekLoc = ctx->phase3.peekNextLoc;
-    ctx->phase3.peekNext = ctx->phase3.getter(ctx, &ctx->phase3.peekNextLoc);
+    ctx->phase3.peekNext = ctx->phase3.getter(ctx->phase3.getterCtx, &ctx->phase3.peekNextLoc);
     return ret;
 }
 
@@ -946,7 +949,10 @@ static void Phase3Initialise(TranslationContext* ctx, TranslationContext* parent
     ctx->phase3.peekLoc = *ctx->phase3.currentLocation,
     ctx->phase3.peekNextLoc = *ctx->phase3.currentLocation,
     ctx->phase3.AtStart = true;
-    ctx->phase3.getter = Phase3GetFromPhase2;
+    if(!ctx->phase3.getter) {
+        ctx->phase3.getter = Phase3GetFromPhase2;
+        ctx->phase3.getterCtx = ctx;
+    }
 
     if(ctx->phase3.hashNodes == NULL) {
         if(parent) {
@@ -1489,8 +1495,49 @@ static LexerToken* stringifyArgument(TranslationContext* ctx, ArgumentItem* arg)
     return &arg->string;
 }
 
+typedef struct Phase4JoinCtx {
+    LexerToken left;
+    LexerToken right;
+    size_t consumed;
+} Phase4JoinCtx;
+
+static unsigned char Phase4JoinGetter(void* voidCtx, SourceLocation* loc) {
+    Phase4JoinCtx* ctx = voidCtx;
+    if(!ctx->left.loc || !ctx->right.loc) {
+        fprintf(stderr, "Joining undefined tokens\n");
+        exit(1);
+    }
+
+    loc->length = 1;
+
+    if(ctx->consumed < ctx->left.loc->length) {
+        unsigned char ret = ctx->left.loc->sourceText[ctx->consumed];
+
+        loc->column = ctx->left.loc->column + ctx->consumed;
+        loc->line = ctx->left.loc->line;
+        loc->fileName = ctx->left.loc->fileName;
+        loc->sourceText = ctx->left.loc->sourceText + ctx->consumed;
+
+        ctx->consumed++;
+        return ret;
+    } else if(ctx->consumed - ctx->left.loc->length < ctx->right.loc->length) {
+        size_t rightConsumed = ctx->consumed - ctx->left.loc->length;
+        unsigned char ret = ctx->right.loc->sourceText[rightConsumed];
+
+        loc->column = ctx->right.loc->column + rightConsumed;
+        loc->line = ctx->right.loc->line;
+        loc->fileName = ctx->right.loc->fileName;
+        loc->sourceText = ctx->right.loc->sourceText + rightConsumed;
+
+        ctx->consumed++;
+        return ret;
+    }
+
+    return END_OF_FILE;
+}
+
 // join two tokens into one token or return false
-static bool JoinTokens(LexerToken* result, LexerToken left, LexerToken right) {
+static bool JoinTokens(TranslationContext* ctx, LexerToken* result, LexerToken left, LexerToken right) {
     // placeholder + placeholder => placeholder
     // placeholder + * => placeholder
     // * + placeholder => placeholder
@@ -1505,7 +1552,32 @@ static bool JoinTokens(LexerToken* result, LexerToken left, LexerToken right) {
         return true;
     }
 
-    return false;
+    Phase4JoinCtx joinCtx;
+    joinCtx.left = left;
+    joinCtx.right = right;
+    joinCtx.consumed = 0;
+
+    // create new translation context
+    // initialise for phase 3, with no phase 1/2 initialisation
+    // getter = Phase4GetterForPhase3
+
+    TranslationContext joinTranslate = {0};
+    TranslationContextInit(&joinTranslate, ctx->pool, ctx->fileName);
+    joinTranslate.phase3.getter = Phase4JoinGetter;
+    joinTranslate.phase3.getterCtx = &joinCtx;
+    Phase3Initialise(&joinTranslate, ctx, false);
+
+    LexerToken newTok;
+    Phase3Get(&newTok, &joinTranslate);
+
+    LexerToken next;
+    Phase3Get(&next, &joinTranslate);
+    if(next.type != TOKEN_EOF_L) {
+        return false;
+    }
+
+    *result = newTok;
+    return true;
 }
 
 static EnterContextResult ParseFunctionMacro(
@@ -1620,6 +1692,13 @@ static EnterContextResult ParseFunctionMacro(
                 TokenList* arg = expandArgument(ctx, &args.items[tok->data.integer], tok);
                 for(unsigned int j = 0; j < arg->itemCount; j++) {
                     ARRAY_PUSH(substituted, item, arg->items[j]);
+
+                    if(j == 0) {
+                        LexerToken* t = &substituted.items[substituted.itemCount-1];
+                        t->indent = tok->indent;
+                        t->whitespaceBefore = tok->whitespaceBefore;
+                        t->renderStartOfLine = tok->renderStartOfLine;
+                    }
                 }
             } else {
                 TokenList* arg = &args.items[tok->data.integer].tokens;
@@ -1627,9 +1706,16 @@ static EnterContextResult ParseFunctionMacro(
                 if(arg->itemCount == 0) {
                     LexerToken* placeholder = ARRAY_PUSH_PTR(substituted, item);
                     placeholder->type = TOKEN_PLACEHOLDER_L;
+
                 } else {
                     for(unsigned int j = 0; j < arg->itemCount; j++) {
                         ARRAY_PUSH(substituted, item, arg->items[j]);
+                        if(j == 0) {
+                            LexerToken* t = &substituted.items[substituted.itemCount-1];
+                            t->indent = tok->indent;
+                            t->whitespaceBefore = tok->whitespaceBefore;
+                            t->renderStartOfLine = tok->renderStartOfLine;
+                        }
                     }
                 }
             }
@@ -1689,15 +1775,28 @@ static EnterContextResult ParseFunctionMacro(
                 LexerToken leftT = ARRAY_POP(left, item);
                 LexerToken rightT = ARRAY_POP_FRONT(right, item);
                 LexerToken* new = ARRAY_PUSH_PTR(left, item);
-                if(!JoinTokens(new, leftT, rightT)) {
+
+                if(!JoinTokens(ctx, new, leftT, rightT)) {
                     fprintf(stderr, "Error unable to join tokens\n");
                     return CONTEXT_MACRO_NULL;
                 }
+
+                new->indent = leftT.indent;
+                new->renderStartOfLine = leftT.renderStartOfLine;
+                new->whitespaceBefore = leftT.whitespaceBefore;
             } else {
                 ARRAY_PUSH(left, item, current);
             }
         }
-        concatenated = left;
+
+        // now remove all placemarker tokens
+        ARRAY_ALLOC(LexerToken, concatenated, item);
+        for(unsigned int i = 0; i < left.itemCount; i++) {
+            if(left.items[i].type != TOKEN_PLACEHOLDER_L) {
+                ARRAY_PUSH(concatenated, item, left.items[i]);
+            }
+        }
+
     } else {
         concatenated = substituted;
     }

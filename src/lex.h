@@ -13,6 +13,7 @@ typedef struct SourceLocation {
     size_t line;
     size_t column;
     size_t length;
+    const unsigned char* sourceText;
 } SourceLocation;
 
 // What sort of token is it, used for both preprocessor and regular
@@ -183,7 +184,8 @@ typedef struct Phase3Context {
     SourceLocation peekNextLoc;
     SourceLocation* currentLocation;
     bool AtStart;
-    unsigned char (*getter)(struct TranslationContext*, SourceLocation* loc);
+    void* getterCtx;
+    unsigned char (*getter)(void* ctx, SourceLocation* loc);
     Table* hashNodes;
 } Phase3Context;
 

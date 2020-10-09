@@ -79,19 +79,11 @@ void LexerStringAdd2HexDigit(LexerString* str, struct TranslationContext* ctx, c
 // escape single character escape sequences from c,
 // print printable characters
 // for everything else use the '\xhh' format
+// note: this will not work outside of the ## operator
 void LexerStringAddEscapedChar(LexerString* str, struct TranslationContext* ctx, char val) {
     switch (val) {
         case '\"': LexerStringAddString(str, ctx, "\\\""); return;
-        case '\'': LexerStringAddString(str, ctx, "\\\'"); return;
         case '\\': LexerStringAddString(str, ctx, "\\\\"); return;
-        case '\?': LexerStringAddString(str, ctx, "\\?"); return;
-        case '\a': LexerStringAddString(str, ctx, "\\a"); return;
-        case '\b': LexerStringAddString(str, ctx, "\\b"); return;
-        case '\f': LexerStringAddString(str, ctx, "\\f"); return;
-        case '\n': LexerStringAddString(str, ctx, "\\n"); return;
-        case '\r': LexerStringAddString(str, ctx, "\\r"); return;
-        case '\t': LexerStringAddString(str, ctx, "\\t"); return;
-        case '\v': LexerStringAddString(str, ctx, "\\v"); return;
         default:
             if (val >= ' ' && val <= '~') {
                 LexerStringAddChar(str, ctx, val);

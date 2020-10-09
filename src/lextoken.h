@@ -32,8 +32,8 @@
 #   define PRINT_TYPE_NAME String
 #   define PRINT_NUMERIC_ID 1
 #   define PRINT(c, value) _Generic((value), \
-        char*: LexerStringAddEscapedString, \
-        char: LexerStringAddEscapedChar, \
+        char*: LexerStringAddString, \
+        char: LexerStringAddChar, \
         LexerTokenType: LexerStringAddInt, \
         size_t: LexerStringAddSizeT, \
         intmax_t: LexerStringAddIntMaxT, \
@@ -293,8 +293,7 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
 #elif PRINT_NUMERIC_ID == 1
     // print one or minimal space to the string buffer for # operator
     if(ctx->file->count != 0 &&
-        (tok->indent > 0 || tok->renderStartOfLine ||
-         TokenPasteAvoidance(&ctx->previousPrinted, tok))) {
+        (tok->indent > 0 || tok->renderStartOfLine)) {
              PRINT(ctx, " ");
     }
 #endif
@@ -413,13 +412,24 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
         case TOKEN_CHARACTER_L:
             StringTypePrint(tok->data.string.type, ctx);
             PRINT(ctx, "\'");
+#if PRINT_NUMERIC_ID == 0
             PRINT(ctx, tok->data.string.buffer);
+#elif PRINT_NUMERIC_ID == 1
+            LexerStringAddEscapedString(ctx->file, ctx->ctx, tok->data.string.buffer);
+#endif
             PRINT(ctx, "\'"); break;
         case TOKEN_STRING_L:
             StringTypePrint(tok->data.string.type, ctx);
+#if PRINT_NUMERIC_ID == 0
             PRINT(ctx, "\"");
             PRINT(ctx, tok->data.string.buffer);
-            PRINT(ctx, "\""); break;
+            PRINT(ctx, "\"");
+#elif PRINT_NUMERIC_ID == 1
+            PRINT(ctx, "\\\"");
+            LexerStringAddEscapedString(ctx->file, ctx->ctx, tok->data.string.buffer);
+            PRINT(ctx, "\\\"");
+#endif
+            break;
         case TOKEN_MACRO_ARG:
             PRINT(ctx, "argument(");
             PRINT(ctx, tok->data.integer);
