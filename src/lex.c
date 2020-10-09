@@ -1377,6 +1377,149 @@ static void ExpandTokenList(
     }
 }
 
+typedef struct Phase4JoinCtx {
+    LexerToken left;
+    LexerToken right;
+    size_t consumed;
+} Phase4JoinCtx;
+
+static unsigned char Phase4JoinGetter(void* voidCtx, SourceLocation* loc) {
+    Phase4JoinCtx* ctx = voidCtx;
+    if(!ctx->left.loc || !ctx->right.loc) {
+        fprintf(stderr, "Joining undefined tokens\n");
+        exit(1);
+    }
+
+    loc->length = 1;
+
+    if(ctx->consumed < ctx->left.loc->length) {
+        unsigned char ret = ctx->left.loc->sourceText[ctx->consumed];
+
+        loc->column = ctx->left.loc->column + ctx->consumed;
+        loc->line = ctx->left.loc->line;
+        loc->fileName = ctx->left.loc->fileName;
+        loc->sourceText = ctx->left.loc->sourceText + ctx->consumed;
+
+        ctx->consumed++;
+        return ret;
+    } else if(ctx->consumed - ctx->left.loc->length < ctx->right.loc->length) {
+        size_t rightConsumed = ctx->consumed - ctx->left.loc->length;
+        unsigned char ret = ctx->right.loc->sourceText[rightConsumed];
+
+        loc->column = ctx->right.loc->column + rightConsumed;
+        loc->line = ctx->right.loc->line;
+        loc->fileName = ctx->right.loc->fileName;
+        loc->sourceText = ctx->right.loc->sourceText + rightConsumed;
+
+        ctx->consumed++;
+        return ret;
+    }
+
+    return END_OF_FILE;
+}
+
+// join two tokens into one token or return false
+static bool JoinTokens(TranslationContext* ctx, LexerToken* result, LexerToken left, LexerToken right) {
+    // placeholder + placeholder => placeholder
+    // placeholder + * => placeholder
+    // * + placeholder => placeholder
+    // * + * => run phase 3, error if second token produced, etc
+
+    if(left.type == TOKEN_PLACEHOLDER_L) {
+        *result = right;
+        return true;
+    }
+    if(right.type == TOKEN_PLACEHOLDER_L) {
+        *result = left;
+        return true;
+    }
+
+    Phase4JoinCtx joinCtx;
+    joinCtx.left = left;
+    joinCtx.right = right;
+    joinCtx.consumed = 0;
+
+    // create new translation context
+    // initialise for phase 3, with no phase 1/2 initialisation
+    // getter = Phase4GetterForPhase3
+
+    TranslationContext joinTranslate = {0};
+    TranslationContextInit(&joinTranslate, ctx->pool, ctx->fileName);
+    joinTranslate.phase3.getter = Phase4JoinGetter;
+    joinTranslate.phase3.getterCtx = &joinCtx;
+    Phase3Initialise(&joinTranslate, ctx, false);
+
+    LexerToken newTok;
+    Phase3Get(&newTok, &joinTranslate);
+
+    LexerToken next;
+    Phase3Get(&next, &joinTranslate);
+    if(next.type != TOKEN_EOF_L) {
+        return false;
+    }
+
+    *result = newTok;
+    return true;
+}
+
+static bool TokenConcatList(TranslationContext* ctx, TokenList* in, TokenList* out) {
+    // token concatanation operator application
+
+    // algorithm =
+    // maintain two lists - left + right
+    // right = all tokens, initially
+    // if pop front right == '##'
+    //    check left length > 0 && right length > 0
+    //    join pop front right to pop end left
+    //    push result to left
+    // else
+    //    push back left
+    // repeat until right empty
+    // result = left
+
+    TokenList left;
+    ARRAY_ALLOC(LexerToken, left, item);
+    TokenList right = *in;
+
+    while(right.itemCount > 0) {
+        LexerToken current = ARRAY_POP_FRONT(right, item);
+        if(current.type == TOKEN_PUNC_HASH_HASH || current.type == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+            if(left.itemCount <= 0) {
+                fprintf(stderr, "Error: No token before ## operator\n");
+                return false;
+            }
+            if(right.itemCount <= 0) {
+                fprintf(stderr, "Error: No token after ## operator\n");
+                return false;
+            }
+            LexerToken leftT = ARRAY_POP(left, item);
+            LexerToken rightT = ARRAY_POP_FRONT(right, item);
+            LexerToken* new = ARRAY_PUSH_PTR(left, item);
+
+            if(!JoinTokens(ctx, new, leftT, rightT)) {
+                fprintf(stderr, "Error unable to join tokens\n");
+                return false;
+            }
+
+            new->indent = leftT.indent;
+            new->renderStartOfLine = leftT.renderStartOfLine;
+            new->whitespaceBefore = leftT.whitespaceBefore;
+        } else {
+            ARRAY_PUSH(left, item, current);
+        }
+    }
+
+    // now remove all placemarker tokens
+    ARRAY_ALLOC(LexerToken, *out, item);
+    for(unsigned int i = 0; i < left.itemCount; i++) {
+        if(left.items[i].type != TOKEN_PLACEHOLDER_L) {
+            ARRAY_PUSH(*out, item, left.items[i]);
+        }
+    }
+
+    return true;
+}
+
 // expand an object macro
 static EnterContextResult ParseObjectMacro(
     MacroContext* macro,
@@ -1390,11 +1533,27 @@ static EnterContextResult ParseObjectMacro(
         return CONTEXT_MACRO_NULL;
     }
 
+    TokenList tokens = tok->data.node->as.object;
+    bool hasTokenCat = false;
+    for(unsigned int i = 0; i < tokens.itemCount; i++) {
+        if(tokens.items[i].type == TOKEN_PUNC_HASH_HASH || tokens.items[i].type == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+            hasTokenCat = true;
+        }
+    }
+
+    TokenList concatenated;
+    if(hasTokenCat) {
+        if(!TokenConcatList(ctx, &tokens, &concatenated)) {
+            return CONTEXT_MACRO_NULL;
+        }
+    } else {
+        concatenated = tokens;
+    }
+
     // copy token list otherwise the tokens are globably removed
     // from the macro's hash node.
-    TokenList objCopy = tok->data.node->as.object;
     JointTokenStream stream = {
-        .list = &objCopy,
+        .list = &concatenated,
         .macroContext = tok->data.node,
         .second = getCtx,
         .secondAdvance = advance,
@@ -1493,91 +1652,6 @@ static LexerToken* stringifyArgument(TranslationContext* ctx, ArgumentItem* arg)
     arg->hasString = true;
 
     return &arg->string;
-}
-
-typedef struct Phase4JoinCtx {
-    LexerToken left;
-    LexerToken right;
-    size_t consumed;
-} Phase4JoinCtx;
-
-static unsigned char Phase4JoinGetter(void* voidCtx, SourceLocation* loc) {
-    Phase4JoinCtx* ctx = voidCtx;
-    if(!ctx->left.loc || !ctx->right.loc) {
-        fprintf(stderr, "Joining undefined tokens\n");
-        exit(1);
-    }
-
-    loc->length = 1;
-
-    if(ctx->consumed < ctx->left.loc->length) {
-        unsigned char ret = ctx->left.loc->sourceText[ctx->consumed];
-
-        loc->column = ctx->left.loc->column + ctx->consumed;
-        loc->line = ctx->left.loc->line;
-        loc->fileName = ctx->left.loc->fileName;
-        loc->sourceText = ctx->left.loc->sourceText + ctx->consumed;
-
-        ctx->consumed++;
-        return ret;
-    } else if(ctx->consumed - ctx->left.loc->length < ctx->right.loc->length) {
-        size_t rightConsumed = ctx->consumed - ctx->left.loc->length;
-        unsigned char ret = ctx->right.loc->sourceText[rightConsumed];
-
-        loc->column = ctx->right.loc->column + rightConsumed;
-        loc->line = ctx->right.loc->line;
-        loc->fileName = ctx->right.loc->fileName;
-        loc->sourceText = ctx->right.loc->sourceText + rightConsumed;
-
-        ctx->consumed++;
-        return ret;
-    }
-
-    return END_OF_FILE;
-}
-
-// join two tokens into one token or return false
-static bool JoinTokens(TranslationContext* ctx, LexerToken* result, LexerToken left, LexerToken right) {
-    // placeholder + placeholder => placeholder
-    // placeholder + * => placeholder
-    // * + placeholder => placeholder
-    // * + * => run phase 3, error if second token produced, etc
-
-    if(left.type == TOKEN_PLACEHOLDER_L) {
-        *result = right;
-        return true;
-    }
-    if(right.type == TOKEN_PLACEHOLDER_L) {
-        *result = left;
-        return true;
-    }
-
-    Phase4JoinCtx joinCtx;
-    joinCtx.left = left;
-    joinCtx.right = right;
-    joinCtx.consumed = 0;
-
-    // create new translation context
-    // initialise for phase 3, with no phase 1/2 initialisation
-    // getter = Phase4GetterForPhase3
-
-    TranslationContext joinTranslate = {0};
-    TranslationContextInit(&joinTranslate, ctx->pool, ctx->fileName);
-    joinTranslate.phase3.getter = Phase4JoinGetter;
-    joinTranslate.phase3.getterCtx = &joinCtx;
-    Phase3Initialise(&joinTranslate, ctx, false);
-
-    LexerToken newTok;
-    Phase3Get(&newTok, &joinTranslate);
-
-    LexerToken next;
-    Phase3Get(&next, &joinTranslate);
-    if(next.type != TOKEN_EOF_L) {
-        return false;
-    }
-
-    *result = newTok;
-    return true;
 }
 
 static EnterContextResult ParseFunctionMacro(
@@ -1743,60 +1817,9 @@ static EnterContextResult ParseFunctionMacro(
     TokenList concatenated;
 
     if(containsTokenConcatanation) {
-        // token concatanation operator application
-
-        // algorithm =
-        // maintain two lists - left + right
-        // right = all tokens, initially
-        // if pop front right == '##'
-        //    check left length > 0 && right length > 0
-        //    join pop front right to pop end left
-        //    push result to left
-        // else
-        //    push back left
-        // repeat until right empty
-        // result = left
-
-        TokenList left;
-        ARRAY_ALLOC(LexerToken, left, item);
-        TokenList right = substituted;
-
-        while(right.itemCount > 0) {
-            LexerToken current = ARRAY_POP_FRONT(right, item);
-            if(current.type == TOKEN_PUNC_HASH_HASH || current.type == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
-                if(left.itemCount <= 0) {
-                    fprintf(stderr, "Error: No token before ## operator\n");
-                    return CONTEXT_MACRO_NULL;
-                }
-                if(right.itemCount <= 0) {
-                    fprintf(stderr, "Error: No token after ## operator\n");
-                    return CONTEXT_MACRO_NULL;
-                }
-                LexerToken leftT = ARRAY_POP(left, item);
-                LexerToken rightT = ARRAY_POP_FRONT(right, item);
-                LexerToken* new = ARRAY_PUSH_PTR(left, item);
-
-                if(!JoinTokens(ctx, new, leftT, rightT)) {
-                    fprintf(stderr, "Error unable to join tokens\n");
-                    return CONTEXT_MACRO_NULL;
-                }
-
-                new->indent = leftT.indent;
-                new->renderStartOfLine = leftT.renderStartOfLine;
-                new->whitespaceBefore = leftT.whitespaceBefore;
-            } else {
-                ARRAY_PUSH(left, item, current);
-            }
+        if(!TokenConcatList(ctx, &substituted, &concatenated)) {
+            return CONTEXT_MACRO_NULL;
         }
-
-        // now remove all placemarker tokens
-        ARRAY_ALLOC(LexerToken, concatenated, item);
-        for(unsigned int i = 0; i < left.itemCount; i++) {
-            if(left.items[i].type != TOKEN_PLACEHOLDER_L) {
-                ARRAY_PUSH(concatenated, item, left.items[i]);
-            }
-        }
-
     } else {
         concatenated = substituted;
     }
