@@ -192,7 +192,6 @@ typedef enum Phase3LexMode {
     LEX_MODE_NO_HEADER
 } Phase3LexMode;
 
-struct TranslationContext;
 typedef struct Phase3Context {
     Phase3LexMode mode;
     unsigned char peek;
@@ -204,6 +203,8 @@ typedef struct Phase3Context {
     void* getterCtx;
     unsigned char (*getter)(void* ctx, SourceLocation* loc);
     Table* hashNodes;
+    Phase2Context phase2;
+    struct TranslationContext* settings;
 } Phase3Context;
 
 typedef enum HashNodeType {
@@ -276,7 +277,6 @@ typedef struct TranslationContext {
     // state
     const unsigned char* fileName;
 
-    Phase2Context phase2;
     Phase3Context phase3;
     Phase4Context phase4;
 

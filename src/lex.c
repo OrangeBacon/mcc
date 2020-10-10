@@ -305,7 +305,7 @@ void runPhase2(TranslationContext* settings) {
 // tracking begining of line + prior whitespace in tokens
 
 static unsigned char Phase3GetFromPhase2(void* voidCtx, SourceLocation* loc) {
-    TranslationContext* ctx = voidCtx;
+    Phase3Context* ctx = voidCtx;
     unsigned char c = Phase2Get(&ctx->phase2);
     *loc = ctx->phase2.currentLoc;
     return c;
@@ -313,47 +313,47 @@ static unsigned char Phase3GetFromPhase2(void* voidCtx, SourceLocation* loc) {
 
 // get the next character from the previous phase
 // increases the SourcLocation's length with the new character
-static unsigned char Phase3Advance(TranslationContext* ctx) {
-    unsigned char ret = ctx->phase3.peek;
-    ctx->phase3.currentLocation->length += ctx->phase3.peekLoc.length;
+static unsigned char Phase3Advance(Phase3Context* ctx) {
+    unsigned char ret = ctx->peek;
+    ctx->currentLocation->length += ctx->peekLoc.length;
 
-    ctx->phase3.peek = ctx->phase3.peekNext;
-    ctx->phase3.peekLoc = ctx->phase3.peekNextLoc;
-    ctx->phase3.peekNext = ctx->phase3.getter(ctx->phase3.getterCtx, &ctx->phase3.peekNextLoc);
+    ctx->peek = ctx->peekNext;
+    ctx->peekLoc = ctx->peekNextLoc;
+    ctx->peekNext = ctx->getter(ctx->getterCtx, &ctx->peekNextLoc);
 
     return ret;
 }
 
 // get the next character from the previous phase
 // sets the SourceLocation to begin from the new character's start
-static unsigned char Phase3AdvanceOverwrite(TranslationContext* ctx) {
-    unsigned char ret = ctx->phase3.peek;
-    *ctx->phase3.currentLocation = ctx->phase3.peekLoc;
+static unsigned char Phase3AdvanceOverwrite(Phase3Context* ctx) {
+    unsigned char ret = ctx->peek;
+    *ctx->currentLocation = ctx->peekLoc;
 
-    ctx->phase3.peek = ctx->phase3.peekNext;
-    ctx->phase3.peekLoc = ctx->phase3.peekNextLoc;
-    ctx->phase3.peekNext = ctx->phase3.getter(ctx->phase3.getterCtx, &ctx->phase3.peekNextLoc);
+    ctx->peek = ctx->peekNext;
+    ctx->peekLoc = ctx->peekNextLoc;
+    ctx->peekNext = ctx->getter(ctx->getterCtx, &ctx->peekNextLoc);
     return ret;
 }
 
 // return the next character without consuming it
-static unsigned char Phase3Peek(TranslationContext* ctx) {
-    return ctx->phase3.peek;
+static unsigned char Phase3Peek(Phase3Context* ctx) {
+    return ctx->peek;
 }
 
 // return the character after next without consuming it
-static unsigned char Phase3PeekNext(TranslationContext* ctx) {
-    return ctx->phase3.peekNext;
+static unsigned char Phase3PeekNext(Phase3Context* ctx) {
+    return ctx->peekNext;
 }
 
 // has phase 3 reached the end of the file?
-static bool Phase3AtEnd(TranslationContext* ctx) {
-    return ctx->phase3.peek == END_OF_FILE;
+static bool Phase3AtEnd(Phase3Context* ctx) {
+    return ctx->peek == END_OF_FILE;
 }
 
 // skip a new line ("\n", "\r", "\n\r", "\r\n") and set that the token is
 // at the begining of a line
-static void Phase3NewLine(LexerToken* tok, TranslationContext* ctx, unsigned char c) {
+static void Phase3NewLine(LexerToken* tok, Phase3Context* ctx, unsigned char c) {
     Phase3Advance(ctx);
     if(Phase3Peek(ctx) == c) {
         Phase3Advance(ctx);
@@ -371,16 +371,16 @@ static void Phase3NewLine(LexerToken* tok, TranslationContext* ctx, unsigned cha
 // on a source line
 // tracks the count of prior whitespace on the same line, hopefully that can
 // be used for error better error recovery in the parser
-static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
+static void skipWhitespace(LexerToken* tok, Phase3Context* ctx) {
     tok->whitespaceBefore = false;
     tok->isStartOfLine = false;
     tok->renderStartOfLine = false;
     tok->indent = 0;
 
-    if(ctx->phase3.AtStart) {
+    if(ctx->AtStart) {
         tok->isStartOfLine = true;
         tok->renderStartOfLine = true;
-        ctx->phase3.AtStart = false;
+        ctx->AtStart = false;
     }
 
     while(!Phase3AtEnd(ctx)) {
@@ -393,7 +393,7 @@ static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
                 tok->whitespaceBefore = true;
                 Phase3Advance(ctx);
                 if(c == ' ') tok->indent++;
-                if(c == '\t') tok->indent += ctx->tabSize;
+                if(c == '\t') tok->indent += ctx->settings->tabSize;
                 break;
             case '\n':
                 Phase3NewLine(tok, ctx, '\r');
@@ -439,7 +439,7 @@ static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
                         }
                     }
                     if(Phase3AtEnd(ctx)) {
-                        fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->phase3.currentLocation->line, ctx->phase3.currentLocation->column);
+                        fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->currentLocation->line, ctx->currentLocation->column);
                         return;
                     }
                     Phase3Advance(ctx);
@@ -456,7 +456,7 @@ static void skipWhitespace(LexerToken* tok, TranslationContext* ctx) {
     }
 }
 
-static bool Phase3Match(TranslationContext* ctx, unsigned char c) {
+static bool Phase3Match(Phase3Context* ctx, unsigned char c) {
     if(Phase3AtEnd(ctx)) return false;
     if(Phase3Peek(ctx) != c) return false;
     Phase3Advance(ctx);
@@ -483,7 +483,7 @@ static bool isHexDigit(unsigned char c) {
 }
 
 // parse a universal character name
-static void ParseUniversalCharacterName(TranslationContext* ctx, LexerToken* tok) {
+static void ParseUniversalCharacterName(Phase3Context* ctx, LexerToken* tok) {
     // '\\' already consumed
 
     // 'u' vs 'U' check already done
@@ -522,28 +522,28 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, LexerToken* tok
 
     // UTF-8 Encoder - see ISO/IEC 10646:2017 p15
     if(num < 0x007F) {
-        LexerStringAddChar(&tok->data.string, ctx, num);
+        LexerStringAddChar(&tok->data.string, ctx->settings, num);
     } else if(num < 0x07FF) {
         unsigned char o1 = 0xC0 | (num >> 6);
         unsigned char o2 = 0x80 | (num & 0x3F);
-        LexerStringAddChar(&tok->data.string, ctx, o1);
-        LexerStringAddChar(&tok->data.string, ctx, o2);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o1);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o2);
     } else if(num < 0xFFFF) {
         unsigned char o1 = 0xE0 | (num >> 12);
         unsigned char o2 = 0x80 | ((num >> 6) & 0x3F);
         unsigned char o3 = 0x80 | (num & 0x3F);
-        LexerStringAddChar(&tok->data.string, ctx, o1);
-        LexerStringAddChar(&tok->data.string, ctx, o2);
-        LexerStringAddChar(&tok->data.string, ctx, o3);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o1);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o2);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o3);
     } else if(num < 0x10FFFF) {
         unsigned char o1 = 0xF0 | (num >> 18);
         unsigned char o2 = 0x80 | ((num >> 12) & 0x3F);
         unsigned char o3 = 0x80 | ((num >> 6) & 0x3F);
         unsigned char o4 = 0x80 | (num & 0x3F);
-        LexerStringAddChar(&tok->data.string, ctx, o1);
-        LexerStringAddChar(&tok->data.string, ctx, o2);
-        LexerStringAddChar(&tok->data.string, ctx, o3);
-        LexerStringAddChar(&tok->data.string, ctx, o4);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o1);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o2);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o3);
+        LexerStringAddChar(&tok->data.string, ctx->settings, o4);
     } else {
         fprintf(stderr, "Error: UCS code point out of range: Maximum = 0x10FFFF\n");
         tok->type = TOKEN_ERROR_L;
@@ -551,7 +551,7 @@ static void ParseUniversalCharacterName(TranslationContext* ctx, LexerToken* tok
     }
 }
 
-static bool isStringLike(TranslationContext* ctx, unsigned char c, unsigned char start) {
+static bool isStringLike(Phase3Context* ctx, unsigned char c, unsigned char start) {
     unsigned char next = Phase3Peek(ctx);
     unsigned char nextNext = Phase3PeekNext(ctx);
     return c == start ||
@@ -562,11 +562,11 @@ static bool isStringLike(TranslationContext* ctx, unsigned char c, unsigned char
 // Generic string literal ish token parser
 // used for character and string literals
 // does not deal with escape sequences properly, that is for phase 5
-static void ParseString(TranslationContext* ctx, LexerToken* tok, unsigned char c, unsigned char start) {
+static void ParseString(Phase3Context* ctx, LexerToken* tok, unsigned char c, unsigned char start) {
     unsigned char next = Phase3Peek(ctx);
 
     tok->type = start == '"' ? TOKEN_STRING_L : TOKEN_CHARACTER_L;
-    LexerStringInit(&tok->data.string, ctx, 10);
+    LexerStringInit(&tok->data.string, ctx->settings, 10);
     LexerStringType t =
         c == start ? STRING_NONE :
         c == 'u' && next == '8' ? STRING_U8 :
@@ -586,11 +586,11 @@ static void ParseString(TranslationContext* ctx, LexerToken* tok, unsigned char 
     c = Phase3Peek(ctx);
     while(!Phase3AtEnd(ctx) && c != start) {
         Phase3Advance(ctx);
-        LexerStringAddChar(&tok->data.string, ctx, c);
+        LexerStringAddChar(&tok->data.string, ctx->settings, c);
 
         // skip escape sequences so that \" does not end a string
         if(c == '\\') {
-            LexerStringAddChar(&tok->data.string, ctx, Phase3Advance(ctx));
+            LexerStringAddChar(&tok->data.string, ctx->settings, Phase3Advance(ctx));
         } else if(c == '\n') {
             fprintf(stderr, "Error: %s literal unterminated at end of line\n", start == '\'' ? "character" : "string");
             tok->type = TOKEN_ERROR_L;
@@ -616,10 +616,10 @@ static void ParseString(TranslationContext* ctx, LexerToken* tok, unsigned char 
 //  < h-char-sequence >
 //  " q-char-sequence "
 // as in n1570/6.4.7
-static void ParseHeaderName(TranslationContext* ctx, LexerToken* tok, unsigned char end) {
+static void ParseHeaderName(Phase3Context* ctx, LexerToken* tok, unsigned char end) {
     tok->type = end == '>' ? TOKEN_SYS_HEADER_NAME : TOKEN_HEADER_NAME;
 
-    LexerStringInit(&tok->data.string, ctx, 20);
+    LexerStringInit(&tok->data.string, ctx->settings, 20);
 
     unsigned char c = Phase3Peek(ctx);
     while(!Phase3AtEnd(ctx) && c != end && c != '\n') {
@@ -631,7 +631,7 @@ static void ParseHeaderName(TranslationContext* ctx, LexerToken* tok, unsigned c
             return;
         }
 
-        LexerStringAddChar(&tok->data.string, ctx, c);
+        LexerStringAddChar(&tok->data.string, ctx->settings, c);
         c = Phase3Peek(ctx);
     }
 
@@ -655,11 +655,11 @@ static void ParseHeaderName(TranslationContext* ctx, LexerToken* tok, unsigned c
 }
 
 // character -> preprocessor token conversion
-static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
-    SourceLocation* loc = memoryArrayPush(&ctx->locations);
-    *loc = *ctx->phase3.currentLocation;
+static void Phase3Get(LexerToken* tok, Phase3Context* ctx) {
+    SourceLocation* loc = memoryArrayPush(&ctx->settings->locations);
+    *loc = *ctx->currentLocation;
     loc->length = 0;
-    ctx->phase3.currentLocation = loc;
+    ctx->currentLocation = loc;
 
     skipWhitespace(tok, ctx);
 
@@ -725,7 +725,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
             ) : TOKEN_PUNC_GREATER); return;
 
         case '<':
-            if(ctx->phase3.mode == LEX_MODE_MAYBE_HEADER) {
+            if(ctx->mode == LEX_MODE_MAYBE_HEADER) {
                 ParseHeaderName(ctx, tok, '>');
                 return;
             }
@@ -741,8 +741,8 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
             return;
 
         case '.':
-            if(isDigit(ctx->phase3.peek)) break;
-            if(ctx->phase3.peek == '.' && ctx->phase3.peekNext == '.') {
+            if(isDigit(ctx->peek)) break;
+            if(ctx->peek == '.' && ctx->peekNext == '.') {
                 Phase3Advance(ctx);
                 Phase3Advance(ctx);
                 Phase3Make(tok, TOKEN_PUNC_ELIPSIS);
@@ -754,7 +754,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
             Phase3Match(ctx, '=') ? TOKEN_PUNC_PERCENT_EQUAL :
             Phase3Match(ctx, '>') ? TOKEN_PUNC_PERCENT_GREATER :
             Phase3Match(ctx, ':') ? (
-                ctx->phase3.peek == '%' && ctx->phase3.peekNext == ':' ?
+                ctx->peek == '%' && ctx->peekNext == ':' ?
                 TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON :
                 TOKEN_PUNC_PERCENT_COLON
             ) : TOKEN_PUNC_PERCENT); return;
@@ -762,7 +762,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
 
     unsigned char next = Phase3Peek(ctx);
 
-    if(ctx->phase3.mode == LEX_MODE_MAYBE_HEADER && c == '"') {
+    if(ctx->mode == LEX_MODE_MAYBE_HEADER && c == '"') {
         ParseHeaderName(ctx, tok, '"');
         return;
     }
@@ -790,7 +790,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
 
         // initialisation
         tok->type = TOKEN_IDENTIFIER_L;
-        LexerStringInit(&tok->data.string, ctx, 10);
+        LexerStringInit(&tok->data.string, ctx->settings, 10);
 
         // while is identifier character or slash
         while(!Phase3AtEnd(ctx) && (isNonDigit(c) || isDigit(c) || c == '\\')) {
@@ -811,7 +811,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
                 // regular character
                 // if not already done, consume it and join to the identifier
                 if(!consumedCharacter) Phase3Advance(ctx);
-                LexerStringAddChar(&tok->data.string, ctx, c);
+                LexerStringAddChar(&tok->data.string, ctx->settings, c);
             }
 
             // advance
@@ -819,14 +819,14 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
             consumedCharacter = false;
         }
 
-        HashNode* node = tableGet(ctx->phase3.hashNodes, tok->data.string.buffer, tok->data.string.count);
+        HashNode* node = tableGet(ctx->hashNodes, tok->data.string.buffer, tok->data.string.count);
         if(node == NULL) {
             node = ArenaAlloc(sizeof(*node));
             node->name = *tok;
             node->type = NODE_VOID;
             node->hash = stringHash(tok->data.string.buffer, tok->data.string.count);
             node->macroExpansionEnabled = true;
-            tableSet(ctx->phase3.hashNodes, tok->data.string.buffer, tok->data.string.count, node);
+            tableSet(ctx->hashNodes, tok->data.string.buffer, tok->data.string.count, node);
         }
         tok->data.node = node;
         tok->data.attemptExpansion = true;
@@ -837,8 +837,8 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
     // pp-number
     if(isDigit(c) || c == '.') {
         tok->type = TOKEN_PP_NUMBER;
-        LexerStringInit(&tok->data.string, ctx, 10);
-        LexerStringAddChar(&tok->data.string, ctx, c);
+        LexerStringInit(&tok->data.string, ctx->settings, 10);
+        LexerStringAddChar(&tok->data.string, ctx->settings, c);
 
         unsigned char c = Phase3Peek(ctx);
         while(!Phase3AtEnd(ctx)) {
@@ -853,7 +853,7 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
                 break;
             }
 
-            LexerStringAddChar(&tok->data.string, ctx, c);
+            LexerStringAddChar(&tok->data.string, ctx->settings, c);
             c = Phase3Peek(ctx);
         }
         return;
@@ -864,9 +864,9 @@ static void Phase3Get(LexerToken* tok, TranslationContext* ctx) {
     tok->data.character = c;
 }
 
-static void PredefinedMacros(TranslationContext* ctx) {
-    ctx->phase3.hashNodes = ArenaAlloc(sizeof(Table));
-    TABLE_INIT(*ctx->phase3.hashNodes, HashNode*);
+static void PredefinedMacros(Phase3Context* ctx) {
+    ctx->hashNodes = ArenaAlloc(sizeof(Table));
+    TABLE_INIT(*ctx->hashNodes, HashNode*);
 
     time_t currentTime = time(NULL);
     struct tm timeStruct;
@@ -881,7 +881,7 @@ static void PredefinedMacros(TranslationContext* ctx) {
     time->hash = stringHash("__TIME__", 8);
     time->name.data.string.buffer = "__TIME__";
     time->name.data.string.count = 8;
-    TABLE_SET(*ctx->phase3.hashNodes, "__TIME__", 8, time);
+    TABLE_SET(*ctx->hashNodes, "__TIME__", 8, time);
 
     char* stringDate = ArenaAlloc(sizeof(char) * 128);
     strftime(stringDate, 128, "%b %d %Y", &timeStruct);
@@ -892,7 +892,7 @@ static void PredefinedMacros(TranslationContext* ctx) {
     date->hash = stringHash("__DATE__", 8);
     date->name.data.string.buffer = "__DATE__";
     date->name.data.string.count = 8;
-    TABLE_SET(*ctx->phase3.hashNodes, "__DATE__", 8, date);
+    TABLE_SET(*ctx->hashNodes, "__DATE__", 8, date);
 
     HashNode* file = ArenaAlloc(sizeof(HashNode));
     file->type = NODE_MACRO_FILE;
@@ -900,7 +900,7 @@ static void PredefinedMacros(TranslationContext* ctx) {
     file->hash = stringHash("__FILE__", 8);
     file->name.data.string.buffer = "__FILE__";
     file->name.data.string.count = 8;
-    TABLE_SET(*ctx->phase3.hashNodes, "__FILE__", 8, file);
+    TABLE_SET(*ctx->hashNodes, "__FILE__", 8, file);
 
     HashNode* line = ArenaAlloc(sizeof(HashNode));
     line->type = NODE_MACRO_LINE;
@@ -908,7 +908,7 @@ static void PredefinedMacros(TranslationContext* ctx) {
     line->hash = stringHash("__LINE__", 8);
     line->name.data.string.buffer = "__LINE__";
     line->name.data.string.count = 8;
-    TABLE_SET(*ctx->phase3.hashNodes, "__LINE__", 8, line);
+    TABLE_SET(*ctx->hashNodes, "__LINE__", 8, line);
 
 #define INT_MACRO(stringname, value) do {\
         size_t len = strlen(stringname); \
@@ -919,7 +919,7 @@ static void PredefinedMacros(TranslationContext* ctx) {
         m->hash = stringHash(stringname, len); \
         m->name.data.string.buffer = stringname; \
         m->name.data.string.count = len; \
-        TABLE_SET(*ctx->phase3.hashNodes, stringname, len, m); \
+        TABLE_SET(*ctx->hashNodes, stringname, len, m); \
     } while(0)
 
     INT_MACRO("__STDC__", 1);
@@ -947,24 +947,25 @@ static void PredefinedMacros(TranslationContext* ctx) {
 }
 
 // initialise the context for running phase 3
-static void Phase3Initialise(TranslationContext* ctx, TranslationContext* parent, bool needPhase2) {
-    if(needPhase2) Phase2Initialise(&ctx->phase2, ctx);
+static void Phase3Initialise(Phase3Context* ctx, TranslationContext* settings, TranslationContext* parent, bool needPhase2) {
+    if(needPhase2) Phase2Initialise(&ctx->phase2, settings);
 
-    ctx->phase3.mode = LEX_MODE_NO_HEADER,
-    ctx->phase3.peek = '\0',
-    ctx->phase3.peekNext = '\0',
-    ctx->phase3.currentLocation = memoryArrayPush(&ctx->locations);
-    ctx->phase3.peekLoc = *ctx->phase3.currentLocation,
-    ctx->phase3.peekNextLoc = *ctx->phase3.currentLocation,
-    ctx->phase3.AtStart = true;
-    if(!ctx->phase3.getter) {
-        ctx->phase3.getter = Phase3GetFromPhase2;
-        ctx->phase3.getterCtx = ctx;
+    ctx->settings = settings;
+    ctx->mode = LEX_MODE_NO_HEADER,
+    ctx->peek = '\0',
+    ctx->peekNext = '\0',
+    ctx->currentLocation = memoryArrayPush(&settings->locations);
+    ctx->peekLoc = *ctx->currentLocation,
+    ctx->peekNextLoc = *ctx->currentLocation,
+    ctx->AtStart = true;
+    if(!ctx->getter) {
+        ctx->getter = Phase3GetFromPhase2;
+        ctx->getterCtx = ctx;
     }
 
-    if(ctx->phase3.hashNodes == NULL) {
+    if(ctx->hashNodes == NULL) {
         if(parent) {
-            ctx->phase3.hashNodes = parent->phase3.hashNodes;
+            ctx->hashNodes = parent->phase3.hashNodes;
         } else {
             PredefinedMacros(ctx);
         }
@@ -975,12 +976,15 @@ static void Phase3Initialise(TranslationContext* ctx, TranslationContext* parent
 }
 
 // helper to run upto and including phase 3
-void runPhase3(TranslationContext* ctx) {
-    Phase3Initialise(ctx, NULL, true);
+void runPhase3(TranslationContext* settings) {
+    Phase3Context ctx;
+    Phase3Initialise(&ctx, settings, NULL, true);
+
     LexerToken tok;
     TokenPrintCtxFile printCtx;
-    TokenPrintCtxInitFile(&printCtx, stdout, ctx);
-    while(Phase3Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
+    TokenPrintCtxInitFile(&printCtx, stdout, settings);
+
+    while(Phase3Get(&tok, &ctx), tok.type != TOKEN_EOF_L) {
         TokenPrintFile(&printCtx, &tok);
     }
     fprintf(stdout, "\n");
@@ -1022,8 +1026,8 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         };
     }
 
-    Phase3Initialise(ctx, NULL, true);
-    Phase3Get(&ctx->phase4.peek, ctx);
+    Phase3Initialise(&ctx->phase3, ctx, NULL, true);
+    Phase3Get(&ctx->phase4.peek, &ctx->phase3);
 }
 
 static bool Phase4AtEnd(TranslationContext* ctx) {
@@ -1033,7 +1037,7 @@ static bool Phase4AtEnd(TranslationContext* ctx) {
 static LexerToken* Phase4Advance(LexerToken* tok, void* ctx) {
     TranslationContext* t = ctx;
     *tok = t->phase4.peek;
-    Phase3Get(&t->phase4.peek, ctx);
+    Phase3Get(&t->phase4.peek, &t->phase3);
     return tok;
 }
 
@@ -1464,13 +1468,13 @@ static bool JoinTokens(TranslationContext* ctx, LexerToken* result, LexerToken l
     TranslationContextInit(&joinTranslate, ctx->pool, ctx->fileName);
     joinTranslate.phase3.getter = Phase4JoinGetter;
     joinTranslate.phase3.getterCtx = &joinCtx;
-    Phase3Initialise(&joinTranslate, ctx, false);
+    Phase3Initialise(&joinTranslate.phase3, ctx, ctx, false);
 
     LexerToken newTok;
-    Phase3Get(&newTok, &joinTranslate);
+    Phase3Get(&newTok, &joinTranslate.phase3);
 
     LexerToken next;
-    Phase3Get(&next, &joinTranslate);
+    Phase3Get(&next, &joinTranslate.phase3);
     if(next.type != TOKEN_EOF_L) {
         return false;
     }
