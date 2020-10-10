@@ -170,6 +170,14 @@ typedef struct LexerToken {
     } data;
 } LexerToken;
 
+typedef struct Phase1Context {
+    unsigned char* source;
+    size_t sourceLength;
+    size_t consumed;
+    SourceLocation location;
+    unsigned char ignoreNewLine;
+} Phase1Context;
+
 typedef enum Phase3LexMode {
     LEX_MODE_MAYBE_HEADER,
     LEX_MODE_NO_HEADER
@@ -259,16 +267,11 @@ typedef struct TranslationContext {
     // state
     const unsigned char* fileName;
 
-    unsigned char* phase1source;
-    size_t phase1sourceLength;
-    size_t phase1consumed;
-    SourceLocation phase1Location;
-    unsigned char phase1IgnoreNewLine;
-
     unsigned char phase2Peek;
     SourceLocation phase2PeekLoc;
     unsigned char phase2Previous;
     SourceLocation phase2CurrentLoc;
+    Phase1Context phase2prev;
 
     Phase3Context phase3;
     Phase4Context phase4;

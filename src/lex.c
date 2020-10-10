@@ -18,23 +18,15 @@
 #define END_OF_FILE 0xff
 
 // Setup function
+static void Phase1Initialise(Phase1Context* ctx, const unsigned char* fileName);
 void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const unsigned char* fileName) {
-    ctx->phase1source = (unsigned char*)readFileLen((char*)fileName, &ctx->phase1sourceLength);
-
+    Phase1Initialise(&ctx->phase2prev, fileName);
     memoryArrayAlloc(&ctx->stringArr, pool, 4*MiB, sizeof(unsigned char));
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
 
     ctx->pool = pool;
     ctx->fileName = fileName;
-    ctx->phase1consumed = 0;
-    ctx->phase1IgnoreNewLine = '\0';
-    ctx->phase1Location = (SourceLocation) {
-        .fileName = fileName,
-        .column = 0,
-        .length = 0,
-        .line = 1,
-        .sourceText = ctx->phase1source,
-    };
+
 }
 
 // ------- //
@@ -45,61 +37,74 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
 // internaly uses out parameter instead of END_OF_FILE to avoid reading
 // END_OF_FILE as a control character, so emitting an error for it
 
+static void Phase1Initialise(Phase1Context* ctx, const unsigned char* fileName) {
+    ctx->source = (unsigned char*)readFileLen((char*)fileName, &ctx->sourceLength);
+    ctx->consumed = 0;
+    ctx->ignoreNewLine = '\0';
+    ctx->location = (SourceLocation) {
+        .fileName = fileName,
+        .column = 0,
+        .length = 0,
+        .line = 1,
+        .sourceText = ctx->source,
+    };
+}
+
 // return the next character without consuming it
-static unsigned char Phase1Peek(TranslationContext* ctx, bool* succeeded) {
-    if(ctx->phase1consumed >= ctx->phase1sourceLength) {
+static unsigned char Phase1Peek(Phase1Context* ctx, bool* succeeded) {
+    if(ctx->consumed >= ctx->sourceLength) {
         *succeeded = false;
         return '\0';
     }
     *succeeded = true;
-    return ctx->phase1source[ctx->phase1consumed];
+    return ctx->source[ctx->consumed];
 }
 
 // return the character after next without consuming its
-static unsigned char Phase1PeekNext(TranslationContext* ctx, bool* succeeded) {
-    if(ctx->phase1consumed - 1 >= ctx->phase1sourceLength) {
+static unsigned char Phase1PeekNext(Phase1Context* ctx, bool* succeeded) {
+    if(ctx->consumed - 1 >= ctx->sourceLength) {
         *succeeded = false;
         return '\0';
     }
     *succeeded = true;
-    return ctx->phase1source[ctx->phase1consumed + 1];
+    return ctx->source[ctx->consumed + 1];
 }
 
 // process a newline character ('\n' or '\r') to check how to advance the
 // line counter.  If '\n' encountered, a following '\r' will not change the
 // counter, if '\r', the '\n' will not update.  This allows multiple possible
 // line endings: "\n", "\r", "\n\r", "\r\n" that are all considered one line end
-static void Phase1NewLine(TranslationContext* ctx, unsigned char c) {
-    if(ctx->phase1IgnoreNewLine != '\0') {
-        if(c == ctx->phase1IgnoreNewLine) {
-            ctx->phase1Location.line++;
-            ctx->phase1Location.column = 1;
+static void Phase1NewLine(Phase1Context* ctx, unsigned char c) {
+    if(ctx->ignoreNewLine != '\0') {
+        if(c == ctx->ignoreNewLine) {
+            ctx->location.line++;
+            ctx->location.column = 1;
         }
-        ctx->phase1IgnoreNewLine = '\0';
+        ctx->ignoreNewLine = '\0';
     }
     if(c == '\n') {
-        ctx->phase1IgnoreNewLine = '\r';
-        ctx->phase1Location.line++;
-        ctx->phase1Location.column = 0;
+        ctx->ignoreNewLine = '\r';
+        ctx->location.line++;
+        ctx->location.column = 0;
     }
     if(c == '\r') {
-        ctx->phase1IgnoreNewLine = '\n';
-        ctx->phase1Location.line++;
-        ctx->phase1Location.column = 0;
+        ctx->ignoreNewLine = '\n';
+        ctx->location.line++;
+        ctx->location.column = 0;
     }
 }
 
 // get the next character from the previous phase
 // increases the SourcLocation's length with the new character
-static unsigned char Phase1Advance(TranslationContext* ctx, bool* succeeded) {
-    if(ctx->phase1consumed >= ctx->phase1sourceLength) {
+static unsigned char Phase1Advance(Phase1Context* ctx, bool* succeeded) {
+    if(ctx->consumed >= ctx->sourceLength) {
         *succeeded = false;
         return '\0';
     }
-    ctx->phase1consumed++;
-    ctx->phase1Location.length++;
-    ctx->phase1Location.column++;
-    unsigned char c = ctx->phase1source[ctx->phase1consumed - 1];
+    ctx->consumed++;
+    ctx->location.length++;
+    ctx->location.column++;
+    unsigned char c = ctx->source[ctx->consumed - 1];
     Phase1NewLine(ctx, c);
     *succeeded = true;
     return c;
@@ -107,16 +112,16 @@ static unsigned char Phase1Advance(TranslationContext* ctx, bool* succeeded) {
 
 // get the next character from the previous phase
 // sets the SourceLocation to begin from the new character's start
-static unsigned char Phase1AdvanceOverwrite(TranslationContext* ctx, bool* succeeded) {
-    if(ctx->phase1consumed >= ctx->phase1sourceLength) {
+static unsigned char Phase1AdvanceOverwrite(Phase1Context* ctx, bool* succeeded) {
+    if(ctx->consumed >= ctx->sourceLength) {
         *succeeded = false;
         return '\0';
     }
-    ctx->phase1consumed++;
-    ctx->phase1Location.length = 1;
-    ctx->phase1Location.column++;
-    ctx->phase1Location.sourceText = &ctx->phase1source[ctx->phase1consumed - 1];
-    unsigned char c = ctx->phase1source[ctx->phase1consumed - 1];
+    ctx->consumed++;
+    ctx->location.length = 1;
+    ctx->location.column++;
+    ctx->location.sourceText = &ctx->source[ctx->consumed - 1];
+    unsigned char c = ctx->source[ctx->consumed - 1];
     Phase1NewLine(ctx, c);
     *succeeded = true;
     return c;
@@ -138,7 +143,7 @@ static unsigned char trigraphTranslation[] = {
 // implement phase 1
 // technically, this should convert the file to utf8, and probably normalise it,
 // but I am not implementing that
-static unsigned char Phase1Get(TranslationContext* ctx) {
+static unsigned char Phase1Get(Phase1Context* ctx, TranslationContext* settings) {
     bool succeeded;
     unsigned char c = Phase1AdvanceOverwrite(ctx, &succeeded);
 
@@ -146,11 +151,11 @@ static unsigned char Phase1Get(TranslationContext* ctx) {
         return END_OF_FILE;
     }
 
-    if(ctx->phase1consumed == 1) {
+    if(ctx->consumed == 1) {
         // start of file - ignore BOM
 
         // do not need to check succeded due to length check in condition
-        if(ctx->phase1sourceLength >= 3 && c == 0xEF
+        if(ctx->sourceLength >= 3 && c == 0xEF
         && Phase1Peek(ctx, &succeeded) == 0xBB
         && Phase1PeekNext(ctx, &succeeded) == 0xBF) {
             Phase1Advance(ctx, &succeeded);
@@ -165,11 +170,11 @@ static unsigned char Phase1Get(TranslationContext* ctx) {
     }
 
     if((c <= 0x1F || c == 0x7F) && c != '\n' && c != '\r' && c != '\t' && c != '\v' && c != '\f') {
-        fprintf(stderr, "Error: found control character in source file - %lld:%lld\n", ctx->phase1Location.line, ctx->phase1Location.column);
+        fprintf(stderr, "Error: found control character in source file - %lld:%lld\n", ctx->location.line, ctx->location.column);
         return '\0';
     }
 
-    if(ctx->trigraphs && c == '?') {
+    if(settings->trigraphs && c == '?') {
         unsigned char c2 = Phase1Peek(ctx, &succeeded);
         if(succeeded && c2 == '?') {
             unsigned char c3 = Phase1PeekNext(ctx, &succeeded);
@@ -201,9 +206,10 @@ static unsigned char Phase1Get(TranslationContext* ctx) {
 }
 
 // helper to run only phase 1
-void runPhase1(TranslationContext* ctx) {
+void runPhase1(TranslationContext* settings) {
     char c;
-    while((c = Phase1Get(ctx)) != EOF) {
+    Phase1Context ctx;
+    while((c = Phase1Get(&ctx, settings)) != EOF) {
         putchar(c);
     }
 }
@@ -219,8 +225,8 @@ void runPhase1(TranslationContext* ctx) {
 static unsigned char Phase2Advance(TranslationContext* ctx) {
     unsigned char ret = ctx->phase2Peek;
     ctx->phase2CurrentLoc.length += ctx->phase2PeekLoc.length;
-    ctx->phase2Peek = Phase1Get(ctx);
-    ctx->phase2PeekLoc = ctx->phase1Location;
+    ctx->phase2Peek = Phase1Get(&ctx->phase2prev, ctx);
+    ctx->phase2PeekLoc = ctx->phase2prev.location;
     return ret;
 }
 
@@ -229,8 +235,8 @@ static unsigned char Phase2Advance(TranslationContext* ctx) {
 static unsigned char Phase2AdvanceOverwrite(TranslationContext* ctx) {
     unsigned char ret = ctx->phase2Peek;
     ctx->phase2CurrentLoc = ctx->phase2PeekLoc;
-    ctx->phase2Peek = Phase1Get(ctx);
-    ctx->phase2PeekLoc = ctx->phase1Location;
+    ctx->phase2Peek = Phase1Get(&ctx->phase2prev, ctx);
+    ctx->phase2PeekLoc = ctx->phase2prev.location;
     return ret;
 }
 
@@ -1005,7 +1011,13 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         ctx->phase4.depth = parent->phase4.depth + 1;
     } else {
         ctx->phase4.depth = 0;
-        ctx->phase4.previous.loc = &ctx->phase1Location;
+        ctx->phase4.previous.loc = &(SourceLocation) {
+            .fileName = ctx->fileName,
+            .column = 0,
+            .length = 0,
+            .line = 1,
+            .sourceText = (const unsigned char*)"",
+        };
     }
 
     Phase3Initialise(ctx, NULL, true);
@@ -1178,6 +1190,9 @@ static void parseDefine(TranslationContext* ctx) {
         }
         addr->type = TOKEN_ERROR_L;
         Phase4Advance(addr, ctx);
+        if(addr->type == TOKEN_EOF_L) {
+            break;
+        }
 
         if(i == 0) {
             addr->indent = 0;
@@ -1200,8 +1215,8 @@ static void parseDefine(TranslationContext* ctx) {
 
         if(addr->type == TOKEN_IDENTIFIER_L &&
         (node->type == NODE_MACRO_OBJECT || (node->type == NODE_MACRO_FUNCTION && !node->as.function.isVariadac)) &&
-        addr->data.node->name.data.string.count == 12 &&
-        addr->data.node->hash == stringHash("__VA_ARGS__", 12)) {
+        addr->data.node->name.data.string.count == 11 &&
+        addr->data.node->hash == stringHash("__VA_ARGS__", 11)) {
             fprintf(stderr, "Error: __VA_ARGS__ is invalid unless in a variadac function macro\n");
         }
 
@@ -2022,9 +2037,9 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         }
 
         if(tok->type == TOKEN_IDENTIFIER_L &&
-        tok->data.node->name.data.string.count == 12 &&
-        tok->data.node->hash == stringHash("__VA_ARGS__", 12)) {
-            fprintf(stderr, "Warning: Unexpected identifier __VA_ARGS__ outisde of variadac function macro");
+        tok->data.node->name.data.string.count == 11 &&
+        tok->data.node->hash == stringHash("__VA_ARGS__", 11)) {
+            fprintf(stderr, "Warning: Unexpected identifier __VA_ARGS__ outisde of variadac function macro\n");
         }
         break;
     }
