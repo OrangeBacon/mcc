@@ -176,7 +176,16 @@ typedef struct Phase1Context {
     size_t consumed;
     SourceLocation location;
     unsigned char ignoreNewLine;
+    struct TranslationContext* settings;
 } Phase1Context;
+
+typedef struct Phase2Context {
+    unsigned char peek;
+    SourceLocation peekLoc;
+    unsigned char previous;
+    SourceLocation currentLoc;
+    Phase1Context phase1;
+} Phase2Context;
 
 typedef enum Phase3LexMode {
     LEX_MODE_MAYBE_HEADER,
@@ -267,12 +276,7 @@ typedef struct TranslationContext {
     // state
     const unsigned char* fileName;
 
-    unsigned char phase2Peek;
-    SourceLocation phase2PeekLoc;
-    unsigned char phase2Previous;
-    SourceLocation phase2CurrentLoc;
-    Phase1Context phase2prev;
-
+    Phase2Context phase2;
     Phase3Context phase3;
     Phase4Context phase4;
 

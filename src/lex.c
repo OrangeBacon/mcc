@@ -18,15 +18,12 @@
 #define END_OF_FILE 0xff
 
 // Setup function
-static void Phase1Initialise(Phase1Context* ctx, const unsigned char* fileName);
 void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const unsigned char* fileName) {
-    Phase1Initialise(&ctx->phase2prev, fileName);
+    ctx->fileName = fileName;
+    ctx->pool = pool;
+
     memoryArrayAlloc(&ctx->stringArr, pool, 4*MiB, sizeof(unsigned char));
     memoryArrayAlloc(&ctx->locations, pool, 128*MiB, sizeof(SourceLocation));
-
-    ctx->pool = pool;
-    ctx->fileName = fileName;
-
 }
 
 // ------- //
@@ -36,19 +33,6 @@ void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const uns
 // Trigraph conversion
 // internaly uses out parameter instead of END_OF_FILE to avoid reading
 // END_OF_FILE as a control character, so emitting an error for it
-
-static void Phase1Initialise(Phase1Context* ctx, const unsigned char* fileName) {
-    ctx->source = (unsigned char*)readFileLen((char*)fileName, &ctx->sourceLength);
-    ctx->consumed = 0;
-    ctx->ignoreNewLine = '\0';
-    ctx->location = (SourceLocation) {
-        .fileName = fileName,
-        .column = 0,
-        .length = 0,
-        .line = 1,
-        .sourceText = ctx->source,
-    };
-}
 
 // return the next character without consuming it
 static unsigned char Phase1Peek(Phase1Context* ctx, bool* succeeded) {
@@ -143,7 +127,7 @@ static unsigned char trigraphTranslation[] = {
 // implement phase 1
 // technically, this should convert the file to utf8, and probably normalise it,
 // but I am not implementing that
-static unsigned char Phase1Get(Phase1Context* ctx, TranslationContext* settings) {
+static unsigned char Phase1Get(Phase1Context* ctx) {
     bool succeeded;
     unsigned char c = Phase1AdvanceOverwrite(ctx, &succeeded);
 
@@ -174,7 +158,7 @@ static unsigned char Phase1Get(Phase1Context* ctx, TranslationContext* settings)
         return '\0';
     }
 
-    if(settings->trigraphs && c == '?') {
+    if(ctx->settings->trigraphs && c == '?') {
         unsigned char c2 = Phase1Peek(ctx, &succeeded);
         if(succeeded && c2 == '?') {
             unsigned char c3 = Phase1PeekNext(ctx, &succeeded);
@@ -205,11 +189,27 @@ static unsigned char Phase1Get(Phase1Context* ctx, TranslationContext* settings)
     return c;
 }
 
+static void Phase1Initialise(Phase1Context* ctx, TranslationContext* settings) {
+    ctx->source = (unsigned char*)readFileLen((char*)settings->fileName, &ctx->sourceLength);
+    ctx->settings = settings;
+    ctx->consumed = 0;
+    ctx->ignoreNewLine = '\0';
+    ctx->location = (SourceLocation) {
+        .fileName = settings->fileName,
+        .column = 0,
+        .length = 0,
+        .line = 1,
+        .sourceText = ctx->source,
+    };
+}
+
 // helper to run only phase 1
 void runPhase1(TranslationContext* settings) {
     char c;
     Phase1Context ctx;
-    while((c = Phase1Get(&ctx, settings)) != EOF) {
+    Phase1Initialise(&ctx, settings);
+
+    while((c = Phase1Get(&ctx)) != EOF) {
         putchar(c);
     }
 }
@@ -222,34 +222,34 @@ void runPhase1(TranslationContext* settings) {
 
 // get the next character from the previous phase
 // increases the SourcLocation's length with the new character
-static unsigned char Phase2Advance(TranslationContext* ctx) {
-    unsigned char ret = ctx->phase2Peek;
-    ctx->phase2CurrentLoc.length += ctx->phase2PeekLoc.length;
-    ctx->phase2Peek = Phase1Get(&ctx->phase2prev, ctx);
-    ctx->phase2PeekLoc = ctx->phase2prev.location;
+static unsigned char Phase2Advance(Phase2Context* ctx) {
+    unsigned char ret = ctx->peek;
+    ctx->currentLoc.length += ctx->peekLoc.length;
+    ctx->peek = Phase1Get(&ctx->phase1);
+    ctx->peekLoc = ctx->phase1.location;
     return ret;
 }
 
 // get the next character from the previous phase
 // sets the SourceLocation to begin from the new character's start
-static unsigned char Phase2AdvanceOverwrite(TranslationContext* ctx) {
-    unsigned char ret = ctx->phase2Peek;
-    ctx->phase2CurrentLoc = ctx->phase2PeekLoc;
-    ctx->phase2Peek = Phase1Get(&ctx->phase2prev, ctx);
-    ctx->phase2PeekLoc = ctx->phase2prev.location;
+static unsigned char Phase2AdvanceOverwrite(Phase2Context* ctx) {
+    unsigned char ret = ctx->peek;
+    ctx->currentLoc = ctx->peekLoc;
+    ctx->peek = Phase1Get(&ctx->phase1);
+    ctx->peekLoc = ctx->phase1.location;
     return ret;
 }
 
 // return the next character without consuming it
-static unsigned char Phase2Peek(TranslationContext* ctx) {
-    return ctx->phase2Peek;
+static unsigned char Phase2Peek(Phase2Context* ctx) {
+    return ctx->peek;
 }
 
 // implements backslash-newline skipping
 // if the next character after a backslash/newline is another backslash/newline
 // then that should be skiped as well iteratively until the next real character
 // emits error for backslash-END_OF_FILE and /[^\n]/-END_OF_FILE
-static unsigned char Phase2Get(TranslationContext* ctx) {
+static unsigned char Phase2Get(Phase2Context* ctx) {
     unsigned char c = Phase2AdvanceOverwrite(ctx);
     do {
         if(c == '\\') {
@@ -258,39 +258,41 @@ static unsigned char Phase2Get(TranslationContext* ctx) {
                 fprintf(stderr, "Error: unexpected '\\' at end of file\n");
                 return END_OF_FILE;
             } else if(c1 != '\n') {
-                ctx->phase2Previous = c;
+                ctx->previous = c;
                 return c;
             } else {
                 Phase2Advance(ctx);
                 // exit if statement
             }
-        } else if(c == END_OF_FILE && ctx->phase2Previous != '\n' && ctx->phase2Previous != END_OF_FILE) {
+        } else if(c == END_OF_FILE && ctx->previous != '\n' && ctx->previous != END_OF_FILE) {
             // error iso c
-            ctx->phase2Previous = END_OF_FILE;
+            ctx->previous = END_OF_FILE;
             fprintf(stderr, "Error: ISO C11 requires newline at end of file\n");
             return END_OF_FILE;
         } else {
-            ctx->phase2Previous = c;
+            ctx->previous = c;
             return c;
         }
         c = Phase2Advance(ctx);
     } while(c != END_OF_FILE);
 
-    ctx->phase2Previous = c;
+    ctx->previous = c;
     return c;
 }
 
 // setup phase2's buffers
-static void Phase2Initialise(TranslationContext* ctx) {
-    ctx->phase2Previous = END_OF_FILE;
+static void Phase2Initialise(Phase2Context* ctx, TranslationContext* settings) {
+    ctx->previous = END_OF_FILE;
+    Phase1Initialise(&ctx->phase1, settings);
     Phase2AdvanceOverwrite(ctx);
 }
 
 // helper to run upto and including phase 2
-void runPhase2(TranslationContext* ctx) {
-    Phase2Initialise(ctx);
+void runPhase2(TranslationContext* settings) {
+    Phase2Context ctx;
+    Phase2Initialise(&ctx, settings);
     unsigned char c;
-    while((c = Phase2Get(ctx)) != END_OF_FILE) {
+    while((c = Phase2Get(&ctx)) != END_OF_FILE) {
         putchar(c);
     }
 }
@@ -304,8 +306,8 @@ void runPhase2(TranslationContext* ctx) {
 
 static unsigned char Phase3GetFromPhase2(void* voidCtx, SourceLocation* loc) {
     TranslationContext* ctx = voidCtx;
-    unsigned char c = Phase2Get(ctx);
-    *loc = ctx->phase2CurrentLoc;
+    unsigned char c = Phase2Get(&ctx->phase2);
+    *loc = ctx->phase2.currentLoc;
     return c;
 }
 
@@ -946,7 +948,7 @@ static void PredefinedMacros(TranslationContext* ctx) {
 
 // initialise the context for running phase 3
 static void Phase3Initialise(TranslationContext* ctx, TranslationContext* parent, bool needPhase2) {
-    if(needPhase2) Phase2Initialise(ctx);
+    if(needPhase2) Phase2Initialise(&ctx->phase2, ctx);
 
     ctx->phase3.mode = LEX_MODE_NO_HEADER,
     ctx->phase3.peek = '\0',
