@@ -255,8 +255,8 @@ typedef enum Phase4LexMode {
 typedef struct Phase4Context {
     Phase4LexMode mode;
     LexerToken peek;
-    struct TranslationContext* includeContext;
-    struct TranslationContext* parent;
+    struct Phase4Context* includeContext;
+    struct Phase4Context* parent;
     IncludeSearchState searchState;
     unsigned char depth;
     MacroContext macroCtx;
@@ -264,6 +264,9 @@ typedef struct Phase4Context {
     // stores the previous token emitted at base context (no macro expansion)
     // used for correct __LINE__ and __FILE__ interpretation
     LexerToken previous;
+
+    Phase3Context phase3;
+    struct TranslationContext* settings;
 } Phase4Context;
 
 // random data used by each translation phase that needs to be stored
@@ -276,9 +279,6 @@ typedef struct TranslationContext {
 
     // state
     const unsigned char* fileName;
-
-    Phase3Context phase3;
-    Phase4Context phase4;
 
     // memory allocators
     MemoryArray stringArr;

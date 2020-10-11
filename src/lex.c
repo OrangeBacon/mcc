@@ -947,7 +947,7 @@ static void PredefinedMacros(Phase3Context* ctx) {
 }
 
 // initialise the context for running phase 3
-static void Phase3Initialise(Phase3Context* ctx, TranslationContext* settings, TranslationContext* parent, bool needPhase2) {
+static void Phase3Initialise(Phase3Context* ctx, TranslationContext* settings, Phase3Context* parent, bool needPhase2) {
     if(needPhase2) Phase2Initialise(&ctx->phase2, settings);
 
     ctx->settings = settings;
@@ -965,7 +965,7 @@ static void Phase3Initialise(Phase3Context* ctx, TranslationContext* settings, T
 
     if(ctx->hashNodes == NULL) {
         if(parent) {
-            ctx->hashNodes = parent->phase3.hashNodes;
+            ctx->hashNodes = parent->hashNodes;
         } else {
             PredefinedMacros(ctx);
         }
@@ -998,27 +998,27 @@ void runPhase3(TranslationContext* settings) {
 // _Pragma expansion
 // include resolution
 
-static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent) {
+static void Phase4Initialise(Phase4Context* ctx, TranslationContext* settings, Phase4Context* parent) {
+    Phase3Initialise(&ctx->phase3, settings, NULL, true);
+
+    ctx->settings = settings;
+
     if(parent != NULL) {
         ctx->phase3.hashNodes = parent->phase3.hashNodes;
     } else {
         ctx->phase3.hashNodes = NULL;
     }
 
-    ctx->phase4.mode = LEX_MODE_NO_HEADER;
-    ctx->phase4.searchState = (IncludeSearchState){0};
-    ctx->phase4.parent = parent;
-    ctx->phase4.macroCtx = (MacroContext){0};
+    ctx->mode = LEX_MODE_NO_HEADER;
+    ctx->searchState = (IncludeSearchState){0};
+    ctx->parent = parent;
+    ctx->macroCtx = (MacroContext){0};
     if(parent != NULL) {
-        ctx->trigraphs = parent->trigraphs;
-        ctx->tabSize = parent->tabSize;
-        ctx->search = parent->search;
-        ctx->pool = parent->pool;
-        ctx->phase4.depth = parent->phase4.depth + 1;
+        ctx->depth = parent->depth + 1;
     } else {
-        ctx->phase4.depth = 0;
-        ctx->phase4.previous.loc = &(SourceLocation) {
-            .fileName = ctx->fileName,
+        ctx->depth = 0;
+        ctx->previous.loc = &(SourceLocation) {
+            .fileName = settings->fileName,
             .column = 0,
             .length = 0,
             .line = 1,
@@ -1026,55 +1026,55 @@ static void Phase4Initialise(TranslationContext* ctx, TranslationContext* parent
         };
     }
 
-    Phase3Initialise(&ctx->phase3, ctx, NULL, true);
-    Phase3Get(&ctx->phase4.peek, &ctx->phase3);
+    Phase3Initialise(&ctx->phase3, settings, NULL, true);
+    Phase3Get(&ctx->peek, &ctx->phase3);
 }
 
-static bool Phase4AtEnd(TranslationContext* ctx) {
-    return ctx->phase4.peek.type == TOKEN_EOF_L;
+static bool Phase4AtEnd(Phase4Context* ctx) {
+    return ctx->peek.type == TOKEN_EOF_L;
 }
 
 static LexerToken* Phase4Advance(LexerToken* tok, void* ctx) {
-    TranslationContext* t = ctx;
-    *tok = t->phase4.peek;
-    Phase3Get(&t->phase4.peek, &t->phase3);
+    Phase4Context* t = ctx;
+    *tok = t->peek;
+    Phase3Get(&t->peek, &t->phase3);
     return tok;
 }
 
 static LexerToken* Phase4Peek(LexerToken* tok, void* ctx) {
-    TranslationContext* t = ctx;
-    *tok = t->phase4.peek;
+    Phase4Context* t = ctx;
+    *tok = t->peek;
     return tok;
 }
 
-static void Phase4SkipLine(LexerToken* tok, TranslationContext* ctx) {
-    while(!Phase4AtEnd(ctx) && !ctx->phase4.peek.isStartOfLine) {
+static void Phase4SkipLine(LexerToken* tok, Phase4Context* ctx) {
+    while(!Phase4AtEnd(ctx) && !ctx->peek.isStartOfLine) {
         Phase4Advance(tok, ctx);
     }
 }
 
-static void Phase4Get(LexerToken* tok, TranslationContext* ctx);
-static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser, bool isNext) {
+static void Phase4Get(LexerToken* tok, Phase4Context* ctx);
+static bool includeFile(LexerToken* tok, Phase4Context* ctx, bool isUser, bool isNext) {
     Phase4Advance(tok, ctx);
 
     IncludeSearchState* state;
     if(isNext) {
-        if(ctx->phase4.parent) {
-            state = &ctx->phase4.parent->phase4.searchState;
+        if(ctx->parent) {
+            state = &ctx->parent->searchState;
         } else {
             state = &(IncludeSearchState){0};
             fprintf(stderr, "Warning: #include_next at top level\n");
         }
     } else {
-        state = &ctx->phase4.searchState;
+        state = &ctx->searchState;
         *state = (IncludeSearchState){0};
     }
 
     const char* fileName;
     if(isUser) {
-        fileName = IncludeSearchPathFindUser(state, &ctx->search, tok->data.string.buffer);
+        fileName = IncludeSearchPathFindUser(state, &ctx->settings->search, tok->data.string.buffer);
     } else {
-        fileName = IncludeSearchPathFindSys(state, &ctx->search, tok->data.string.buffer);
+        fileName = IncludeSearchPathFindSys(state, &ctx->settings->search, tok->data.string.buffer);
     }
 
     if(fileName == NULL) {
@@ -1084,29 +1084,35 @@ static bool includeFile(LexerToken* tok, TranslationContext* ctx, bool isUser, b
     }
 
     // See n1570.5.2.4.1
-    if(ctx->phase4.depth > 15) {
+    if(ctx->depth > 15) {
         fprintf(stderr, "Error: include depth limit reached\n");
         Phase4SkipLine(tok, ctx);
         return false;
     }
-    TranslationContext* ctx2 = ArenaAlloc(sizeof(*ctx2));
-    memset(ctx2, 0, sizeof(*ctx2));
-    ctx->phase4.mode = LEX_MODE_INCLUDE;
-    ctx->phase4.includeContext = ctx2;
 
-    ctx2->phase4.previous = ctx->phase4.previous;
-    TranslationContextInit(ctx2, ctx->pool, (const unsigned char*)fileName);
-    Phase4Initialise(ctx2, ctx);
+    Phase4Context* ctx2 = ArenaAlloc(sizeof(*ctx2));
+    memset(ctx2, 0, sizeof(*ctx2));
+
+    ctx->mode = LEX_MODE_INCLUDE;
+    ctx->includeContext = ctx2;
+
+    ctx2->previous = ctx->previous;
+
+    const unsigned char* oldFileName = ctx->settings->fileName;
+    ctx->settings->fileName = (const unsigned char*)fileName;
+    Phase4Initialise(ctx2, ctx->settings, ctx);
+    ctx->settings->fileName = oldFileName;
+
     Phase4Get(tok, ctx2);
     return true;
 }
 
-static bool parseInclude(LexerToken* tok, TranslationContext* ctx, bool isNext) {
+static bool parseInclude(LexerToken* tok, Phase4Context* ctx, bool isNext) {
     ctx->phase3.mode = LEX_MODE_MAYBE_HEADER;
     Phase4Advance(tok, ctx);
     ctx->phase3.mode = LEX_MODE_NO_HEADER;
 
-    LexerToken* peek = &ctx->phase4.peek;
+    LexerToken* peek = &ctx->peek;
     bool retVal = false;
     if(peek->type == TOKEN_HEADER_NAME) {
         retVal = includeFile(tok, ctx, true, isNext);
@@ -1117,7 +1123,7 @@ static bool parseInclude(LexerToken* tok, TranslationContext* ctx, bool isNext) 
         Phase4SkipLine(tok, ctx);
     }
 
-    if(!ctx->phase4.peek.isStartOfLine) {
+    if(!ctx->peek.isStartOfLine) {
         fprintf(stderr, "Error: Unexpected token after include location\n");
         Phase4SkipLine(tok, ctx);
     }
@@ -1125,7 +1131,7 @@ static bool parseInclude(LexerToken* tok, TranslationContext* ctx, bool isNext) 
     return retVal;
 }
 
-static void parseDefine(TranslationContext* ctx) {
+static void parseDefine(Phase4Context* ctx) {
     LexerToken name;
     Phase4Advance(&name, ctx); // consume "define"
     Phase4Advance(&name, ctx); // consume name to define
@@ -1144,7 +1150,7 @@ static void parseDefine(TranslationContext* ctx) {
         return;
     }
 
-    LexerToken* tok = &ctx->phase4.peek;
+    LexerToken* tok = &ctx->peek;
 
     if(tok->type == TOKEN_PUNC_LEFT_PAREN && !tok->whitespaceBefore) {
         node->type = NODE_MACRO_FUNCTION;
@@ -1230,7 +1236,7 @@ static void parseDefine(TranslationContext* ctx) {
     }
 }
 
-static void parseUndef(TranslationContext* ctx) {
+static void parseUndef(Phase4Context* ctx) {
     LexerToken name;
     Phase4Advance(&name, ctx); // consume "undef"
     Phase4Advance(&name, ctx); // consume name to undef
@@ -1305,8 +1311,6 @@ static bool JointTokenEarlyExit(void* ctx) {
     return stream->list->itemCount == 0;
 }
 
-static void Phase4Get(LexerToken* tok, TranslationContext* ctx);
-
 typedef enum EnterContextResult {
     CONTEXT_MACRO_TOKEN,
     CONTEXT_MACRO_NULL,
@@ -1330,7 +1334,7 @@ if first token was null (i.e. expanded to list len = 0), return null
 #define EXPAND_LINE_FN \
 static EnterContextResult ExpandSingleMacro( \
     LexerToken* tok, \
-    TranslationContext* ctx, \
+    Phase4Context* ctx, \
     MacroContext* macro, \
     Phase4GetterFn advance, \
     Phase4GetterFn peek, \
@@ -1340,7 +1344,7 @@ static EnterContextResult ExpandSingleMacro( \
 EXPAND_LINE_FN;
 
 static void ExpandTokenList(
-    TranslationContext* ctx,
+    Phase4Context* ctx,
     TokenList* result,
     Phase4GetterFn advance,
     Phase4GetterFn peek,
@@ -1440,7 +1444,7 @@ static unsigned char Phase4JoinGetter(void* voidCtx, SourceLocation* loc) {
 }
 
 // join two tokens into one token or return false
-static bool JoinTokens(TranslationContext* ctx, LexerToken* result, LexerToken left, LexerToken right) {
+static bool JoinTokens(Phase4Context* ctx, LexerToken* result, LexerToken left, LexerToken right) {
     // placeholder + placeholder => placeholder
     // placeholder + * => placeholder
     // * + placeholder => placeholder
@@ -1464,17 +1468,16 @@ static bool JoinTokens(TranslationContext* ctx, LexerToken* result, LexerToken l
     // initialise for phase 3, with no phase 1/2 initialisation
     // getter = Phase4GetterForPhase3
 
-    TranslationContext joinTranslate = {0};
-    TranslationContextInit(&joinTranslate, ctx->pool, ctx->fileName);
-    joinTranslate.phase3.getter = Phase4JoinGetter;
-    joinTranslate.phase3.getterCtx = &joinCtx;
-    Phase3Initialise(&joinTranslate.phase3, ctx, ctx, false);
+    Phase3Context joinTranslate = {0};
+    joinTranslate.getter = Phase4JoinGetter;
+    joinTranslate.getterCtx = &joinCtx;
+    Phase3Initialise(&joinTranslate, ctx->settings, &ctx->phase3, false);
 
     LexerToken newTok;
-    Phase3Get(&newTok, &joinTranslate.phase3);
+    Phase3Get(&newTok, &joinTranslate);
 
     LexerToken next;
-    Phase3Get(&next, &joinTranslate.phase3);
+    Phase3Get(&next, &joinTranslate);
     if(next.type != TOKEN_EOF_L) {
         return false;
     }
@@ -1483,7 +1486,7 @@ static bool JoinTokens(TranslationContext* ctx, LexerToken* result, LexerToken l
     return true;
 }
 
-static bool TokenConcatList(TranslationContext* ctx, TokenList* in, TokenList* out) {
+static bool TokenConcatList(Phase4Context* ctx, TokenList* in, TokenList* out) {
     // token concatanation operator application
 
     // algorithm =
@@ -1545,7 +1548,7 @@ static bool TokenConcatList(TranslationContext* ctx, TokenList* in, TokenList* o
 static EnterContextResult ParseObjectMacro(
     MacroContext* macro,
     LexerToken* tok,
-    TranslationContext* ctx,
+    Phase4Context* ctx,
     Phase4GetterFn advance,
     Phase4GetterFn peek,
     void* getCtx
@@ -1616,7 +1619,7 @@ typedef struct ArgumentItemList {
 // macro expand a function macro argument
 // if the argument was already expanded, return the previous expansion
 // to avoid expanding the argument multiple times
-static TokenList* expandArgument(TranslationContext* ctx, ArgumentItem* arg, LexerToken* padding) {
+static TokenList* expandArgument(Phase4Context* ctx, ArgumentItem* arg, LexerToken* padding) {
     if(arg->hasExpanded) {
         return &arg->expanded;
     }
@@ -1630,7 +1633,7 @@ static TokenList* expandArgument(TranslationContext* ctx, ArgumentItem* arg, Lex
 
 // returns the stringified version of a token using the # operator
 // caches the resultant token to avoid recalculation
-static LexerToken* stringifyArgument(TranslationContext* ctx, ArgumentItem* arg) {
+static LexerToken* stringifyArgument(Phase4Context* ctx, ArgumentItem* arg) {
     if(arg->hasString) {
         return &arg->string;
     }
@@ -1654,9 +1657,9 @@ static LexerToken* stringifyArgument(TranslationContext* ctx, ArgumentItem* arg)
     }
 
     LexerString str;
-    LexerStringInit(&str, ctx, 50);
+    LexerStringInit(&str, ctx->settings, 50);
     TokenPrintCtxString printCtx;
-    TokenPrintCtxInitString(&printCtx, &str, ctx);
+    TokenPrintCtxInitString(&printCtx, &str, ctx->settings);
 
     for(unsigned int i = 0; i < arg->tokens.itemCount; i++) {
         TokenPrintString(&printCtx, &arg->tokens.items[i]);
@@ -1678,7 +1681,7 @@ static LexerToken* stringifyArgument(TranslationContext* ctx, ArgumentItem* arg)
 static EnterContextResult ParseFunctionMacro(
     MacroContext* macro,
     LexerToken* tok,
-    TranslationContext* ctx,
+    Phase4Context* ctx,
     Phase4GetterFn advance,
     Phase4GetterFn peek,
     void* getCtx
@@ -1904,15 +1907,15 @@ EXPAND_LINE_FN {
         }
         case NODE_MACRO_LINE: {
             tok->type = TOKEN_INTEGER_L;
-            tok->data.integer = ctx->phase4.previous.loc->line;
+            tok->data.integer = ctx->previous.loc->line;
             macro->tokenCount = 0;
             return CONTEXT_MACRO_TOKEN;
         }
         case NODE_MACRO_FILE: {
             tok->type = TOKEN_STRING_L;
             LexerString str;
-            str.buffer = (char*)ctx->phase4.previous.loc->fileName;
-            str.count = strlen((char*)ctx->phase4.previous.loc->fileName);
+            str.buffer = (char*)ctx->previous.loc->fileName;
+            str.count = strlen((char*)ctx->previous.loc->fileName);
             str.type = STRING_NONE;
             tok->data.string = str;
             macro->tokenCount = 0;
@@ -1929,38 +1932,38 @@ EXPAND_LINE_FN {
 // called on new identifier to be expanded, if needed parses function call
 // runs all the expansion and puts the fully expanded macro into a buffer
 // returns the first item of the buffer of NULL_TOKEN
-static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, TranslationContext* ctx) {
-    return ExpandSingleMacro(tok, ctx, &ctx->phase4.macroCtx, Phase4Advance, Phase4Peek, ctx);
+static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, Phase4Context* ctx) {
+    return ExpandSingleMacro(tok, ctx, &ctx->macroCtx, Phase4Advance, Phase4Peek, ctx);
 }
 
 // gets next token from existing buffer,
 // does not do any macro expansion
-static void AdvanceMacroContext(LexerToken* tok, TranslationContext* ctx) {
-    *tok = ctx->phase4.macroCtx.tokens[0];
-    ctx->phase4.macroCtx.tokens++;
-    ctx->phase4.macroCtx.tokenCount--;
+static void AdvanceMacroContext(LexerToken* tok, Phase4Context* ctx) {
+    *tok = ctx->macroCtx.tokens[0];
+    ctx->macroCtx.tokens++;
+    ctx->macroCtx.tokenCount--;
 }
 
 // stops using a buffer to store the expanded macro, if at the end of the macro
-static void TryExitMacroContext(TranslationContext* ctx) {
-    if(ctx->phase4.macroCtx.tokens != NULL && ctx->phase4.macroCtx.tokenCount == 0) {
-        ctx->phase4.macroCtx.tokens= NULL;
+static void TryExitMacroContext(Phase4Context* ctx) {
+    if(ctx->macroCtx.tokens != NULL && ctx->macroCtx.tokenCount == 0) {
+        ctx->macroCtx.tokens= NULL;
     }
 }
 
-static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
-    if(ctx->phase4.mode == LEX_MODE_INCLUDE) {
-        Phase4Get(tok, ctx->phase4.includeContext);
+static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
+    if(ctx->mode == LEX_MODE_INCLUDE) {
+        Phase4Get(tok, ctx->includeContext);
         if(tok->type == TOKEN_EOF_L) {
-            ctx->phase4.mode = LEX_MODE_NO_HEADER;
+            ctx->mode = LEX_MODE_NO_HEADER;
         } else {
-            ctx->phase4.previous = *tok;
+            ctx->previous = *tok;
             return;
         }
     }
 
     TryExitMacroContext(ctx);
-    if(ctx->phase4.macroCtx.tokens != NULL) {
+    if(ctx->macroCtx.tokens != NULL) {
         AdvanceMacroContext(tok, ctx);
         return;
     }
@@ -1980,7 +1983,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         previous = *tok;
 
         if((tok->type == TOKEN_PUNC_HASH || tok->type == TOKEN_PUNC_PERCENT_COLON) && tok->isStartOfLine) {
-            LexerToken* peek = &ctx->phase4.peek;
+            LexerToken* peek = &ctx->peek;
 
             if(peek->isStartOfLine) {
                 // NULL directive
@@ -2006,7 +2009,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
                 // an eof token when it is not end of file, causing processing
                 // to halt too early.
                 if(success && tok->type != TOKEN_EOF_L) {
-                    ctx->phase4.previous = *tok;
+                    ctx->previous = *tok;
                     return;
                 }
                 tok->type = TOKEN_ERROR_L;
@@ -2016,7 +2019,7 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
                 // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
                 bool success = parseInclude(tok, ctx, true);
                 if(success) {
-                    ctx->phase4.previous = *tok;
+                    ctx->previous = *tok;
                     return;
                 }
                 tok->type = TOKEN_ERROR_L;
@@ -2050,16 +2053,19 @@ static void Phase4Get(LexerToken* tok, TranslationContext* ctx) {
         break;
     }
 
-    ctx->phase4.previous = *tok;
+    ctx->previous = *tok;
 }
 
 // helper to run upto and including phase 4
-void runPhase4(TranslationContext* ctx) {
-    Phase4Initialise(ctx, NULL);
+void runPhase4(TranslationContext* settings) {
+    Phase4Context ctx;
+    Phase4Initialise(&ctx, settings, NULL);
+
     LexerToken tok;
     TokenPrintCtxFile printCtx;
-    TokenPrintCtxInitFile(&printCtx, stdout, ctx);
-    while(Phase4Get(&tok, ctx), tok.type != TOKEN_EOF_L) {
+    TokenPrintCtxInitFile(&printCtx, stdout, settings);
+
+    while(Phase4Get(&tok, &ctx), tok.type != TOKEN_EOF_L) {
         TokenPrintFile(&printCtx, &tok);
     }
     fprintf(stdout, "\n");
