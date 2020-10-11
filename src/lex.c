@@ -1933,6 +1933,7 @@ EXPAND_LINE_FN {
 // runs all the expansion and puts the fully expanded macro into a buffer
 // returns the first item of the buffer of NULL_TOKEN
 static EnterContextResult __attribute__((warn_unused_result)) EnterMacroContext(LexerToken* tok, Phase4Context* ctx) {
+    ctx->previous = *tok;
     return ExpandSingleMacro(tok, ctx, &ctx->macroCtx, Phase4Advance, Phase4Peek, ctx);
 }
 
