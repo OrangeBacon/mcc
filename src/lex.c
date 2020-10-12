@@ -1156,7 +1156,7 @@ static void parseDefine(Phase4Context* ctx) {
         node->type = NODE_MACRO_FUNCTION;
         ARRAY_ALLOC(LexerToken, node->as.function, argument);
         ARRAY_ALLOC(LexerToken, node->as.function, replacement);
-        node->as.function.isVariadac = false;
+        node->as.function.variadacArgument = -1;
 
         LexerToken currentToken;
         Phase4Advance(&currentToken, ctx); // consume '('
@@ -1164,7 +1164,8 @@ static void parseDefine(Phase4Context* ctx) {
         while(!tok->isStartOfLine) {
             Phase4Advance(&currentToken, ctx);
             if(currentToken.type == TOKEN_PUNC_ELIPSIS) {
-                node->as.function.isVariadac = true;
+                node->as.function.variadacArgument = node->as.function.argumentCount;
+                Phase4Advance(&currentToken, ctx);
                 break;
             }
             if(currentToken.type != TOKEN_IDENTIFIER_L) {
@@ -1226,7 +1227,7 @@ static void parseDefine(Phase4Context* ctx) {
         }
 
         if(addr->type == TOKEN_IDENTIFIER_L &&
-        (node->type == NODE_MACRO_OBJECT || (node->type == NODE_MACRO_FUNCTION && !node->as.function.isVariadac)) &&
+        (node->type == NODE_MACRO_OBJECT || (node->type == NODE_MACRO_FUNCTION && node->as.function.variadacArgument == -1)) &&
         addr->data.node->name.data.string.count == 11 &&
         addr->data.node->hash == stringHash("__VA_ARGS__", 11)) {
             fprintf(stderr, "Error: __VA_ARGS__ is invalid unless in a variadac function macro\n");
@@ -1694,6 +1695,8 @@ static EnterContextResult ParseFunctionMacro(
     LexerToken lparen;
     advance(&lparen, getCtx);
 
+    FnMacro* fn = &tok->data.node->as.function;
+
     ArgumentItemList args;
     ARRAY_ALLOC(ArgumentItem, args, item);
 
@@ -1712,8 +1715,10 @@ static EnterContextResult ParseFunctionMacro(
             advance(next, getCtx);
 
             if(next->type == TOKEN_PUNC_COMMA && bracketDepth == 0) {
-                arg->tokens.itemCount--;
-                break;
+                if(fn->variadacArgument < 0  || args.itemCount <= (unsigned int)fn->variadacArgument) {
+                    arg->tokens.itemCount--;
+                    break;
+                }
             } else if(next->type == TOKEN_PUNC_LEFT_PAREN) {
                 bracketDepth++;
             } else if(next->type == TOKEN_PUNC_RIGHT_PAREN) {
@@ -1742,14 +1747,24 @@ static EnterContextResult ParseFunctionMacro(
         return CONTEXT_MACRO_NULL;
     }
 
-    FnMacro* fn = &tok->data.node->as.function;
-    if(fn->argumentCount == 0 && (args.itemCount > 1 || args.items[0].tokens.itemCount > 0)) {
-        fprintf(stderr, "Error: Arguments provided to macro call, none expected\n");
-        return CONTEXT_MACRO_NULL;
-    }
-    if(fn->argumentCount > 0 && fn->argumentCount != args.itemCount) {
-        fprintf(stderr, "Error: Not enough arguments provided to macro call\n");
-        return CONTEXT_MACRO_NULL;
+    unsigned int minArgs = fn->argumentCount + (fn->variadacArgument >= 0);
+
+    if(minArgs == 0) {
+        // empty parens e.g. macrocall() counts as one empty argument, or none
+        // depending on what is required
+        if(args.itemCount != 1 || args.items[0].tokens.itemCount != 0) {
+            fprintf(stderr, "Error: Arguments provided to macro call\n");
+            return CONTEXT_MACRO_NULL;
+        }
+    } else {
+        if(args.itemCount < minArgs) {
+            fprintf(stderr, "Error: Not enough arguments provided to macro call\n");
+            return CONTEXT_MACRO_NULL;
+        }
+        if(args.itemCount > minArgs && fn->variadacArgument == -1) {
+            fprintf(stderr, "Error: Too many arguments provided to macro call\n");
+            return CONTEXT_MACRO_NULL;
+        }
     }
 
     TokenList substituted;
@@ -1761,7 +1776,12 @@ static EnterContextResult ParseFunctionMacro(
     for(unsigned int i = 0; i < fn->replacementCount; i++) {
         LexerToken* tok = &fn->replacements[i];
 
-        if(tok->type == TOKEN_MACRO_ARG) {
+        bool isVaArgs = fn->variadacArgument != -1 &&
+            tok->type == TOKEN_IDENTIFIER_L &&
+            tok->data.node->name.data.string.count == 11 &&
+            tok->data.node->hash == stringHash("__VA_ARGS__", 11);
+
+        if(tok->type == TOKEN_MACRO_ARG || isVaArgs) {
 
             // should macro expansion be applied to the argument's tokens?
             // disabled for the ## operator
@@ -1785,9 +1805,14 @@ static EnterContextResult ParseFunctionMacro(
                 }
             }
 
+            ArgumentItem* argument = &args.items[tok->data.integer];
+            if(isVaArgs) {
+                argument = &args.items[fn->variadacArgument];
+            }
+
             if(isExpanded) {
                 // no relation to token concatanation operator
-                TokenList* arg = expandArgument(ctx, &args.items[tok->data.integer], tok);
+                TokenList* arg = expandArgument(ctx, argument, tok);
                 for(unsigned int j = 0; j < arg->itemCount; j++) {
                     ARRAY_PUSH(substituted, item, arg->items[j]);
 
@@ -1799,7 +1824,7 @@ static EnterContextResult ParseFunctionMacro(
                     }
                 }
             } else {
-                TokenList* arg = &args.items[tok->data.integer].tokens;
+                TokenList* arg = &argument->tokens;
                 // empty argument -> standard says add placeholder token
                 if(arg->itemCount == 0) {
                     LexerToken* placeholder = ARRAY_PUSH_PTR(substituted, item);

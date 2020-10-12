@@ -224,7 +224,9 @@ typedef struct TokenList {
 typedef struct FnMacro {
     ARRAY_DEFINE(LexerToken, argument);
     ARRAY_DEFINE(LexerToken, replacement);
-    bool isVariadac;
+
+    // index of the ... parameter or -1 if not present
+    int variadacArgument;
 } FnMacro;
 
 typedef struct HashNode {
