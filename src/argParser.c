@@ -162,44 +162,49 @@ static void setupMode(argParser* parser, argArgument* currentArg) {
 
 // main parser
 bool parseArgs(argParser* parser) {
-    unsigned int settingCount = 0;
-    if(parser->initialArgc == 0){
-        parser->initialArgc = parser->argc;
-    }
 
-    TABLE_INIT(parser->argumentTable, argArgument*);
-    TABLE_INIT(parser->shortArgTable, argArgument*);
-    TABLE_INIT(parser->modes, argArgument*);
-
-    argArgument* currentArg = parser->settings;
-    while(currentArg->name != NULL) {
-        parseArgumentSigils(currentArg);
-        if(currentArg->isOption) {
-            setupOption(parser, currentArg);
-        } else if(currentArg->isMode) {
-            setupMode(parser, currentArg);
+    // if setup already done, don't repeat it
+    if(!parser->setupCompleted) {
+        unsigned int settingCount = 0;
+        if(parser->initialArgc == 0){
+            parser->initialArgc = parser->argc;
         }
-        currentArg++;
-        settingCount++;
 
-        if(parser->hasError) {
-            return true;
-        }
-    }
-    parser->settingCount = settingCount;
+        TABLE_INIT(parser->argumentTable, argArgument*);
+        TABLE_INIT(parser->shortArgTable, argArgument*);
+        TABLE_INIT(parser->modes, argArgument*);
 
-    // check for possible new mode
-    if(parser->argc > 0) {
-        const char* name = parser->argv[0];
-        size_t len = strlen(name);
-        if(tableHas(&parser->modes, name, len)) {
-            parser->argc--;
-            parser->argv++;
-            argArgument* arg = tableGet(&parser->modes, name, len);
-            invokeOption(parser, arg, name, len);
-            arg->isDone = true;
-            return parser->hasError;
+        argArgument* currentArg = parser->settings;
+        while(currentArg->name != NULL) {
+            parseArgumentSigils(currentArg);
+            if(currentArg->isOption) {
+                setupOption(parser, currentArg);
+            } else if(currentArg->isMode) {
+                setupMode(parser, currentArg);
+            }
+            currentArg++;
+            settingCount++;
+
+            if(parser->hasError) {
+                return true;
+            }
         }
+        parser->settingCount = settingCount;
+
+        // check for possible new mode
+        if(parser->argc > 0) {
+            const char* name = parser->argv[0];
+            size_t len = strlen(name);
+            if(tableHas(&parser->modes, name, len)) {
+                parser->argc--;
+                parser->argv++;
+                argArgument* arg = tableGet(&parser->modes, name, len);
+                invokeOption(parser, arg, name, len);
+                arg->isDone = true;
+                return parser->hasError;
+            }
+        }
+        parser->setupCompleted = true;
     }
 
     bool isParsingOptions = true;
@@ -226,7 +231,7 @@ bool parseArgs(argParser* parser) {
     }
 
     parser->argc = -1;
-    for(unsigned int i = 0; i < settingCount; i++) {
+    for(unsigned int i = 0; i < parser->settingCount; i++) {
         argArgument* arg = &parser->settings[i];
         if(arg->isRequired) {
             argError(parser, "missing required %sargument: %s", arg->isOption?"":"positional ", arg->name);
@@ -366,4 +371,22 @@ void argMode(argParser* parser, void* ctx) {
     if(hadError) {
         parser->hasError = true;
     }
+}
+
+// add the passed argument list to the parser
+void argAlias(argParser* parser, void* ctx) {
+    char** options = ctx;
+
+    size_t len = 0;
+    while(*options++)len++;
+    options = ctx;
+
+    int argc = parser->argc;
+    char** argv = parser->argv;
+
+    parser->argc = len;
+    parser->argv = options;
+    parseArgs(parser);
+    parser->argv = argv;
+    parser->argc = argc;
 }

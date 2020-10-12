@@ -65,6 +65,9 @@ static struct argArgument topArguments[] = {
     {"-print-ir", 'i', "prints the ir to stdout", argSet, &printIr},
     {"-phase-count", 'E', "emit preprocessed output", preprocessFlag},
     {"-include", 'I', "add file to the include path", argPush, &includeFiles},
+    {"-alias", 'r', "Add all of this alias", argAlias, &(char*[]) {
+        "-i", "-a", "-E4", "-I.", 0
+    }},
     COLOR_ARG,
     {0},
 };

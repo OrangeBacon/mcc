@@ -23,6 +23,7 @@ struct argParser {
     bool canGetArg : 1;
     bool canGetInternalArg : 1;
     bool hasGotArg : 1;
+    bool setupCompleted : 1;
 };
 
 struct argArgument {
@@ -47,6 +48,7 @@ void argSet(struct argParser* parser, void* ctx);
 void argPush(struct argParser* parser, void* ctx);
 void argOneString(struct argParser* parser, void* ctx);
 void argMode(struct argParser* parser, void* ctx);
+void argAlias(struct argParser* parser, void* ctx);
 
 void argError(struct argParser* parser, const char* message, ...);
 
