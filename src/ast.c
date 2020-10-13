@@ -6,7 +6,7 @@
     static void AST##name##Print(AST##name* ast, int depth) { \
         if(ast == NULL) return; \
         PrintTabs(depth); \
-        printf("AST"#name": size = %u\n", ast->arr##Count); \
+        printf("AST"#name": size = %llu\n", ast->arr##Count); \
         for(unsigned int i = 0; i < ast->arr##Count; i++) { \
             AST##type##Print(ast->arr##s[i], depth + 1); \
         } \
@@ -219,7 +219,7 @@ static void ASTIterationStatementPrint(ASTIterationStatement* ast, int depth) {
             printf("decl: \n");
             ASTDeclarationPrint(ast->preDecl, depth + 1);
             PrintTabs(depth + 1);
-            printf("freeCount: %d\n", ast->freeCount->localCount);
+            printf("freeCount: %lld\n", ast->freeCount->localCount);
             PrintTabs(depth + 1);
             printf("control: \n");
             ASTExpressionPrint(ast->control, depth + 1);

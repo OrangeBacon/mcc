@@ -938,7 +938,7 @@ int runTests(const char* testPath, const char* tempPath) {
     const char* charTempPath = wcharToChar(fullTempPath, NULL);
     LocalFree(fullTempPath);
 
-    printf("Executing %d test%s:\n", ctx.testCount, ctx.testCount==1?"":"s");
+    printf("Executing %lld test%s:\n", ctx.testCount, ctx.testCount==1?"":"s");
     size_t succeededCount = 0;
     for(unsigned int i = 0; i < ctx.testCount; i++) {
         // TODO: parallelise this
@@ -957,7 +957,7 @@ int runTests(const char* testPath, const char* tempPath) {
         resetColor();
     }
 
-    printf("\t%lld succeeded out of %d\n", succeededCount, ctx.testCount);
+    printf("\t%lld succeeded out of %lld\n", succeededCount, ctx.testCount);
 
     return succeededCount == ctx.testCount ? EXIT_SUCCESS : EXIT_FAILURE;
 }

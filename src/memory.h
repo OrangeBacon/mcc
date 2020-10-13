@@ -42,9 +42,9 @@ void* ArenaReAlloc(void* old_ptr, size_t old_size, size_t new_size);
 // declare a new array in the current scope
 #define ARRAY_DEFINE(type, name) \
     type* name##s; \
-    unsigned int name##Count; \
-    unsigned int name##Capacity; \
-    unsigned int name##ElementSize
+    size_t name##Count; \
+    size_t name##Capacity; \
+    size_t name##ElementSize
 
 // initialise an array with 0 capacity
 #define ARRAY_ZERO(container, name) \
@@ -67,8 +67,8 @@ void* ArenaReAlloc(void* old_ptr, size_t old_size, size_t new_size);
 #define ARRAY_PUSH(container, name, value) \
     do { \
         if(sizeof(value) != (container).name##ElementSize) { \
-            fprintf(stderr, "Push to array with incorrect item size (%zu), array item " \
-                "size is %u at %s:%d\n", sizeof(value), \
+            fprintf(stderr, "Push to array with incorrect item size (%llu), array item " \
+                "size is %llu at %s:%d\n", sizeof(value), \
             (container).name##ElementSize, __FILE__, __LINE__); \
         } \
         if((container).name##Count == (container).name##Capacity) { \
