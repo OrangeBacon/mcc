@@ -97,8 +97,6 @@ int driver(int argc, char** argv) {
 
     if(disableColor) setColorEnabled(false);
 
-    fprintf(stderr, "%d\n", optionalVariadac);
-
     if(topArguments[MODE_TEST].isDone) {
         return runTests(testPath, tempPath);
     }
