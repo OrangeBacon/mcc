@@ -252,6 +252,7 @@ const char* argNextString(struct argParser* parser, bool shouldEmitError) {
 
     if(parser->canGetInternalArg) {
         parser->hasGotArg = true;
+        parser->canGetInternalArg = false;
         return &parser->argv[-1][2];
     }
 
@@ -352,7 +353,7 @@ void argOneString(argParser* parser, void* ctx) {
     const char** str = (const char**)ctx;
 
     const char* arg = argNextString(parser, true);
-    if(str == NULL) return;
+    if(arg == NULL) return;
 
     parser->currentArgument->isDone = true;
     *str = arg;
@@ -389,4 +390,127 @@ void argAlias(argParser* parser, void* ctx) {
     parseArgs(parser);
     parser->argv = argv;
     parser->argc = argc;
+}
+
+static bool parseBool(const char* str, bool* success) {
+    if(strcmp(str, "0") == 0 || stricmp(str, "false") == 0) {
+        if(success) {
+            *success = true;
+        }
+        return false;
+    } else if(strcmp(str, "1") == 0|| stricmp(str, "true") == 0) {
+        if(success) {
+            *success = true;
+        }
+        return true;
+    }
+
+    if(success) {
+        *success = false;
+    }
+
+    return false;
+}
+
+static void setMapElement(struct argParser* parser, struct argMapElement* el,
+const char* key, int keyLen, bool value) {
+    if(el == NULL) {
+        if(parser->currentArgument->shortName != '\0') {
+            argError(parser, "Invalid option: -%c '%.*s' does not exist",
+                parser->currentArgument->shortName, keyLen, key);
+        } else {
+            argError(parser, "Invalid option: --%s '%.*s' does not exist",
+                parser->currentArgument->name, keyLen, key);
+        }
+        return;
+    }
+
+    *el->state = value;
+}
+
+/*
+parse boolean option setting value in table
+examples of what is parsed:
+
+-fopt
+-fno-opt
+-fopt=false
+-f opt false
+-f opt=false
+-fopt=0
+-fopt=1
+*/
+void argBoolMap(struct argParser* parser, void* voidctx) {
+    struct argMapData* ctx = voidctx;
+    if(ctx->map.entryCount == 0) {
+        TABLE_INIT(ctx->map, struct argMapElement*);
+
+        struct argMapElement* current = &ctx->args[0];
+        while(current->elementName != NULL) {
+            if(strchr(current->elementName, '=')) {
+                argInternalError(parser, "argument map name '%s' is invalid - cannot contain '='", current->elementName);
+                return;
+            }
+
+            tableSet(&ctx->map, current->elementName, strlen(current->elementName), current);
+            current++;
+        }
+    }
+
+    const char* key = argNextString(parser, true);
+    if(key == NULL) return;
+    size_t keyLen = strlen(key);
+
+    //const char* value;
+
+    char* equals = strchr(key, '=');
+    if(equals) {
+        // parsing something like -f name=value
+        if((ptrdiff_t)keyLen == equals - key + 1) {
+            argError(parser, "No value after key value in equals");
+            return;
+        }
+        keyLen = equals - key;
+
+        bool success;
+        bool resultBool = parseBool(equals + 1, &success);
+        if(!success) {
+            argError(parser, "Unable to parse '%s' as a bool", equals + 1);
+            return;
+        }
+
+        setMapElement(parser, tableGet(&ctx->map, key, keyLen), key, keyLen, resultBool);
+        return;
+    } else {
+
+        if(parser->argc != 0) {
+            // possible to be -fname value, check if value is valid
+            const char* value = parser->argv[0];
+            bool success;
+            bool resultBool = parseBool(value, &success);
+            if(success) {
+                // value is valid
+                argNextString(parser, false); // consume already checked string
+                setMapElement(parser, tableGet(&ctx->map, key, keyLen), key, keyLen, resultBool);
+                return;
+            }
+
+            // value was not a value bool, so ignore it
+        }
+
+        // parsing option like like -fname
+
+        bool resultBool = true;
+
+        struct argMapElement* el = tableGet(&ctx->map, key, keyLen);
+        if(el == NULL && keyLen > 3 && strncmp(key, "no-", 3) == 0) {
+            // parsing -f no-name
+            key += 3;
+            keyLen -= 3;
+            el = tableGet(&ctx->map, key, keyLen);
+            resultBool = false;
+        }
+
+        setMapElement(parser, el, key, keyLen, resultBool);
+    }
 }

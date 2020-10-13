@@ -21,7 +21,8 @@ static bool printIr = false;
 static int translationPhaseCount = 8;
 static const char* testPath = ".";
 static const char* tempPath = "./testTemp/";
-static bool disableColor;
+static bool disableColor = false;
+static bool optionalVariadac = false;
 
 static void preprocessFlag(struct argParser* parser, void* _) {
     (void)_;
@@ -66,7 +67,13 @@ static struct argArgument topArguments[] = {
     {"-phase-count", 'E', "emit preprocessed output", preprocessFlag},
     {"-include", 'I', "add file to the include path", argPush, &includeFiles},
     {"-alias", 'r', "Add all of this alias", argAlias, &(char*[]) {
-        "-i", "-a", "-E4", "-I.", 0
+        "-i", "-a", "-E4", "-I.", "-fmacro-optional-variadac", 0
+    }},
+    {"-feature", 'f', "Enable or disable a feature", argBoolMap, &(struct argMapData) {
+        .args = (struct argMapElement[]) {
+            {"macro-optional-variadac", &optionalVariadac},
+            {0},
+        }
     }},
     COLOR_ARG,
     {0},
@@ -89,6 +96,8 @@ int driver(int argc, char** argv) {
     if(hadError) return EXIT_FAILURE;
 
     if(disableColor) setColorEnabled(false);
+
+    fprintf(stderr, "%d\n", optionalVariadac);
 
     if(topArguments[MODE_TEST].isDone) {
         return runTests(testPath, tempPath);

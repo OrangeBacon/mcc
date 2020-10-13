@@ -42,6 +42,21 @@ struct stringList {
     ARRAY_DEFINE(const char*, data);
 };
 
+// individual element in a hashmap style option
+struct argMapElement {
+    const char* elementName;
+
+    // pointer to where to store state
+    bool* state;
+};
+
+// data for parsing an argument like -fopt=true
+struct argMapData {
+    // null terminated list
+    struct argMapElement* args;
+    Table map;
+};
+
 bool parseArgs(struct argParser*);
 
 void argSet(struct argParser* parser, void* ctx);
@@ -49,6 +64,7 @@ void argPush(struct argParser* parser, void* ctx);
 void argOneString(struct argParser* parser, void* ctx);
 void argMode(struct argParser* parser, void* ctx);
 void argAlias(struct argParser* parser, void* ctx);
+void argBoolMap(struct argParser* parser, void* ctx);
 
 void argError(struct argParser* parser, const char* message, ...);
 
