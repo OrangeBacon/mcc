@@ -9,13 +9,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: configure
+    - name: Configure
       run: |
         mkdir build
         cd build
         cmake .. -G "MinGW Makefiles" -DCMAKE_SH="CMAKE_SH-NOTFOUND" -DCMAKE_BUILD_TYPE=Debug
-    - name: make
+    - name: Build
       run: |
         cd build
         mingw32-make 2>&1
-        .\mcc test ..\test\
+    - name: Test
+      run: |
+        .\build\mcc test .\test\
+    - uses: actions/upload-artifact@v2
+      if: success()
+      with:
+        name: mcc
+        path: .\build\mcc.exe
