@@ -95,8 +95,6 @@ int driver(int argc, char** argv) {
     bool hadError = parseArgs(&argparser);
     if(hadError) return EXIT_FAILURE;
 
-    fprintf(stderr, "macro = %d\n", optionalVariadac);
-
     if(disableColor) setColorEnabled(false);
 
     if(topArguments[MODE_TEST].isDone) {
