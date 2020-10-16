@@ -64,7 +64,7 @@ static void invokeOption(argParser* parser, argArgument* arg, const char* name, 
         return;
     }
     if(arg->isDone) {
-        argError(parser, "Option %s has already been provided", len, name);
+        argError(parser, "Option %.*s has already been provided", len, name);
         return;
     }
 
