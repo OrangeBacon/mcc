@@ -189,7 +189,10 @@ bool parseArgs(argParser* parser) {
                 return true;
             }
         }
+
         parser->settingCount = settingCount;
+        parser->isNegated = false;
+        parser->isInternalCall = false;
 
         // check for possible new mode
         if(parser->argc > 0) {
@@ -230,11 +233,13 @@ bool parseArgs(argParser* parser) {
         }
     }
 
-    parser->argc = -1;
-    for(unsigned int i = 0; i < parser->settingCount; i++) {
-        argArgument* arg = &parser->settings[i];
-        if(arg->isRequired) {
-            argError(parser, "missing required %sargument: %s", arg->isOption?"":"positional ", arg->name);
+    if(!parser->isInternalCall) {
+        parser->argc = -1;
+        for(unsigned int i = 0; i < parser->settingCount; i++) {
+            argArgument* arg = &parser->settings[i];
+            if(arg->isRequired) {
+                argError(parser, "missing required %sargument: %s", arg->isOption?"":"positional ", arg->name);
+            }
         }
     }
 
@@ -331,12 +336,13 @@ int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
 
 // callback to set boolean switch to true
 void argSet(argParser* parser, void* ctx) {
-    *(bool*)ctx = true;
-    parser->currentArgument->isDone = true;
+    *(bool*)ctx = !parser->isNegated;
 }
 
 // callback to push value
 void argPush(argParser* parser, void* ctx) {
+    if(parser->isNegated) return;
+
     struct stringList* list = ctx;
     if(list->datas == NULL) {
         ARRAY_ALLOC(const char*, *list, data);
@@ -350,12 +356,13 @@ void argPush(argParser* parser, void* ctx) {
 
 // callback to set a single string option
 void argOneString(argParser* parser, void* ctx) {
+    if(parser->isNegated) return;
+
     const char** str = (const char**)ctx;
 
     const char* arg = argNextString(parser, true);
     if(arg == NULL) return;
 
-    parser->currentArgument->isDone = true;
     *str = arg;
 }
 
@@ -369,6 +376,7 @@ void argMode(argParser* parser, void* ctx) {
     new.initialArgc = parser->initialArgc;
 
     bool hadError = parseArgs(&new);
+    parser->currentArgument->isDone = true;
     if(hadError) {
         parser->hasError = true;
     }
@@ -384,12 +392,15 @@ void argAlias(argParser* parser, void* ctx) {
 
     int argc = parser->argc;
     char** argv = parser->argv;
+    bool internal = parser->isInternalCall;
 
     parser->argc = len;
     parser->argv = options;
+    parser->isInternalCall = true;
     parseArgs(parser);
     parser->argv = argv;
     parser->argc = argc;
+    parser->isInternalCall = internal;
 }
 
 static bool parseBool(const char* str, bool* success) {
@@ -398,7 +409,7 @@ static bool parseBool(const char* str, bool* success) {
             *success = true;
         }
         return false;
-    } else if(strcmp(str, "1") == 0|| stricmp(str, "true") == 0) {
+    } else if(strcmp(str, "1") == 0 || stricmp(str, "true") == 0) {
         if(success) {
             *success = true;
         }
@@ -425,7 +436,9 @@ const char* key, int keyLen, bool value) {
         return;
     }
 
-    *el->state = value;
+    if(!value) parser->isNegated = !parser->isNegated;
+    el->callback(parser, el->ctx);
+    if(!value) parser->isNegated = !parser->isNegated;
 }
 
 /*

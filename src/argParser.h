@@ -24,6 +24,8 @@ struct argParser {
     bool canGetInternalArg : 1;
     bool hasGotArg : 1;
     bool setupCompleted : 1;
+    bool isNegated : 1;
+    bool isInternalCall : 1;
 };
 
 struct argArgument {
@@ -46,8 +48,9 @@ struct stringList {
 struct argMapElement {
     const char* elementName;
 
-    // pointer to where to store state
-    bool* state;
+    void (*callback)(struct argParser*, void* ctx);
+
+    void* ctx;
 };
 
 // data for parsing an argument like -fopt=true
