@@ -18,8 +18,7 @@
 #define END_OF_FILE 0xff
 
 // Setup function
-void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const unsigned char* fileName) {
-    ctx->fileName = fileName;
+void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool) {
     ctx->pool = pool;
 
     memoryArrayAlloc(&ctx->stringArr, pool, 4*MiB, sizeof(unsigned char));
@@ -121,7 +120,7 @@ static unsigned char trigraphTranslation[] = {
     ['<'] = '{',
     ['!'] = '|',
     ['>'] = '}',
-    ['-'] = '}',
+    ['-'] = '~',
 };
 
 // implement phase 1

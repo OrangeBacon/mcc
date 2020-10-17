@@ -287,7 +287,7 @@ typedef struct TranslationContext {
     MemoryArray locations;
 } TranslationContext;
 
-void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool, const unsigned char* fileName);
+void TranslationContextInit(TranslationContext* ctx, MemoryPool* pool);
 
 void runPhase1(TranslationContext* ctx);
 void runPhase2(TranslationContext* ctx);

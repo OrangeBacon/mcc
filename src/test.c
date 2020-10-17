@@ -749,35 +749,40 @@ static bool createChildProcess(harContext* ctx) {
     if(commandFile->timeout == -1) timeout = INFINITE;
     if(commandFile->timeout != 0) timeout = commandFile->timeout;
 
+    bool testSucceeded = true;
+
     // default timeout = 10 seconds
     DWORD result = WaitForSingleObject(procInfo.hProcess, timeout);
     if(result == WAIT_TIMEOUT) {
         printTestFail();
-        printf("\t\tTest timedout at %dms\n", timeout);
-        return false;
+        printf("\t\tTest timed out at %dms\n", timeout);
+        testSucceeded = false;
     } else if(result != WAIT_OBJECT_0) {
         printTestFail();
         printf("\t\tProcess completion wait failed\n");
-        return false;
+        testSucceeded = false;
     }
 
     DWORD exitCode;
-    if(!GetExitCodeProcess(procInfo.hProcess, &exitCode)) {
-        return false;
+    if(testSucceeded && !GetExitCodeProcess(procInfo.hProcess, &exitCode)) {
+        testSucceeded = false;
     }
 
-    if(exitCode != (DWORD)commandFile->expectedExitCodeParam) {
+    if(testSucceeded && exitCode != (DWORD)commandFile->expectedExitCodeParam) {
         printTestFail();
         printf("\t\tTest exited with unexpected exit code: %ld, expected: %d\n", exitCode,
             commandFile->expectedExitCodeParam);
-        return false;
+        if(!writeToFs(ctx, childOut, TEXT(stdOutFileName)) || !writeToFs(ctx, childErr, TEXT(stdErrFileName))) {
+            printTestFail();
+            printf("\t\tUnable to write test error result to disk\n");
+        }
+        testSucceeded = false;
     }
 
     CloseHandle(procInfo.hProcess);
     CloseHandle(procInfo.hThread);
 
-    bool testSucceeded = true;
-    if(!testFileEqual(ctx, childOut, outCheckFileName) || !testFileEqual(ctx, childErr, errCheckFileName)) {
+    if(testSucceeded && (!testFileEqual(ctx, childOut, outCheckFileName) || !testFileEqual(ctx, childErr, errCheckFileName))) {
         if(!writeToFs(ctx, childOut, TEXT(stdOutFileName)) || !writeToFs(ctx, childErr, TEXT(stdErrFileName))) {
             printTestFail();
             printf("\t\tUnable to write test error result to disk\n");

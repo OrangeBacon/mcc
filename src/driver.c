@@ -52,39 +52,45 @@ typedef enum topModes {
     MODE_TEST
 } topModes;
 
-#define COLOR_ARG {"-color", 'c', "disable color errors", argSet, &disableColor}
-
-static struct argArgument topArguments[] = {
-    [MODE_TEST] = {"$test", '\0', "run the compiler's test suite", argMode, (struct argArgument[]) {
-        {"!test-path", '\0', "location of the test suite", argOneString, &testPath},
-        {"-temp-path", 't', "location to store temporary files", argOneString, &tempPath},
-        COLOR_ARG,
-        {0},
-    }},
-    {"!input", '\0', "file to process", argPush, &files},
-    {"-print-ast", 'a', "prints the ast to stdout", argSet, &printAst},
-    {"-print-ir", 'i', "prints the ir to stdout", argSet, &printIr},
-    {"-phase-count", 'E', "emit preprocessed output", preprocessFlag},
-    {"-include", 'I', "add file to the include path", argPush, &includeFiles},
-    {"-feature", 'f', "Enable or disable a feature", argBoolMap, &(struct argMapData) {
-        .args = (struct argMapElement[]) {
-            {"macro-optional-variadac", argSet, &optionalVariadac},
-            {"extension", argAlias, &(char*[]) {
-                "-fmacro-optional-variadac", 0
-            }},
-            {0},
-        }
-    }},
-    COLOR_ARG,
-    {0},
-};
-
 void (*counts[])(TranslationContext*) = {
     runPhase1, runPhase2, runPhase3, runPhase4,
 };
 
 int driver(int argc, char** argv) {
     initialiseColor();
+
+    TranslationContext ctx = {
+        .trigraphs = false,
+        .tabSize = 4,
+    };
+
+    struct argArgument color = {"-color", 'c', "disable color errors", argSet, &disableColor};
+
+    struct argArgument topArguments[] = {
+        [MODE_TEST] = {"$test", '\0', "run the compiler's test suite", argMode, (struct argArgument[]) {
+            {"!test-path", '\0', "location of the test suite", argOneString, &testPath},
+            {"-temp-path", 't', "location to store temporary files", argOneString, &tempPath},
+            color,
+            {0},
+        }},
+        {"!input", '\0', "file to process", argPush, &files},
+        {"-print-ast", 'a', "prints the ast to stdout", argSet, &printAst},
+        {"-print-ir", 'i', "prints the ir to stdout", argSet, &printIr},
+        {"-phase-count", 'E', "emit preprocessed output", preprocessFlag},
+        {"-include", 'I', "add file to the include path", argPush, &includeFiles},
+        {"-feature", 'f', "Enable or disable a feature", argBoolMap, &(struct argMapData) {
+            .args = (struct argMapElement[]) {
+                {"trigraphs", argSet, &ctx.trigraphs},
+                {"macro-optional-variadac", argSet, &optionalVariadac},
+                {"extension", argAlias, &(char*[]) {
+                    "-fmacro-optional-variadac", 0
+                }},
+                {0},
+            }
+        }},
+        color,
+        {0},
+    };
 
     struct argParser argparser = {
         argc - 1,
@@ -108,13 +114,10 @@ int driver(int argc, char** argv) {
     IncludeSearchPathInit(&search, SYSTEM_MINGW_W64, includeFiles.datas, includeFiles.dataCount);
 
     if(translationPhaseCount != 8) {
+        ctx.search = search;
+        TranslationContextInit(&ctx, &pool);
         for(unsigned int i = 0; i < files.dataCount; i++) {
-            TranslationContext ctx = {
-                .trigraphs = true,
-                .tabSize = 4,
-                .search = search,
-            };
-            TranslationContextInit(&ctx, &pool, (unsigned char*)files.datas[i]);
+            ctx.fileName = (unsigned char*)files.datas[i];
             counts[translationPhaseCount-1](&ctx);
         }
         return EXIT_SUCCESS;
