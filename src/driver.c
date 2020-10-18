@@ -78,10 +78,11 @@ int driver(int argc, char** argv) {
         {"-print-ir", 'i', "prints the ir to stdout", argSet, &printIr},
         {"-phase-count", 'E', "emit preprocessed output", preprocessFlag},
         {"-include", 'I', "add file to the include path", argPush, &includeFiles},
-        {"-feature", 'f', "Enable or disable a feature", argBoolMap, &(struct argMapData) {
+        {"-feature", 'f', "Enable or disable a feature", argMap, &(struct argMapData) {
             .args = (struct argMapElement[]) {
-                {"trigraphs", argSet, &ctx.trigraphs},
-                {"macro-optional-variadac", argSet, &optionalVariadac},
+                {"trigraphs", argBool, &ctx.trigraphs},
+                {"macro-optional-variadac", argBool, &optionalVariadac},
+                {"tab-size", argInt, &ctx.tabSize},
                 {"extension", argAlias, &(char*[]) {
                     "-fmacro-optional-variadac", 0
                 }},

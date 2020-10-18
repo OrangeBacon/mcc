@@ -11,13 +11,15 @@ struct argParser {
 
     struct argArgument* settings;
     unsigned int settingCount;
-    int initialArgc;
+    int argcErrOffset;
 
     struct argArgument* currentArgument;
 
     Table argumentTable;
     Table shortArgTable;
     Table modes;
+
+    const char* internalArg;
 
     bool hasError : 1;
     bool canGetArg : 1;
@@ -63,11 +65,13 @@ struct argMapData {
 bool parseArgs(struct argParser*);
 
 void argSet(struct argParser* parser, void* ctx);
+void argBool(struct argParser* parser, void* ctx);
+void argInt(struct argParser* parser, void* ctx);
 void argPush(struct argParser* parser, void* ctx);
 void argOneString(struct argParser* parser, void* ctx);
 void argMode(struct argParser* parser, void* ctx);
 void argAlias(struct argParser* parser, void* ctx);
-void argBoolMap(struct argParser* parser, void* ctx);
+void argMap(struct argParser* parser, void* ctx);
 
 void argError(struct argParser* parser, const char* message, ...);
 

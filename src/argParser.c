@@ -36,7 +36,7 @@ void argError(argParser* parser, const char* message, ...) {
     if(parser->argc < 0) {
         fprintf(stderr, "Error at end of parameters: ");
     } else {
-        fprintf(stderr, "Error at parameter %d: ", parser->initialArgc - parser->argc + 1);
+        fprintf(stderr, "Error at parameter %d: ", parser->argcErrOffset - parser->argc + 1);
     }
     vfprintf(stderr, message, args);
     fprintf(stderr, "\n");
@@ -95,6 +95,7 @@ static void parseOption(argParser* parser, const char* current) {
             parser->canGetArg = i == 1;
             parser->canGetInternalArg = len != 2;
             parser->hasGotArg = false;
+            parser->internalArg = &current[2];
 
             argArgument* arg = tableGet(&parser->shortArgTable, &name, 1);
 
@@ -166,8 +167,8 @@ bool parseArgs(argParser* parser) {
     // if setup already done, don't repeat it
     if(!parser->setupCompleted) {
         unsigned int settingCount = 0;
-        if(parser->initialArgc == 0){
-            parser->initialArgc = parser->argc;
+        if(parser->argcErrOffset == 0){
+            parser->argcErrOffset = parser->argc;
         }
 
         TABLE_INIT(parser->argumentTable, argArgument*);
@@ -258,7 +259,7 @@ const char* argNextString(struct argParser* parser, bool shouldEmitError) {
     if(parser->canGetInternalArg) {
         parser->hasGotArg = true;
         parser->canGetInternalArg = false;
-        return &parser->argv[-1][2];
+        return parser->internalArg;
     }
 
     if(parser->argc == 0) {
@@ -276,12 +277,36 @@ const char* argNextString(struct argParser* parser, bool shouldEmitError) {
     return ret;
 }
 
+const char* peekNextString(struct argParser* parser, bool shouldEmitError) {
+    if(!parser->canGetArg) {
+        if(shouldEmitError) {
+            argError(parser, "Cannot read string argument from compressed flags");
+        }
+        return NULL;
+    }
+
+    if(parser->canGetInternalArg) {
+        return parser->internalArg;
+    }
+
+    if(parser->argc == 0) {
+        if(shouldEmitError) {
+            argError(parser, "Missing string argument for %s", parser->currentArgument->name);
+        }
+        return NULL;
+    }
+
+    return parser->argv[0];
+}
+
 int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
     if(!parser->canGetArg) {
         if(shouldEmitError) {
             argError(parser, "Cannot read numeric argument from compressed flags");
         }
-        *didError = true;
+        if(didError) {
+            *didError = true;
+        }
         return 0;
     }
 
@@ -289,7 +314,9 @@ int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
         if(shouldEmitError) {
             argError(parser, "Missing numeric argument for %s", parser->currentArgument->name);
         }
-        *didError = true;
+        if(didError) {
+            *didError = true;
+        }
         return 0;
     }
 
@@ -297,8 +324,10 @@ int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
 
     const char* arg = argNextString(parser, false);
     if(arg == NULL) {
-        argError(parser, "Cannot parse NULL as integer");
-        *didError = true;
+        argError(parser, "Missing numeric argument for %s", parser->currentArgument->name);
+        if(didError) {
+            *didError = true;
+        }
         return 0;
     }
 
@@ -308,18 +337,22 @@ int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
 
     if(num > INT_MAX || (errno == ERANGE && num == INTMAX_MAX)) {
         argError(parser, "Integer value too large");
-        *didError = true;
+        if(didError) {
+            *didError = true;
+        }
         return 0;
     }
     if(num < INT_MIN || (errno == ERANGE && num == INTMAX_MIN)) {
         argError(parser, "Integer value too small");
-        *didError = true;
+        if(didError) {
+            *didError = true;
+        }
         return 0;
     }
 
     if(*end != '\0') {
         if(shouldEmitError) {
-            argError(parser, "Unable to parse value as integer");
+            argError(parser, "Unable to parse '%s' as integer", arg);
         } else {
             parser->hasGotArg = false;
             if(!parser->canGetInternalArg) {
@@ -327,17 +360,80 @@ int argNextInt(struct argParser* parser, bool shouldEmitError, bool* didError) {
                 parser->argv--;
             }
         }
-        *didError = true;
+        if(didError) {
+            *didError = true;
+        }
         return 0;
     }
 
+    if(didError) {
+        *didError = false;
+    }
+
     return num;
+}
+
+// parses a string into an boolean value
+static bool parseBool(const char* str, bool* success) {
+    if(strcmp(str, "0") == 0 || stricmp(str, "false") == 0) {
+        if(success) {
+            *success = true;
+        }
+        return false;
+    } else if(strcmp(str, "1") == 0 || stricmp(str, "true") == 0) {
+        if(success) {
+            *success = true;
+        }
+        return true;
+    }
+
+    if(success) {
+        *success = false;
+    }
+
+    return false;
 }
 
 // callback to set boolean switch to true
 void argSet(argParser* parser, void* ctx) {
     *(bool*)ctx = !parser->isNegated;
 }
+
+// takes the next parameter as a boolean
+void argBool(argParser* parser, void* ctx) {
+    const char* str = peekNextString(parser, false);
+
+    bool value;
+
+    if(!str) {
+        // no more arguments avaliable
+        value = !parser->isNegated;
+    } else {
+
+        bool success;
+        value = parseBool(str, &success);
+
+        if(!success) {
+            // no valid next argument, assume true
+            value = !parser->isNegated;
+        } else if(parser->isNegated) {
+            // consume peeked string
+            argNextString(parser, false);
+
+            // got valid boolean, negate if in negation context
+            value = !value;
+        }
+    }
+    *(bool*)ctx = value;
+}
+
+// takes the next parameter as an integer
+void argInt(argParser* parser, void* ctx) {
+    // -fno-prop => do nothing
+    if(parser->isNegated) return;
+    *(int*)ctx = argNextInt(parser, true, NULL);
+}
+
 
 // callback to push value
 void argPush(argParser* parser, void* ctx) {
@@ -373,7 +469,7 @@ void argMode(argParser* parser, void* ctx) {
         parser->argv,
         ctx
     };
-    new.initialArgc = parser->initialArgc;
+    new.argcErrOffset = parser->argcErrOffset;
 
     bool hadError = parseArgs(&new);
     parser->currentArgument->isDone = true;
@@ -403,28 +499,9 @@ void argAlias(argParser* parser, void* ctx) {
     parser->isInternalCall = internal;
 }
 
-static bool parseBool(const char* str, bool* success) {
-    if(strcmp(str, "0") == 0 || stricmp(str, "false") == 0) {
-        if(success) {
-            *success = true;
-        }
-        return false;
-    } else if(strcmp(str, "1") == 0 || stricmp(str, "true") == 0) {
-        if(success) {
-            *success = true;
-        }
-        return true;
-    }
-
-    if(success) {
-        *success = false;
-    }
-
-    return false;
-}
-
-static void setMapElement(struct argParser* parser, struct argMapElement* el,
-const char* key, int keyLen, bool value) {
+// run an option provided in a argMap, or emit error if NULL passed
+static void invokeMapElement(struct argParser* parser, struct argMapElement* el,
+const char* key, int keyLen) {
     if(el == NULL) {
         if(parser->currentArgument->shortName != '\0') {
             argError(parser, "Invalid option: -%c '%.*s' does not exist",
@@ -436,9 +513,7 @@ const char* key, int keyLen, bool value) {
         return;
     }
 
-    if(!value) parser->isNegated = !parser->isNegated;
     el->callback(parser, el->ctx);
-    if(!value) parser->isNegated = !parser->isNegated;
 }
 
 /*
@@ -453,9 +528,12 @@ examples of what is parsed:
 -fopt=0
 -fopt=1
 */
-void argBoolMap(struct argParser* parser, void* voidctx) {
+void argMap(struct argParser* parser, void* voidctx) {
     struct argMapData* ctx = voidctx;
+
     if(ctx->map.entryCount == 0) {
+        // convert array to hashmap for easier lookup
+
         TABLE_INIT(ctx->map, struct argMapElement*);
 
         struct argMapElement* current = &ctx->args[0];
@@ -474,8 +552,6 @@ void argBoolMap(struct argParser* parser, void* voidctx) {
     if(key == NULL) return;
     size_t keyLen = strlen(key);
 
-    //const char* value;
-
     char* equals = strchr(key, '=');
     if(equals) {
         // parsing something like -f name=value
@@ -485,45 +561,32 @@ void argBoolMap(struct argParser* parser, void* voidctx) {
         }
         keyLen = equals - key;
 
-        bool success;
-        bool resultBool = parseBool(equals + 1, &success);
-        if(!success) {
-            argError(parser, "Unable to parse '%s' as a bool", equals + 1);
-            return;
-        }
+        parser->canGetArg = true;
+        parser->canGetInternalArg = true;
+        parser->internalArg = equals + 1;
 
-        setMapElement(parser, tableGet(&ctx->map, key, keyLen), key, keyLen, resultBool);
+        invokeMapElement(parser, tableGet(&ctx->map, key, keyLen), key, keyLen);
         return;
     } else {
+        // parsing option like like -f prop
 
-        if(parser->argc != 0) {
-            // possible to be -fname value, check if value is valid
-            const char* value = parser->argv[0];
-            bool success;
-            bool resultBool = parseBool(value, &success);
-            if(success) {
-                // value is valid
-                argNextString(parser, false); // consume already checked string
-                setMapElement(parser, tableGet(&ctx->map, key, keyLen), key, keyLen, resultBool);
-                return;
-            }
-
-            // value was not a value bool, so ignore it
-        }
-
-        // parsing option like like -fname
-
-        bool resultBool = true;
-
+        bool isNo = false;
         struct argMapElement* el = tableGet(&ctx->map, key, keyLen);
         if(el == NULL && keyLen > 3 && strncmp(key, "no-", 3) == 0) {
-            // parsing -f no-name
+            // parsing -f no-prop
             key += 3;
             keyLen -= 3;
             el = tableGet(&ctx->map, key, keyLen);
-            resultBool = false;
+            parser->isNegated = !parser->isNegated;
+            isNo = true;
         }
 
-        setMapElement(parser, el, key, keyLen, resultBool);
+        parser->canGetArg = true;
+        parser->canGetInternalArg = false;
+
+        invokeMapElement(parser, el, key, keyLen);
+
+        // revert negation from -f no-prop
+        if(isNo) parser->isNegated = !parser->isNegated;
     }
 }
