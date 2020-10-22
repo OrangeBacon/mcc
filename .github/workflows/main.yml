@@ -21,15 +21,20 @@ jobs:
     - name: Test
       run: |
         .\build\mcc test .\test\
+    - uses: actions/upload-artifact@v2
+      with:
+        name: mcc-debug
+        path: .\build\mcc.exe
     - name: Release Build
       run: |
         cd build
+        Remove-Item .\* -Recurse -Force
         cmake .. -G "MinGW Makefiles" -DCMAKE_SH="CMAKE_SH-NOTFOUND" -DCMAKE_BUILD_TYPE=Release
+        mingw32-make 2>&1
     - name: Release Test
       run: |
         .\build\mcc test .\test\
     - uses: actions/upload-artifact@v2
-      if: success()
       with:
-        name: mcc
+        name: mcc-test
         path: .\build\mcc.exe
