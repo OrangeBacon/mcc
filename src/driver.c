@@ -22,7 +22,6 @@ static int translationPhaseCount = 8;
 static const char* testPath = ".";
 static const char* tempPath = "./testTemp/";
 static bool disableColor = false;
-static bool optionalVariadac = false;
 
 static void preprocessFlag(struct argParser* parser, void* _) {
     (void)_;
@@ -81,7 +80,7 @@ int driver(int argc, char** argv) {
         {"-feature", 'f', "Enable or disable a feature", argMap, &(struct argMapData) {
             .args = (struct argMapElement[]) {
                 {"trigraphs", argBool, &ctx.trigraphs},
-                {"macro-optional-variadac", argBool, &optionalVariadac},
+                {"macro-optional-variadac", argBool, &ctx.optionalVariadacArgs},
                 {"tab-size", argInt, &ctx.tabSize},
                 {"extension", argAlias, &(char*[]) {
                     "-fmacro-optional-variadac", 0

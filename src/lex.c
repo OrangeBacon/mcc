@@ -1208,6 +1208,8 @@ static void parseDefine(Phase4Context* ctx) {
 
         if(i == 0) {
             addr->indent = 0;
+        } else {
+            addr->indent = addr->indent ? 1 : 0;
         }
 
 
@@ -1746,18 +1748,19 @@ static EnterContextResult ParseFunctionMacro(
         return CONTEXT_MACRO_NULL;
     }
 
-    unsigned int minArgs = fn->argumentCount + (fn->variadacArgument >= 0);
+    size_t minArgs = fn->argumentCount +
+        (fn->variadacArgument >= 0 && !ctx->settings->optionalVariadacArgs);
 
-    if(minArgs == 0) {
+    if(minArgs == 0 && fn->variadacArgument == -1) {
         // empty parens e.g. macrocall() counts as one empty argument, or none
         // depending on what is required
         if(args.itemCount != 1 || args.items[0].tokens.itemCount != 0) {
-            fprintf(stderr, "Error: Arguments provided to macro call\n");
+            fprintf(stderr, "Error: Arguments provided to macro call %s\n", tok->data.node->name.data.string.buffer);
             return CONTEXT_MACRO_NULL;
         }
     } else {
         if(args.itemCount < minArgs) {
-            fprintf(stderr, "Error: Not enough arguments provided to macro call\n");
+            fprintf(stderr, "Error: Not enough arguments provided to macro call %s - %lld of %lld\n", tok->data.node->name.data.string.buffer, args.itemCount, minArgs);
             return CONTEXT_MACRO_NULL;
         }
         if(args.itemCount > minArgs && fn->variadacArgument == -1) {
@@ -1804,10 +1807,14 @@ static EnterContextResult ParseFunctionMacro(
                 }
             }
 
-            ArgumentItem* argument = &args.items[tok->data.integer];
+            size_t argumentNumber = tok->data.integer;
             if(isVaArgs) {
-                argument = &args.items[fn->variadacArgument];
+                argumentNumber = fn->variadacArgument;
             }
+            if(argumentNumber >= args.itemCount) {
+                continue;
+            }
+            ArgumentItem* argument = &args.items[argumentNumber];
 
             if(isExpanded) {
                 // no relation to token concatanation operator

@@ -276,6 +276,8 @@ typedef struct TranslationContext {
     // settings
     bool trigraphs;
     size_t tabSize;
+    bool optionalVariadacArgs;
+
     IncludeSearchPath search;
     MemoryPool* pool;
 
