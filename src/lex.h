@@ -147,6 +147,12 @@ typedef struct LexerToken {
     // #define (a) - value macro
     bool whitespaceBefore;
 
+    // is this token the result of using the ## operator
+    // used so # ## # and def ## ined can be detected
+    // as different to ## and defined
+    // also true after the token has been substituted
+    bool isMacroExpanded;
+
     // stores the quantity of whitespace before the token on the same
     // line as the token (note whitespaceBefore can be true, while this
     // is equal to 0, so need both of them)
@@ -273,10 +279,11 @@ typedef struct Phase4Context {
 
 // random data used by each translation phase that needs to be stored
 typedef struct TranslationContext {
-    // settings
-    bool trigraphs;
+    // settings (bools cannot be bitfields as they need to be addressable)
     size_t tabSize;
+    bool trigraphs;
     bool optionalVariadacArgs;
+    bool gccVariadacComma;
 
     IncludeSearchPath search;
     MemoryPool* pool;

@@ -81,9 +81,10 @@ int driver(int argc, char** argv) {
             .args = (struct argMapElement[]) {
                 {"trigraphs", argBool, &ctx.trigraphs},
                 {"macro-optional-variadac", argBool, &ctx.optionalVariadacArgs},
+                {"macro-va-comma", argBool, &ctx.gccVariadacComma},
                 {"tab-size", argInt, &ctx.tabSize},
                 {"extension", argAlias, &(char*[]) {
-                    "-fmacro-optional-variadac", 0
+                    "-fmacro-optional-variadac", "-fmacro-va-comma", 0
                 }},
                 {0},
             }

@@ -363,6 +363,50 @@ static void Phase3NewLine(LexerToken* tok, Phase3Context* ctx, unsigned char c) 
     tok->indent = 0;
 }
 
+static void skipMultiLineComment(LexerToken* tok, Phase3Context* ctx) {
+    Phase3AdvanceOverwrite(ctx);
+    Phase3Advance(ctx);
+    while(!Phase3AtEnd(ctx)) {
+        if(Phase3Peek(ctx) == '*' && Phase3PeekNext(ctx) == '/') {
+            break;
+        }
+        bool advanced = false;
+        if(Phase3Peek(ctx) == '\n') {
+            Phase3NewLine(tok, ctx, '\r');
+            advanced = true;
+        }
+        if(Phase3Peek(ctx) == '\r') {
+            Phase3NewLine(tok, ctx, '\r');
+            advanced = true;
+        }
+        if(!advanced) {
+            Phase3Advance(ctx);
+        }
+    }
+    if(Phase3AtEnd(ctx)) {
+        fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->currentLocation->line, ctx->currentLocation->column);
+        return;
+    }
+    Phase3Advance(ctx);
+    Phase3Advance(ctx);
+    tok->whitespaceBefore = true;
+    tok->indent++;
+}
+
+static void skipSingleLineComment(LexerToken* tok, Phase3Context* ctx) {
+    Phase3AdvanceOverwrite(ctx);
+    unsigned char c = '\0';
+    while((c = Phase3Peek(ctx)), (c != '\n' && c != '\r' && !Phase3AtEnd(ctx))) {
+        Phase3Advance(ctx);
+    }
+    if(c == '\n') {
+        Phase3NewLine(tok, ctx, '\r');
+    } else if(c == '\r') {
+        Phase3NewLine(tok, ctx, '\n');
+    }
+    tok->whitespaceBefore = true;
+}
+
 // skip characters until non-whitespace character encountered
 // also skips all comments, replacing them with whitespace
 // errors on unterminated multi-line comment
@@ -405,46 +449,10 @@ static void skipWhitespace(LexerToken* tok, Phase3Context* ctx) {
                 unsigned char next = Phase3PeekNext(ctx);
                 if(next == '/') {
                     // single line comment (//)
-                    Phase3AdvanceOverwrite(ctx);
-                    unsigned char c = '\0';
-                    while((c = Phase3Peek(ctx)), (c != '\n' && c != '\r' && !Phase3AtEnd(ctx))) {
-                        Phase3Advance(ctx);
-                    }
-                    if(c == '\n') {
-                        Phase3NewLine(tok, ctx, '\r');
-                    } else if(c == '\r') {
-                        Phase3NewLine(tok, ctx, '\n');
-                    }
-                    tok->whitespaceBefore = true;
+                    skipSingleLineComment(tok, ctx);
                 } else if(next == '*') {
                     // multi line comment (/**/)
-                    Phase3AdvanceOverwrite(ctx);
-                    Phase3Advance(ctx);
-                    while(!Phase3AtEnd(ctx)) {
-                        if(Phase3Peek(ctx) == '*' && Phase3PeekNext(ctx) == '/') {
-                            break;
-                        }
-                        bool advanced = false;
-                        if(Phase3Peek(ctx) == '\n') {
-                            Phase3NewLine(tok, ctx, '\r');
-                            advanced = true;
-                        }
-                        if(Phase3Peek(ctx) == '\r') {
-                            Phase3NewLine(tok, ctx, '\r');
-                            advanced = true;
-                        }
-                        if(!advanced) {
-                            Phase3Advance(ctx);
-                        }
-                    }
-                    if(Phase3AtEnd(ctx)) {
-                        fprintf(stderr, "Error: Unterminated multi-line comment at %lld:%lld\n", ctx->currentLocation->line, ctx->currentLocation->column);
-                        return;
-                    }
-                    Phase3Advance(ctx);
-                    Phase3Advance(ctx);
-                    tok->whitespaceBefore = true;
-                    tok->indent++;
+                    skipMultiLineComment(tok, ctx);
                 } else {
                     return;
                 }
@@ -663,6 +671,7 @@ static void Phase3Get(LexerToken* tok, Phase3Context* ctx) {
     skipWhitespace(tok, ctx);
 
     tok->loc = loc;
+    tok->isMacroExpanded = false;
     if(Phase3AtEnd(ctx)) {
         tok->type = TOKEN_EOF_L;
         return;
@@ -1130,6 +1139,12 @@ static bool parseInclude(LexerToken* tok, Phase4Context* ctx, bool isNext) {
     return retVal;
 }
 
+static inline bool tokenIsVaArgs(LexerToken* tok) {
+    return tok->type == TOKEN_IDENTIFIER_L &&
+        tok->data.node->name.data.string.count == 11 &&
+        tok->data.node->hash == stringHash("__VA_ARGS__", 11);
+}
+
 static void parseDefine(Phase4Context* ctx) {
     LexerToken name;
     Phase4Advance(&name, ctx); // consume "define"
@@ -1227,10 +1242,7 @@ static void parseDefine(Phase4Context* ctx) {
             }
         }
 
-        if(addr->type == TOKEN_IDENTIFIER_L &&
-        (node->type == NODE_MACRO_OBJECT || (node->type == NODE_MACRO_FUNCTION && node->as.function.variadacArgument == -1)) &&
-        addr->data.node->name.data.string.count == 11 &&
-        addr->data.node->hash == stringHash("__VA_ARGS__", 11)) {
+        if(tokenIsVaArgs(addr) && (node->type == NODE_MACRO_OBJECT || (node->type == NODE_MACRO_FUNCTION && node->as.function.variadacArgument == -1))) {
             fprintf(stderr, "Error: __VA_ARGS__ is invalid unless in a variadac function macro\n");
         }
 
@@ -1333,17 +1345,14 @@ if first token was null (i.e. expanded to list len = 0), return null
 
 */
 
-#define EXPAND_LINE_FN \
-static EnterContextResult ExpandSingleMacro( \
-    LexerToken* tok, \
-    Phase4Context* ctx, \
-    MacroContext* macro, \
-    Phase4GetterFn advance, \
-    Phase4GetterFn peek, \
-    void* getCtx \
-)
-
-EXPAND_LINE_FN;
+static EnterContextResult ExpandSingleMacro(
+    LexerToken* tok,
+    Phase4Context* ctx,
+    MacroContext* macro,
+    Phase4GetterFn advance,
+    Phase4GetterFn peek,
+    void* getCtx
+);
 
 static void ExpandTokenList(
     Phase4Context* ctx,
@@ -1452,6 +1461,8 @@ static bool JoinTokens(Phase4Context* ctx, LexerToken* result, LexerToken left, 
     // * + placeholder => placeholder
     // * + * => run phase 3, error if second token produced, etc
 
+    result->isMacroExpanded = true;
+
     if(left.type == TOKEN_PLACEHOLDER_L) {
         *result = right;
         return true;
@@ -1477,6 +1488,7 @@ static bool JoinTokens(Phase4Context* ctx, LexerToken* result, LexerToken left, 
 
     LexerToken newTok;
     Phase3Get(&newTok, &joinTranslate);
+    newTok.isMacroExpanded = true;
 
     LexerToken next;
     Phase3Get(&next, &joinTranslate);
@@ -1486,6 +1498,11 @@ static bool JoinTokens(Phase4Context* ctx, LexerToken* result, LexerToken left, 
 
     *result = newTok;
     return true;
+}
+
+static inline bool isHashTok(LexerToken* tok) {
+    return tok->type == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON ||
+        tok->type == TOKEN_PUNC_HASH_HASH;
 }
 
 static bool TokenConcatList(Phase4Context* ctx, TokenList* in, TokenList* out) {
@@ -1509,7 +1526,8 @@ static bool TokenConcatList(Phase4Context* ctx, TokenList* in, TokenList* out) {
 
     while(right.itemCount > 0) {
         LexerToken current = ARRAY_POP_FRONT(right, item);
-        if(current.type == TOKEN_PUNC_HASH_HASH || current.type == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+
+        if(isHashTok(&current) && !current.isMacroExpanded) {
             if(left.itemCount <= 0) {
                 fprintf(stderr, "Error: No token before ## operator\n");
                 return false;
@@ -1547,7 +1565,7 @@ static bool TokenConcatList(Phase4Context* ctx, TokenList* in, TokenList* out) {
 }
 
 // expand an object macro
-static EnterContextResult ParseObjectMacro(
+static EnterContextResult CallObjectMacro(
     MacroContext* macro,
     LexerToken* tok,
     Phase4Context* ctx,
@@ -1562,7 +1580,7 @@ static EnterContextResult ParseObjectMacro(
     TokenList tokens = tok->data.node->as.object;
     bool hasTokenCat = false;
     for(unsigned int i = 0; i < tokens.itemCount; i++) {
-        if(tokens.items[i].type == TOKEN_PUNC_HASH_HASH || tokens.items[i].type == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+        if(isHashTok(&tokens.items[i])) {
             hasTokenCat = true;
         }
     }
@@ -1680,7 +1698,12 @@ static LexerToken* stringifyArgument(Phase4Context* ctx, ArgumentItem* arg) {
     return &arg->string;
 }
 
-static EnterContextResult ParseFunctionMacro(
+// Handles calling a function macro
+// - Parsing of arguments to it
+// - argument count validation
+// - # and ## operator application
+// - macro expansion where necessary
+static EnterContextResult CallFunctionMacro(
     MacroContext* macro,
     LexerToken* tok,
     Phase4Context* ctx,
@@ -1772,16 +1795,39 @@ static EnterContextResult ParseFunctionMacro(
     TokenList substituted;
     ARRAY_ALLOC(LexerToken, substituted, item);
 
-    bool containsTokenConcatanation = false;
-
     // substitute arguments into replacement list
     for(unsigned int i = 0; i < fn->replacementCount; i++) {
         LexerToken* tok = &fn->replacements[i];
 
-        bool isVaArgs = fn->variadacArgument != -1 &&
-            tok->type == TOKEN_IDENTIFIER_L &&
-            tok->data.node->name.data.string.count == 11 &&
-            tok->data.node->hash == stringHash("__VA_ARGS__", 11);
+        // ,##__VA_ARGS__ compiler extension
+        bool couldBeCommaArgs = ctx->settings->gccVariadacComma && tok->type == TOKEN_PUNC_COMMA;
+        bool isHashNext = isHashTok(&fn->replacements[i+1]);
+        bool isValidOperator = !fn->replacements[i+1].isMacroExpanded && isHashNext;
+        if(couldBeCommaArgs && isValidOperator && i + 2 < fn->replacementCount && tokenIsVaArgs(&fn->replacements[i+2])) {
+
+            // if __VA_ARGS__ is not empty
+            if(fn->variadacArgument < (int)args.itemCount) {
+                ArgumentItem* argument = &args.items[fn->variadacArgument];
+                ARRAY_PUSH(substituted, item, *tok);
+
+                LexerToken* hashTok = &fn->replacements[i + 1];
+
+                for(unsigned int j = 0; j < argument->tokens.itemCount; j++) {
+                    ARRAY_PUSH(substituted, item, argument->tokens.items[j]);
+                    if(j == 0) {
+                        LexerToken* t = &substituted.items[substituted.itemCount-1];
+                        t->indent = hashTok->indent;
+                        t->whitespaceBefore = hashTok->whitespaceBefore;
+                        t->renderStartOfLine = hashTok->renderStartOfLine;
+                    }
+                }
+            }
+
+            i += 2; // consume ##__VA_ARGS__
+            continue;
+        }
+
+        bool isVaArgs = fn->variadacArgument != -1 && tokenIsVaArgs(tok);
 
         if(tok->type == TOKEN_MACRO_ARG || isVaArgs) {
 
@@ -1791,19 +1837,17 @@ static EnterContextResult ParseFunctionMacro(
 
             // argument before ##
             if(i + 1 < fn->replacementCount) {
-                LexerTokenType next = fn->replacements[i+1].type;
-                if(next == TOKEN_PUNC_HASH_HASH || next == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+                LexerToken* next = &fn->replacements[i+1];
+                if(isHashTok(next) && !next->isMacroExpanded) {
                     isExpanded = false;
-                    containsTokenConcatanation = true;
                 }
             }
 
             // argument after ##
             if(i > 0) {
-                LexerTokenType prev = fn->replacements[i-1].type;
-                if(prev == TOKEN_PUNC_HASH_HASH || prev == TOKEN_PUNC_PERCENT_COLON_PERCENT_COLON) {
+                LexerToken* prev = &fn->replacements[i-1];
+                if(isHashTok(prev) && !prev->isMacroExpanded) {
                     isExpanded = false;
-                    containsTokenConcatanation = true;
                 }
             }
 
@@ -1822,12 +1866,13 @@ static EnterContextResult ParseFunctionMacro(
                 for(unsigned int j = 0; j < arg->itemCount; j++) {
                     ARRAY_PUSH(substituted, item, arg->items[j]);
 
+                    LexerToken* t = &substituted.items[substituted.itemCount-1];
                     if(j == 0) {
-                        LexerToken* t = &substituted.items[substituted.itemCount-1];
                         t->indent = tok->indent;
                         t->whitespaceBefore = tok->whitespaceBefore;
                         t->renderStartOfLine = tok->renderStartOfLine;
                     }
+                    t->isMacroExpanded = true;
                 }
             } else {
                 TokenList* arg = &argument->tokens;
@@ -1849,6 +1894,8 @@ static EnterContextResult ParseFunctionMacro(
                 }
             }
         } else if(tok->type == TOKEN_PUNC_HASH || tok->type == TOKEN_PUNC_PERCENT_COLON) {
+
+            // handle # stringification operator
             i++;
             LexerToken* argToken = &fn->replacements[i];
             if(argToken->type != TOKEN_MACRO_ARG) {
@@ -1869,14 +1916,10 @@ static EnterContextResult ParseFunctionMacro(
         return CONTEXT_MACRO_NULL;
     }
 
+    // always run concat, so errors can be checked
     TokenList concatenated;
-
-    if(containsTokenConcatanation) {
-        if(!TokenConcatList(ctx, &substituted, &concatenated)) {
-            return CONTEXT_MACRO_NULL;
-        }
-    } else {
-        concatenated = substituted;
+    if(!TokenConcatList(ctx, &substituted, &concatenated)) {
+        return CONTEXT_MACRO_NULL;
     }
 
     // macro expand the substituted list
@@ -1908,7 +1951,14 @@ static EnterContextResult ParseFunctionMacro(
 // macro expands a token
 // returns a buffer containing the expaned tokens
 // assumes the first token has already been consumed from the relavant stream
-EXPAND_LINE_FN {
+static EnterContextResult ExpandSingleMacro(
+    LexerToken* tok,
+    Phase4Context* ctx,
+    MacroContext* macro,
+    Phase4GetterFn advance,
+    Phase4GetterFn peek,
+    void* getCtx
+) {
     if(tok->type != TOKEN_IDENTIFIER_L || tok->data.node->type == NODE_VOID) {
         return CONTEXT_NOT_MACRO;
     }
@@ -1918,9 +1968,9 @@ EXPAND_LINE_FN {
 
     switch(tok->data.node->type) {
         case NODE_MACRO_OBJECT:
-            return ParseObjectMacro(macro, tok, ctx, advance, peek, getCtx);
+            return CallObjectMacro(macro, tok, ctx, advance, peek, getCtx);
         case NODE_MACRO_FUNCTION:
-            return ParseFunctionMacro(macro, tok, ctx, advance, peek, getCtx);
+            return CallFunctionMacro(macro, tok, ctx, advance, peek, getCtx);
         case NODE_MACRO_INTEGER:
             tok->type = TOKEN_INTEGER_L;
             tok->data.integer = tok->data.node->as.integer;
@@ -2077,9 +2127,7 @@ static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
             continue;
         }
 
-        if(tok->type == TOKEN_IDENTIFIER_L &&
-        tok->data.node->name.data.string.count == 11 &&
-        tok->data.node->hash == stringHash("__VA_ARGS__", 11)) {
+        if(tokenIsVaArgs(tok)) {
             fprintf(stderr, "Warning: Unexpected identifier __VA_ARGS__ outisde of variadac function macro\n");
         }
         break;
