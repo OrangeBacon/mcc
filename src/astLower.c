@@ -190,7 +190,7 @@ static IrParameter* variableArithAssign(ASTExpression* exp, IrOpcode op, lowerCt
 
     // the original value of the variable (used when returning value from
     // ++ or --, so will always get set if relavant)
-    IrParameter* initialValue;
+    IrParameter* initialValue = NULL;
 
     // get thee true value to be set
     if(op != IR_INS_MAX) {
@@ -268,7 +268,7 @@ static IrParameter* pointerArithAssign(ASTExpression* exp, IrOpcode op, lowerCtx
 
     // the original value of the variable (used when returning value from
     // ++ or --, so will always get set if relavant)
-    IrParameter* initialValue;
+    IrParameter* initialValue = NULL;
 
     // get thee true value to be set
     if(op != IR_INS_MAX) {

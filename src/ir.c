@@ -584,7 +584,7 @@ void IrInstructionCondition(IrInstruction* inst, IrComparison cmp) {
 void IrInvertCondition(IrInstruction* inst) {
     if(!inst->as.ssa.hasCondition) return;
 
-    IrComparison new;
+    IrComparison new = 0;
     switch(inst->as.ssa.comparison) {
         case IR_COMAPRE_LESS: new = IR_COMPARE_GREATER_EQUAL; break;
         case IR_COMPARE_EQUAL: new = IR_COMPARE_NOT_EQUAL; break;

@@ -21,6 +21,13 @@ jobs:
     - name: Test
       run: |
         .\build\mcc test .\test\
+    - name: Release Build
+      run: |
+        cd build
+        cmake .. -G "MinGW Makefiles" -DCMAKE_SH="CMAKE_SH-NOTFOUND" -DCMAKE_BUILD_TYPE=Release
+    - name: Release Test
+      run: |
+        .\build\mcc test .\test\
     - uses: actions/upload-artifact@v2
       if: success()
       with:

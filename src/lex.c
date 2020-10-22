@@ -205,7 +205,7 @@ static void Phase1Initialise(Phase1Context* ctx, TranslationContext* settings) {
 // helper to run only phase 1
 void runPhase1(TranslationContext* settings) {
     char c;
-    Phase1Context ctx;
+    Phase1Context ctx = {0};
     Phase1Initialise(&ctx, settings);
 
     while((c = Phase1Get(&ctx)) != EOF) {
@@ -288,7 +288,7 @@ static void Phase2Initialise(Phase2Context* ctx, TranslationContext* settings) {
 
 // helper to run upto and including phase 2
 void runPhase2(TranslationContext* settings) {
-    Phase2Context ctx;
+    Phase2Context ctx = {0};
     Phase2Initialise(&ctx, settings);
     unsigned char c;
     while((c = Phase2Get(&ctx)) != END_OF_FILE) {
@@ -976,7 +976,7 @@ static void Phase3Initialise(Phase3Context* ctx, TranslationContext* settings, P
 
 // helper to run upto and including phase 3
 void runPhase3(TranslationContext* settings) {
-    Phase3Context ctx;
+    Phase3Context ctx = {0};
     Phase3Initialise(&ctx, settings, NULL, true);
 
     LexerToken tok;
@@ -2090,7 +2090,7 @@ static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
 
 // helper to run upto and including phase 4
 void runPhase4(TranslationContext* settings) {
-    Phase4Context ctx;
+    Phase4Context ctx = {0};
     Phase4Initialise(&ctx, settings, NULL);
 
     LexerToken tok;
