@@ -1264,6 +1264,38 @@ static void parseUndef(Phase4Context* ctx) {
     name.data.node->type = NODE_VOID;
 }
 
+// parses the #error directive
+// prints the error to stderr
+static void parseError(Phase4Context* ctx) {
+    LexerToken tok;
+    Phase4Advance(&tok, ctx); // consume "error"
+
+    fprintf(stderr, "Error: From #error:\n\t");
+
+    TokenPrintCtxFile printCtx;
+    TokenPrintCtxInitFile(&printCtx, stderr, ctx->settings);
+
+    Phase4Advance(&tok, ctx);
+    if(tok.isStartOfLine) {
+        fprintf(stderr, "No error message\n");
+        return;
+    }
+
+    tok.indent = 0; // remove leading indentation from error message
+
+    while(true) {
+        TokenPrintFile(&printCtx, &tok);
+
+        if(Phase4AtEnd(ctx)) break;
+
+        Phase4Peek(&tok, ctx);
+        if(tok.isStartOfLine) break;
+        Phase4Advance(&tok, ctx);
+    }
+
+    fprintf(stderr, "\n");
+}
+
 static LexerToken* TokenListAdvance(LexerToken* tok, void* ctx) {
     TokenList* list = ctx;
     if(list->itemCount > 0) {
@@ -2113,6 +2145,10 @@ static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
                 continue;
             } else if(len == 5 && hash == stringHash("undef", 5)) {
                 parseUndef(ctx);
+                previous.type = TOKEN_EOF_L;
+                continue;
+            } else if(len == 5 && hash == stringHash("error", 5)) {
+                parseError(ctx);
                 previous.type = TOKEN_EOF_L;
                 continue;
             }
