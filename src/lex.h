@@ -263,11 +263,14 @@ typedef enum Phase4LexMode {
 typedef struct Phase4Context {
     Phase4LexMode mode;
     LexerToken peek;
+    LexerToken peekNext;
     struct Phase4Context* includeContext;
     struct Phase4Context* parent;
     IncludeSearchState searchState;
     unsigned char depth;
     MacroContext macroCtx;
+
+    size_t ifDirectiveDepth;
 
     // stores the previous token emitted at base context (no macro expansion)
     // used for correct __LINE__ and __FILE__ interpretation

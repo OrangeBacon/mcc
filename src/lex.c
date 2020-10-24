@@ -674,6 +674,9 @@ static void Phase3Get(LexerToken* tok, Phase3Context* ctx) {
     tok->isMacroExpanded = false;
     if(Phase3AtEnd(ctx)) {
         tok->type = TOKEN_EOF_L;
+
+        // fixes EOF tokens being parsed as part of a preprocessor directive
+        tok->isStartOfLine = true;
         return;
     }
 
@@ -1021,6 +1024,7 @@ static void Phase4Initialise(Phase4Context* ctx, TranslationContext* settings, P
     ctx->searchState = (IncludeSearchState){0};
     ctx->parent = parent;
     ctx->macroCtx = (MacroContext){0};
+    ctx->ifDirectiveDepth = 0;
     if(parent != NULL) {
         ctx->depth = parent->depth + 1;
     } else {
@@ -1036,6 +1040,7 @@ static void Phase4Initialise(Phase4Context* ctx, TranslationContext* settings, P
 
     Phase3Initialise(&ctx->phase3, settings, NULL, true);
     Phase3Get(&ctx->peek, &ctx->phase3);
+    Phase3Get(&ctx->peekNext, &ctx->phase3);
 }
 
 static bool Phase4AtEnd(Phase4Context* ctx) {
@@ -1045,13 +1050,21 @@ static bool Phase4AtEnd(Phase4Context* ctx) {
 static LexerToken* Phase4Advance(LexerToken* tok, void* ctx) {
     Phase4Context* t = ctx;
     *tok = t->peek;
-    Phase3Get(&t->peek, &t->phase3);
+    t->peek = t->peekNext;
+    Phase3Get(&t->peekNext, &t->phase3);
+
     return tok;
 }
 
 static LexerToken* Phase4Peek(LexerToken* tok, void* ctx) {
     Phase4Context* t = ctx;
     *tok = t->peek;
+    return tok;
+}
+
+static LexerToken* Phase4PeekNext(LexerToken* tok, void* ctx) {
+    Phase4Context* t = ctx;
+    *tok = t->peekNext;
     return tok;
 }
 
@@ -1116,9 +1129,16 @@ static bool includeFile(LexerToken* tok, Phase4Context* ctx, bool isUser, bool i
 }
 
 static bool parseInclude(LexerToken* tok, Phase4Context* ctx, bool isNext) {
+
+    // allows header name parsing around this advance
+    // the setting has to be set two tokens in advance due to
+    // the peek/peekNext, so this sets it for the tokenising call
+    // happening to create the new token assigned to ctx->peekNext
     ctx->phase3.mode = LEX_MODE_MAYBE_HEADER;
-    Phase4Advance(tok, ctx);
+    Phase4Advance(tok, ctx); // consume "#"
     ctx->phase3.mode = LEX_MODE_NO_HEADER;
+
+    Phase4Advance(tok, ctx); // consume include (or include_next)
 
     LexerToken* peek = &ctx->peek;
     bool retVal = false;
@@ -1147,6 +1167,7 @@ static inline bool tokenIsVaArgs(LexerToken* tok) {
 
 static void parseDefine(Phase4Context* ctx) {
     LexerToken name;
+    Phase4Advance(&name, ctx); // consume "#"
     Phase4Advance(&name, ctx); // consume "define"
     Phase4Advance(&name, ctx); // consume name to define
 
@@ -1252,6 +1273,7 @@ static void parseDefine(Phase4Context* ctx) {
 
 static void parseUndef(Phase4Context* ctx) {
     LexerToken name;
+    Phase4Advance(&name, ctx); // consume "#"
     Phase4Advance(&name, ctx); // consume "undef"
     Phase4Advance(&name, ctx); // consume name to undef
 
@@ -1268,6 +1290,7 @@ static void parseUndef(Phase4Context* ctx) {
 // prints the error to stderr
 static void parseError(Phase4Context* ctx) {
     LexerToken tok;
+    Phase4Advance(&tok, ctx); // consume "#"
     Phase4Advance(&tok, ctx); // consume "error"
 
     fprintf(stderr, "Error: From #error:\n\t");
@@ -1294,6 +1317,117 @@ static void parseError(Phase4Context* ctx) {
     }
 
     fprintf(stderr, "\n");
+}
+
+static inline bool hashCompare(size_t len, uint32_t hash, const char* str) {
+    size_t strLen = strlen(str);
+    return len == strLen && hash == stringHash(str, strLen);
+}
+
+
+static void skipIfContentsLoopEnd(LexerToken* tok, Phase4Context* ctx) {
+    Phase4Advance(tok, ctx); // skip first token
+    Phase4SkipLine(tok, ctx); // skip rest of line
+
+    Phase4Peek(tok, ctx);
+}
+// skips the contents of a false if directive
+// ie skips:
+// #if 0
+// skipped
+// #if 1
+// #endif // also skipped
+// #endif
+static void skipIfContents(Phase4Context* ctx) {
+    LexerToken tok;
+    Phase4Peek(&tok, ctx);
+
+    size_t ifDepth = 0;
+
+    for(; !Phase4AtEnd(ctx); skipIfContentsLoopEnd(&tok, ctx)) {
+        if(tok.type == TOKEN_PUNC_HASH || tok.type == TOKEN_PUNC_PERCENT_COLON) {
+            LexerToken name;
+            Phase4PeekNext(&name, ctx);
+
+            if(name.type != TOKEN_IDENTIFIER_L) continue;
+
+            size_t len = name.data.node->name.data.string.count;
+            uint32_t hash = name.data.node->hash;
+
+            if(hashCompare(len, hash, "ifdef") || hashCompare(len, hash, "ifndef")) {
+                ifDepth++;
+                continue;
+            }
+
+            if(hashCompare(len, hash, "endif")) {
+                if(ifDepth == 0) return;
+                ifDepth--;
+                continue;
+            }
+        }
+    }
+}
+
+// parses #if, #ifdef, #ifndef, #elif, #else
+static void parseIf(Phase4Context* ctx) {
+    LexerToken tok;
+    Phase4Advance(&tok, ctx); // consume "#"
+    Phase4Advance(&tok, ctx); // consume directive name
+
+    size_t len = tok.data.node->name.data.string.count;
+    uint32_t hash = tok.data.node->hash;
+    if(ctx->ifDirectiveDepth == 0) {
+        if(hashCompare(len, hash, "else") || hashCompare(len, hash, "elif") || hashCompare(len, hash, "endif")) {
+            fprintf(stderr, "Error: Lone #%s directive\n",
+                tok.data.node->name.data.string.buffer);
+            Phase4SkipLine(&tok, ctx);
+            return;
+        }
+    }
+
+    if(hashCompare(len, hash, "endif")) {
+        Phase4Peek(&tok, ctx);
+        if(!tok.isStartOfLine) {
+            fprintf(stderr, "Error: Unexpected token after #endif\n");
+            Phase4SkipLine(&tok, ctx);
+        }
+        ctx->ifDirectiveDepth--;
+        return;
+    }
+
+    bool isIfdef = hashCompare(len, hash, "ifdef");
+    if(isIfdef || hashCompare(len, hash, "ifndef")) {
+        ctx->ifDirectiveDepth++;
+
+        LexerToken name;
+        Phase4Peek(&name, ctx); // don't consume if not name
+        if(name.isStartOfLine) {
+            fprintf(stderr, "Error: no name provided after #%s\n", isIfdef ? "ifdef" : "ifndef");
+            return;
+        }
+        Phase4Advance(&name, ctx);
+
+        Phase4Peek(&tok, ctx);
+        if(!tok.isStartOfLine) {
+            fprintf(stderr, "Error: Unexpected token after #%s name\n", isIfdef ? "ifdef" : "ifndef");
+            Phase4SkipLine(&tok, ctx);
+            return;
+        }
+
+        if(name.type != TOKEN_IDENTIFIER_L) {
+            fprintf(stderr, "Error: Non-identifier token after #%s\n", isIfdef ? "ifdef" : "ifndef");
+            return;
+        }
+
+        // if isIfdef is false, then parsing #ifndef
+        bool isMacro = name.data.node->type != NODE_VOID;
+        bool conditionTrue = (isIfdef && isMacro) || (!isIfdef && !isMacro);
+
+        if(!conditionTrue) {
+            skipIfContents(ctx);
+            return;
+        }
+    }
 }
 
 static LexerToken* TokenListAdvance(LexerToken* tok, void* ctx) {
@@ -2087,7 +2221,15 @@ static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
     // loop over multiple directives (instead of reccursion)
     LexerToken previous = {.type = TOKEN_EOF_L};
     while(tok->type != TOKEN_EOF_L) {
-        Phase4Advance(tok, ctx);
+        Phase4Peek(tok, ctx);
+
+        if(tok->type == TOKEN_EOF_L) {
+            // reached end of file
+            if(ctx->ifDirectiveDepth != 0) {
+                fprintf(stderr, "Error: Non-terminated conditional directive\n");
+            }
+            break;
+        }
 
         if(previous.type != TOKEN_EOF_L) {
             tok->renderStartOfLine |= previous.renderStartOfLine;
@@ -2097,25 +2239,25 @@ static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
         previous = *tok;
 
         if((tok->type == TOKEN_PUNC_HASH || tok->type == TOKEN_PUNC_PERCENT_COLON) && tok->isStartOfLine) {
-            LexerToken* peek = &ctx->peek;
+            LexerToken* peekNext = &ctx->peekNext;
 
-            if(peek->isStartOfLine) {
+            if(peekNext->isStartOfLine) {
                 // NULL directive
                 previous.type = TOKEN_EOF_L;
                 continue;
             }
 
-            if(peek->type != TOKEN_IDENTIFIER_L) {
+            if(peekNext->type != TOKEN_IDENTIFIER_L) {
                 fprintf(stderr, "Error: Unexpected token at start of directive\n");
                 Phase4SkipLine(tok, ctx);
                 previous.type = TOKEN_EOF_L;
                 continue;
             }
 
-            uint32_t hash = peek->data.node->hash;
-            size_t len = peek->data.node->name.data.string.count;
+            uint32_t hash = peekNext->data.node->hash;
+            size_t len = peekNext->data.node->name.data.string.count;
 
-            if(len == 7 && hash == stringHash("include", 7)) {
+            if(hashCompare(len, hash, "include")) {
                 bool success = parseInclude(tok, ctx, false);
 
                 // not all header files have source code, they could be all
@@ -2129,7 +2271,7 @@ static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
                 tok->type = TOKEN_ERROR_L;
                 previous.type = TOKEN_EOF_L;
                 continue;
-            } else if(len == 12 && hash == stringHash("include_next", 12)) {
+            } else if(hashCompare(hash, len, "include_next")) {
                 // See https://gcc.gnu.org/onlinedocs/cpp/Wrapper-Headers.html
                 bool success = parseInclude(tok, ctx, true);
                 if(success) {
@@ -2139,24 +2281,37 @@ static void Phase4Get(LexerToken* tok, Phase4Context* ctx) {
                 tok->type = TOKEN_ERROR_L;
                 previous.type = TOKEN_EOF_L;
                 continue;
-            } else if(len == 6 && hash == stringHash("define", 6)) {
+            } else if(hashCompare(len, hash, "define")) {
                 parseDefine(ctx);
                 previous.type = TOKEN_EOF_L;
                 continue;
-            } else if(len == 5 && hash == stringHash("undef", 5)) {
+            } else if(hashCompare(len, hash, "undef")) {
                 parseUndef(ctx);
                 previous.type = TOKEN_EOF_L;
                 continue;
-            } else if(len == 5 && hash == stringHash("error", 5)) {
+            } else if(hashCompare(len, hash, "error")) {
                 parseError(ctx);
+                previous.type = TOKEN_EOF_L;
+                continue;
+            } else if(hashCompare(len, hash, "if") || hashCompare(len, hash, "ifdef") || hashCompare(len, hash, "endif") ||
+                hashCompare(len, hash, "ifndef") || hashCompare(len, hash, "elif") || hashCompare(len, hash, "else")) {
+                parseIf(ctx);
                 previous.type = TOKEN_EOF_L;
                 continue;
             }
 
             //fprintf(stderr, "Error: Unknown preprocessing directive\n");
+            //Phase4Advance(tok, ctx);
             //Phase4SkipLine(tok, ctx);
             break;
         }
+
+        LexerToken nullTok;
+        // advance, and discard, the actual token was retrieved by the peek
+        // and might have been updaed with new whitespace, so not discarding
+        // here would overwrite those changes.
+        Phase4Advance(&nullTok, ctx);
+
 
         if(EnterMacroContext(tok, ctx) == CONTEXT_MACRO_NULL) {
             // dont set loop previous token

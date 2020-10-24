@@ -757,6 +757,12 @@ static bool createChildProcess(harContext* ctx) {
         printTestFail();
         printf("\t\tTest timed out at %dms\n", timeout);
         testSucceeded = false;
+
+        // stop the process after the timeout
+        // exit code is set to -1
+        // prevents an infinite loop, etc from continuing to run after the test
+        // runner has exited
+        TerminateProcess(procInfo.hProcess, -1);
     } else if(result != WAIT_OBJECT_0) {
         printTestFail();
         printf("\t\tProcess completion wait failed\n");
