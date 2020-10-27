@@ -1025,6 +1025,7 @@ static void Phase4Initialise(Phase4Context* ctx, TranslationContext* settings, P
     ctx->parent = parent;
     ctx->macroCtx = (MacroContext){0};
     ctx->ifDirectiveDepth = 0;
+    ctx->ifDirectiveAcceptedDepth = 0;
     if(parent != NULL) {
         ctx->depth = parent->depth + 1;
     } else {
@@ -1359,6 +1360,10 @@ static void skipIfContents(Phase4Context* ctx) {
                 continue;
             }
 
+            if(hashCompare(len, hash, "else") && ifDepth == 0) {
+                return;
+            }
+
             if(hashCompare(len, hash, "endif")) {
                 if(ifDepth == 0) return;
                 ifDepth--;
@@ -1383,16 +1388,6 @@ static void parseIf(Phase4Context* ctx) {
             Phase4SkipLine(&tok, ctx);
             return;
         }
-    }
-
-    if(hashCompare(len, hash, "endif")) {
-        Phase4Peek(&tok, ctx);
-        if(!tok.isStartOfLine) {
-            fprintf(stderr, "Error: Unexpected token after #endif\n");
-            Phase4SkipLine(&tok, ctx);
-        }
-        ctx->ifDirectiveDepth--;
-        return;
     }
 
     bool isIfdef = hashCompare(len, hash, "ifdef");
@@ -1425,8 +1420,48 @@ static void parseIf(Phase4Context* ctx) {
 
         if(!conditionTrue) {
             skipIfContents(ctx);
+
+            Phase4Advance(&tok, ctx); // consume "#"
+            Phase4Advance(&tok, ctx); // consume directive name
+
+            len = tok.data.node->name.data.string.count;
+            hash = tok.data.node->hash;
+        } else {
+            ctx->ifDirectiveAcceptedDepth++;
             return;
         }
+    }
+
+    while(true) {
+        if(hashCompare(len, hash, "endif")) {
+            Phase4Peek(&tok, ctx);
+            if(!tok.isStartOfLine) {
+                fprintf(stderr, "Error: Unexpected token after #endif\n");
+                Phase4SkipLine(&tok, ctx);
+            }
+            if(ctx->ifDirectiveAcceptedDepth == ctx->ifDirectiveDepth) {
+                ctx->ifDirectiveAcceptedDepth--;
+            }
+            ctx->ifDirectiveDepth--;
+            return;
+        } else if(ctx->ifDirectiveDepth == ctx->ifDirectiveAcceptedDepth) {
+            skipIfContents(ctx);
+        } else if(hashCompare(len, hash, "else")) {
+            if(ctx->ifDirectiveAcceptedDepth == ctx->ifDirectiveDepth) {
+                skipIfContents(ctx);
+            } else {
+                ctx->ifDirectiveAcceptedDepth++;
+                return;
+            }
+        }
+
+        if(!Phase4AtEnd(ctx)) break;
+
+        Phase4Advance(&tok, ctx); // consume "#"
+        Phase4Advance(&tok, ctx); // consume directive name
+
+        len = tok.data.node->name.data.string.count;
+        hash = tok.data.node->hash;
     }
 }
 

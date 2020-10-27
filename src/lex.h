@@ -271,6 +271,7 @@ typedef struct Phase4Context {
     MacroContext macroCtx;
 
     size_t ifDirectiveDepth;
+    size_t ifDirectiveAcceptedDepth;
 
     // stores the previous token emitted at base context (no macro expansion)
     // used for correct __LINE__ and __FILE__ interpretation
