@@ -27,6 +27,8 @@
         intmax_t: "%lld", \
         double: "%f" \
         ), (value))
+#   define PRINT_ESCAPE(c, value, len) \
+        fprintfEscape((c)->file, (value), (len))
 #else
 #   define PRINT_TYPE LexerString*
 #   define PRINT_TYPE_NAME String
@@ -39,6 +41,8 @@
         intmax_t: LexerStringAddIntMaxT, \
         double: LexerStringAddDouble \
         )((c)->file, (c)->ctx, (value))
+#   define PRINT_ESCAPE(c, value, len) \
+        LexerStringAddEscapedString((c)->file, (c)->ctx, (value), (len))
 #endif
 
 #define JOIN(a,b) JOIN_(a,b)
@@ -412,21 +416,17 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
         case TOKEN_CHARACTER_L:
             StringTypePrint(tok->data.string.type, ctx);
             PRINT(ctx, "\'");
-#if PRINT_NUMERIC_ID == 0
-            PRINT(ctx, tok->data.string.buffer);
-#elif PRINT_NUMERIC_ID == 1
-            LexerStringAddEscapedString(ctx->file, ctx->ctx, tok->data.string.buffer);
-#endif
+            PRINT_ESCAPE(ctx, tok->data.string.buffer, tok->data.string.count);
             PRINT(ctx, "\'"); break;
         case TOKEN_STRING_L:
             StringTypePrint(tok->data.string.type, ctx);
 #if PRINT_NUMERIC_ID == 0
             PRINT(ctx, "\"");
-            PRINT(ctx, tok->data.string.buffer);
+            PRINT_ESCAPE(ctx, tok->data.string.buffer, tok->data.string.count);
             PRINT(ctx, "\"");
 #elif PRINT_NUMERIC_ID == 1
             PRINT(ctx, "\\\"");
-            LexerStringAddEscapedString(ctx->file, ctx->ctx, tok->data.string.buffer);
+            PRINT_ESCAPE(ctx, tok->data.string.buffer, tok->data.string.count);
             PRINT(ctx, "\\\"");
 #endif
             break;
@@ -451,6 +451,7 @@ static void TokenPrint(TokenPrintCtx* ctx, LexerToken* tok) {
 #undef PRINT_TYPE_NAME
 #undef PRINT_NUMERIC_ID
 #undef PRINT
+#undef PRINT_ESCAPE
 #undef JOIN
 #undef JOIN_
 #undef StringTypePrint

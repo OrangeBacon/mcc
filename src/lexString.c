@@ -95,9 +95,19 @@ void LexerStringAddEscapedChar(LexerString* str, struct TranslationContext* ctx,
 }
 
 // add a string to the LexerString, escaping all the characters
-void LexerStringAddEscapedString(LexerString* str, struct TranslationContext* ctx, const char* val) {
-    char c;
-    while((c = *val++)) {
-        LexerStringAddEscapedChar(str, ctx, c);
+void LexerStringAddEscapedString(LexerString* str, struct TranslationContext* ctx, const char* val, size_t len) {
+    for(size_t i = 0; i < len; i++) {
+        LexerStringAddEscapedChar(str, ctx, val[i]);
+    }
+}
+
+void fprintfEscape(FILE* file, const char* val, size_t len) {
+    for(size_t i = 0; i < len; i++) {
+        if (val[i] >= ' ' && val[i] <= '~') {
+            fputc(val[i], file);
+        } else {
+            fputs("\\x", file);
+            fprintf(file, "%02x", val[i]);
+        }
     }
 }

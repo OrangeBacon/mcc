@@ -1,8 +1,10 @@
 #ifndef LEX_STRING_H
 #define LEX_STRING_H
 
+#define __USE_MINGW_ANSI_STDIO 1
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 typedef enum LexerStringType {
     STRING_NONE,
@@ -30,6 +32,8 @@ void LexerStringAddIntMaxT(LexerString* str, struct TranslationContext* ctx, int
 void LexerStringAddDouble(LexerString* str, struct TranslationContext* ctx, double val);
 void LexerStringAddMax2HexDigit(LexerString* str, struct TranslationContext* ctx, char c);
 void LexerStringAddEscapedChar(LexerString* str, struct TranslationContext* ctx, char c);
-void LexerStringAddEscapedString(LexerString* str, struct TranslationContext* ctx, const char* val);
+void LexerStringAddEscapedString(LexerString* str, struct TranslationContext* ctx, const char* val, size_t len);
+
+void fprintfEscape(FILE* file, const char* val, size_t len);
 
 #endif

@@ -489,6 +489,49 @@ static bool isHexDigit(unsigned char c) {
     return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c <= '9');
 }
 
+static bool AddUCSCodePoint(LexerString* str, intmax_t num, TranslationContext* settings) {
+    if(num >= 0xD800 && num <= 0xDFFF) {
+        fprintf(stderr, "Error: surrogate pair specified by universal character name\n");
+        return false;
+    }
+
+    if(num < 0x00A0 && num != '$' && num != '@' && num != '`') {
+        fprintf(stderr, "Error: universal character specified out of allowable range\n");
+        return false;
+    }
+
+    // UTF-8 Encoder - see ISO/IEC 10646:2017 p15
+    if(num < 0x007F) {
+        LexerStringAddChar(str, settings, num);
+    } else if(num < 0x07FF) {
+        unsigned char o1 = 0xC0 | (num >> 6);
+        unsigned char o2 = 0x80 | (num & 0x3F);
+        LexerStringAddChar(str, settings, o1);
+        LexerStringAddChar(str, settings, o2);
+    } else if(num < 0xFFFF) {
+        unsigned char o1 = 0xE0 | (num >> 12);
+        unsigned char o2 = 0x80 | ((num >> 6) & 0x3F);
+        unsigned char o3 = 0x80 | (num & 0x3F);
+        LexerStringAddChar(str, settings, o1);
+        LexerStringAddChar(str, settings, o2);
+        LexerStringAddChar(str, settings, o3);
+    } else if(num < 0x10FFFF) {
+        unsigned char o1 = 0xF0 | (num >> 18);
+        unsigned char o2 = 0x80 | ((num >> 12) & 0x3F);
+        unsigned char o3 = 0x80 | ((num >> 6) & 0x3F);
+        unsigned char o4 = 0x80 | (num & 0x3F);
+        LexerStringAddChar(str, settings, o1);
+        LexerStringAddChar(str, settings, o2);
+        LexerStringAddChar(str, settings, o3);
+        LexerStringAddChar(str, settings, o4);
+    } else {
+        fprintf(stderr, "Error: UCS code point out of range: Maximum = 0x10FFFF\n");
+        return false;
+    }
+
+    return true;
+}
+
 // parse a universal character name
 static void ParseUniversalCharacterName(Phase3Context* ctx, LexerToken* tok) {
     // '\\' already consumed
@@ -515,46 +558,8 @@ static void ParseUniversalCharacterName(Phase3Context* ctx, LexerToken* tok) {
     char* end;
     intmax_t num = strtoimax(buffer, &end, 16);
 
-    if(num >= 0xD800 && num <= 0xDFFF) {
-        fprintf(stderr, "Error: surrogate pair specified by universal character name\n");
+    if(!AddUCSCodePoint(&tok->data.string, num, ctx->settings)) {
         tok->type = TOKEN_ERROR_L;
-        return;
-    }
-
-    if(num < 0x00A0 && num != '$' && num != '@' && num != '`') {
-        fprintf(stderr, "Error: universal character specified out of allowable range\n");
-        tok->type = TOKEN_ERROR_L;
-        return;
-    }
-
-    // UTF-8 Encoder - see ISO/IEC 10646:2017 p15
-    if(num < 0x007F) {
-        LexerStringAddChar(&tok->data.string, ctx->settings, num);
-    } else if(num < 0x07FF) {
-        unsigned char o1 = 0xC0 | (num >> 6);
-        unsigned char o2 = 0x80 | (num & 0x3F);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o1);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o2);
-    } else if(num < 0xFFFF) {
-        unsigned char o1 = 0xE0 | (num >> 12);
-        unsigned char o2 = 0x80 | ((num >> 6) & 0x3F);
-        unsigned char o3 = 0x80 | (num & 0x3F);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o1);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o2);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o3);
-    } else if(num < 0x10FFFF) {
-        unsigned char o1 = 0xF0 | (num >> 18);
-        unsigned char o2 = 0x80 | ((num >> 12) & 0x3F);
-        unsigned char o3 = 0x80 | ((num >> 6) & 0x3F);
-        unsigned char o4 = 0x80 | (num & 0x3F);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o1);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o2);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o3);
-        LexerStringAddChar(&tok->data.string, ctx->settings, o4);
-    } else {
-        fprintf(stderr, "Error: UCS code point out of range: Maximum = 0x10FFFF\n");
-        tok->type = TOKEN_ERROR_L;
-        return;
     }
 }
 
@@ -2372,6 +2377,92 @@ void runPhase4(TranslationContext* settings) {
     TokenPrintCtxInitFile(&printCtx, stdout, settings);
 
     while(Phase4Get(&tok, &ctx), tok.type != TOKEN_EOF_L) {
+        TokenPrintFile(&printCtx, &tok);
+    }
+    fprintf(stdout, "\n");
+}
+
+// ------- //
+// Phase 5 //
+// ------- //
+// string escape sequence processing
+//
+
+static void Phase5Initialise(Phase5Context* ctx, TranslationContext* settings) {
+    ctx->settings = settings;
+    Phase4Initialise(&ctx->phase4, settings, NULL);
+}
+
+static char simpleEscapeTranslations[] = {
+    ['\''] = '\'',
+    ['"'] = '\"',
+    ['?'] = '?',
+    ['\\'] = '\\',
+    ['a'] = '\a',
+    ['b'] = '\b',
+    ['f'] = '\f',
+    ['n'] = '\n',
+    ['r'] = '\r',
+    ['t'] = '\t',
+    ['v'] = '\v',
+};
+
+static void Phase5Get(LexerToken* tok, Phase5Context* ctx) {
+    Phase4Get(tok, &ctx->phase4);
+
+    // only strings are changed
+    if(tok->type != TOKEN_STRING_L) return;
+
+    LexerString* str = &tok->data.string;
+    if(str->type != STRING_NONE && str->type != STRING_U8) {
+        fprintf(stderr, "Error: wide/16bit/32bit strings not currently supported\n");
+        return;
+    }
+
+    bool hasSlash = false;
+    for(size_t i = 0; i < str->count; i++) {
+        if(str->buffer[i] == '\\') {
+            hasSlash = true;
+            break;
+        }
+    }
+
+    // avoid processing escapes unless they exist
+    if(!hasSlash) return;
+
+    LexerString newStr = {0};
+    // escape sequences never end up longer than their source
+    // so using str->count as the buffer size avoids reallocation
+    // when pushing to the new string
+    LexerStringInit(&newStr, ctx->settings, str->count);
+
+    for(size_t i = 0; i < str->count; i++) {
+        if(str->buffer[i] == '\\') {
+            // as this lexed as a string, the backslash wasn't last in the string
+            unsigned char current = str->buffer[i+1];
+            if(simpleEscapeTranslations[current] != '\0') {
+                LexerStringAddChar(&newStr, ctx->settings, simpleEscapeTranslations[current]);
+                i++;
+                continue;
+            }
+        } else {
+            LexerStringAddChar(&newStr, ctx->settings, str->buffer[i]);
+        }
+    }
+
+    tok->data.string = newStr;
+
+}
+
+void runPhase5(TranslationContext* settings) {
+    Phase5Context ctx = {0};
+    Phase5Initialise(&ctx, settings);
+
+    LexerToken tok;
+    TokenPrintCtxFile printCtx;
+    TokenPrintCtxInitFile(&printCtx, stdout, settings);
+
+    while(Phase5Get(&tok, &ctx), tok.type != TOKEN_EOF_L) {
         TokenPrintFile(&printCtx, &tok);
     }
     fprintf(stdout, "\n");

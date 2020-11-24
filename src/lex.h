@@ -281,6 +281,11 @@ typedef struct Phase4Context {
     struct TranslationContext* settings;
 } Phase4Context;
 
+typedef struct Phase5Context {
+    Phase4Context phase4;
+    struct TranslationContext* settings;
+} Phase5Context;
+
 // random data used by each translation phase that needs to be stored
 typedef struct TranslationContext {
     // settings (bools cannot be bitfields as they need to be addressable)
@@ -306,5 +311,6 @@ void runPhase1(TranslationContext* ctx);
 void runPhase2(TranslationContext* ctx);
 void runPhase3(TranslationContext* ctx);
 void runPhase4(TranslationContext* ctx);
+void runPhase5(TranslationContext* ctx);
 
 #endif

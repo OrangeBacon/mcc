@@ -52,7 +52,7 @@ typedef enum topModes {
 } topModes;
 
 void (*counts[])(TranslationContext*) = {
-    runPhase1, runPhase2, runPhase3, runPhase4,
+    runPhase1, runPhase2, runPhase3, runPhase4, runPhase5,
 };
 
 int driver(int argc, char** argv) {
